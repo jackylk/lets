@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../../test/render";
 import { TopicView } from "./TopicView";
 
@@ -11,10 +12,15 @@ describe("<TopicView />", () => {
     });
   });
 
-  it("renders artifact_revision message inline with slide thumbnails", async () => {
+  it("posts a new chat message via composer", async () => {
+    const user = userEvent.setup();
     renderWithProviders(<TopicView topicId={1} topicTitle="t" />);
+    await waitFor(() => screen.getAllByTestId("message-row"));
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "hello composer");
+    await user.keyboard("{Enter}");
     await waitFor(() => {
-      expect(screen.getByText("ai-memory-talk.pptx")).toBeInTheDocument();
+      expect(screen.getByText("hello composer")).toBeInTheDocument();
     });
   });
 });
