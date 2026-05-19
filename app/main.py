@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import json
 import importlib
+import os
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
@@ -174,6 +176,22 @@ class EventCreate(BaseModel):
     project_id: int | None = None
     topic_id: int | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArtifactCreate(BaseModel):
+    slug: str = Field(min_length=1)
+    type: str = Field(min_length=1)
+    backend: str = Field(default="git")
+    title: str = Field(min_length=1)
+    topic_id: int
+    content_b64: str
+    summary: str | None = None
+
+
+class ArtifactUpdate(BaseModel):
+    content_b64: str
+    summary: str | None = None
+    version_label: str
 
 
 def ensure_agent(name: str, agent_type: str) -> int:
@@ -670,3 +688,159 @@ def identity_me(
         }
 
     return result
+
+
+@app.post("/api/artifacts")
+def post_artifact(
+    payload: ArtifactCreate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import create_artifact_row, record_version, get_artifact_by_id
+
+    if payload.backend != "git":
+        raise HTTPException(status_code=400, detail="only 'git' backend supported in v1.5b")
+
+    repo_path = os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise HTTPException(status_code=500, detail="LETS_GIT_REPO not configured")
+
+    adapter = get_adapter("git", repo_path=repo_path)
+    content = base64.b64decode(payload.content_b64)
+    try:
+        result = adapter.create(
+            slug=payload.slug, content=content,
+            metadata={"type": payload.type, "summary": payload.summary or f"create {payload.slug}"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"backend error: {e}")
+
+    art_id = create_artifact_row(
+        slug=payload.slug, type=payload.type, backend=payload.backend,
+        backend_ref=result.backend_ref, title=payload.title, topic_id=payload.topic_id,
+    )
+    v_id = record_version(
+        artifact_id=art_id, version_label="v0",
+        backend_revision_id=result.revision_id, summary=payload.summary,
+    )
+    return {
+        "artifact": get_artifact_by_id(art_id),
+        "version": {"id": v_id, "version_label": "v0",
+                    "backend_revision_id": result.revision_id},
+    }
+
+
+@app.post("/api/artifacts/{artifact_id}/update")
+def update_artifact(
+    artifact_id: int,
+    payload: ArtifactUpdate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import record_version, get_artifact_by_id
+
+    art = get_artifact_by_id(artifact_id)
+    if not art:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if art["backend"] != "git":
+        raise HTTPException(status_code=400, detail="only 'git' backend supported in v1.5b")
+    repo_path = os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise HTTPException(status_code=500, detail="LETS_GIT_REPO not configured")
+
+    adapter = get_adapter("git", repo_path=repo_path)
+    content = base64.b64decode(payload.content_b64)
+    try:
+        result = adapter.update(
+            backend_ref=art["backend_ref"], content=content,
+            metadata={"summary": payload.summary or f"update {art['slug']}"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"backend error: {e}")
+
+    v_id = record_version(
+        artifact_id=artifact_id, version_label=payload.version_label,
+        backend_revision_id=result.revision_id, summary=payload.summary,
+    )
+    return {"version": {"id": v_id, "version_label": payload.version_label,
+                        "backend_revision_id": result.revision_id}}
+
+
+@app.get("/api/artifacts/{artifact_id}/versions")
+def list_artifact_versions(
+    artifact_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> list[dict]:
+    from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
+    if not get_artifact_by_id(artifact_id):
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return list_versions_by_artifact(artifact_id)
+
+
+@app.get("/api/artifacts/{artifact_id}/diff")
+def artifact_diff(
+    artifact_id: int,
+    from_label: str,
+    to_label: str,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
+
+    art = get_artifact_by_id(artifact_id)
+    if not art:
+        raise HTTPException(status_code=404, detail="artifact not found")
+
+    versions = list_versions_by_artifact(artifact_id)
+    by_label = {v["version_label"]: v for v in versions}
+    if from_label not in by_label or to_label not in by_label:
+        raise HTTPException(status_code=404, detail="version label not found")
+
+    repo_path = os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise HTTPException(status_code=500, detail="LETS_GIT_REPO not configured")
+    adapter = get_adapter("git", repo_path=repo_path)
+    diff = adapter.diff(
+        backend_ref=art["backend_ref"],
+        from_revision=by_label[from_label]["backend_revision_id"],
+        to_revision=by_label[to_label]["backend_revision_id"],
+    )
+    return {"from_label": from_label, "to_label": to_label, "diff": diff}
+
+
+@app.get("/api/artifacts/{artifact_id}")
+def read_artifact(
+    artifact_id: int,
+    version_label: str | None = None,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
+
+    art = get_artifact_by_id(artifact_id)
+    if not art:
+        raise HTTPException(status_code=404, detail="artifact not found")
+
+    versions = list_versions_by_artifact(artifact_id)
+    by_label = {v["version_label"]: v for v in versions}
+    current_v = None
+    revision_id = None
+    if version_label:
+        if version_label not in by_label:
+            raise HTTPException(status_code=404, detail="version label not found")
+        current_v = version_label
+        revision_id = by_label[version_label]["backend_revision_id"]
+    else:
+        if versions:
+            current_v = versions[-1]["version_label"]
+
+    repo_path = os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise HTTPException(status_code=500, detail="LETS_GIT_REPO not configured")
+    adapter = get_adapter("git", repo_path=repo_path)
+    content = adapter.read(backend_ref=art["backend_ref"], revision_id=revision_id)
+    return {
+        "artifact": art,
+        "content_b64": base64.b64encode(content).decode("ascii"),
+        "current_version_label": current_v,
+    }

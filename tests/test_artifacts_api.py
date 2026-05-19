@@ -1,0 +1,66 @@
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def git_artifacts_repo(monkeypatch):
+    """Create a tmp git repo and point LETS_GIT_REPO at it."""
+    tmp = tempfile.mkdtemp(prefix="lets-artifacts-")
+    subprocess.run(["git", "init", "--quiet", tmp], check=True)
+    subprocess.run(["git", "-C", tmp, "config", "user.name", "T"], check=True)
+    subprocess.run(["git", "-C", tmp, "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", tmp, "commit", "--allow-empty", "-m", "init", "--quiet"], check=True)
+    monkeypatch.setenv("LETS_GIT_REPO", tmp)
+    yield tmp
+    import shutil
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.fixture
+def auth(client):
+    """Issue an admin token, return Authorization headers dict."""
+    from app.auth import issue_token
+    from app.identity import ensure_human
+    hid = ensure_human("admin")
+    tok, _ = issue_token(human_id=hid, label="api-test")
+    return {"Authorization": f"Bearer {tok}"}
+
+
+def test_post_artifact_creates_row_and_version(client, git_artifacts_repo, auth):
+    from app.db import connect
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('t1','T1')")
+        topic_id = cursor.lastrowid
+
+    r = client.post(
+        "/api/artifacts", headers=auth,
+        json={
+            "slug": "hello", "type": "text", "backend": "git",
+            "title": "Hello doc", "topic_id": topic_id,
+            "content_b64": "aGVsbG8gd29ybGQK",  # "hello world\n"
+            "summary": "first draft",
+        },
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["artifact"]["slug"] == "hello"
+    assert data["version"]["version_label"] == "v0"
+    assert data["version"]["backend_revision_id"]
+
+
+def test_post_artifact_requires_auth(client, git_artifacts_repo):
+    """Without Bearer, should 401."""
+    from app.db import connect
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('t2','T2')")
+        topic_id = cursor.lastrowid
+    r = client.post("/api/artifacts", json={
+        "slug": "x", "type": "text", "backend": "git",
+        "title": "X", "topic_id": topic_id,
+        "content_b64": "eA==", "summary": "x",
+    })
+    assert r.status_code == 401
