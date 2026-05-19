@@ -1011,6 +1011,51 @@ def get_project_spec(
     }
 
 
+class SpecApply(BaseModel):
+    file: str = Field(min_length=1)
+    content: str
+
+
+@app.post("/api/projects/{project_id}/spec/apply")
+def apply_spec_change(
+    project_id: int,
+    payload: SpecApply,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    import os
+    from pathlib import Path
+    from .projects import get_project_by_id
+
+    p = get_project_by_id(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="project not found")
+    if not p.get("repo_path"):
+        raise HTTPException(status_code=404, detail="project has no repo_path")
+    root = Path(p["repo_path"]).resolve()
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="repo_path missing")
+
+    rel = payload.file
+    # Reject absolute paths and any traversal segment
+    if rel.startswith("/") or ".." in Path(rel).parts:
+        raise HTTPException(status_code=400, detail="invalid file path")
+    # Only allow the managed spec set
+    if not (rel == "CLAUDE.md" or rel == ".mcp.json" or rel.startswith(".claude/")):
+        raise HTTPException(status_code=400, detail="file is not in managed spec set")
+
+    target = (root / rel).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="path escapes repo_path")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".lets-tmp")
+    tmp.write_text(payload.content, encoding="utf-8")
+    os.replace(tmp, target)
+    return {"ok": True, "file": rel, "bytes": target.stat().st_size}
+
+
 @app.post("/api/projects/{project_id}/topics")
 def post_topic(
     project_id: int,
