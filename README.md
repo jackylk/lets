@@ -206,3 +206,49 @@ Manage tokens:
 ### Auth-required endpoints
 
 All other `/api/...` routes and the `/mcp/` MCP endpoint require `Authorization: Bearer lets_...`. Without it: `401 missing or invalid token`.
+
+## v1.5 Project Lifecycle (Track C1, local mode)
+
+Projects are the top-level container for collaborative work. In v1.5b's local mode,
+a project is just a slug + name + optional local `repo_path`. GitHub OAuth and
+multi-user invite land in Track C2.
+
+### Schema (added by Track C1)
+
+- `projects` (id, slug, name, description, owner_human_id, repo_path, ...)
+- `topics.project_id` (FK to projects; old topics auto-assigned to a `default` project on migration)
+- `messages.type` CHECK widened to include `project_proposal` (idempotent rebuild migration)
+
+### API
+
+```text
+POST   /api/projects                       # create
+GET    /api/projects                       # list
+GET    /api/projects/{id}                  # read
+PATCH  /api/projects/{id}                  # update name / description / repo_path
+POST   /api/projects/{id}/topics           # create a topic in the project
+GET    /api/projects/{id}/topics           # list topics in the project
+GET    /api/topics/{id}                    # read a topic
+GET    /api/projects/{id}/spec             # read-only spec view (CLAUDE.md / .mcp.json / .claude/**)
+                                           # ?include_content=true to also return base64 content
+```
+
+All require `Authorization: Bearer lets_...`.
+
+### Quick start
+
+```bash
+# Create a project pointing at an existing local repo
+TOKEN=$(.venv/bin/python -m app.tokens_cli issue --human admin --label local 2>/dev/null | head -1)
+curl -X POST http://127.0.0.1:8000/api/projects \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Q3 Review","repo_path":"/Users/me/work/q3-review"}'
+# {"id":2,"slug":"q3-review","name":"Q3 Review",...}
+
+# List spec files
+curl http://127.0.0.1:8000/api/projects/2/spec -H "Authorization: Bearer $TOKEN"
+```
+
+See `docs/agent-spec-collaboration.md` for the `project_proposal` typed message
+convention used by the Web UI / agents when suggesting new projects.
