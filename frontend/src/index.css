@@ -1,1 +1,67 @@
+@import "tailwindcss";
 
+@theme {
+  --color-bg:               oklch(0.985 0.006 75);
+  --color-surface:          oklch(0.965 0.008 75);
+  --color-surface-elev:     oklch(0.995 0.004 75);
+  --color-surface-hover:    oklch(0.955 0.009 75);
+  --color-border:           oklch(0.88  0.010 75);
+  --color-border-soft:      oklch(0.92  0.008 75);
+
+  --color-text:             oklch(0.22 0.010 240);
+  --color-text-muted:       oklch(0.46 0.010 240);
+  --color-text-dim:         oklch(0.62 0.008 240);
+
+  --color-accent:           oklch(0.62 0.16 55);
+  --color-accent-soft:      oklch(0.93 0.07 70);
+  --color-accent-text:      oklch(0.42 0.16 55);
+  --color-accent-border:    oklch(0.78 0.10 70);
+
+  --color-agent-claude:     oklch(0.52 0.14 50);
+  --color-agent-claude-bg:  oklch(0.94 0.05 50);
+  --color-agent-codex:      oklch(0.46 0.10 155);
+  --color-agent-codex-bg:   oklch(0.93 0.04 155);
+  --color-human:            oklch(0.45 0.10 220);
+  --color-human-bg:         oklch(0.93 0.03 220);
+
+  --color-finding:          oklch(0.46 0.10 155);
+  --color-finding-bg:       oklch(0.93 0.04 155);
+  --color-decision:         oklch(0.45 0.16 290);
+  --color-decision-bg:      oklch(0.93 0.06 290);
+  --color-handoff:          oklch(0.45 0.13 215);
+  --color-handoff-bg:       oklch(0.93 0.05 215);
+  --color-review:           oklch(0.45 0.12 285);
+  --color-review-bg:        oklch(0.93 0.05 285);
+  --color-artifact:         oklch(0.40 0.12 255);
+  --color-artifact-bg:      oklch(0.93 0.04 255);
+  --color-spec:             oklch(0.42 0.06 190);
+  --color-spec-bg:          oklch(0.93 0.03 190);
+  --color-proactive:        oklch(0.55 0.16 30);
+  --color-proactive-bg:     oklch(0.95 0.06 30);
+  --color-tree:             oklch(0.42 0.10 170);
+  --color-tree-bg:          oklch(0.94 0.04 170);
+  --color-nudge:            oklch(0.50 0.020 80);
+  --color-nudge-bg:         oklch(0.95 0.012 80);
+
+  --color-status-on:        oklch(0.62 0.14 145);
+  --color-status-work:      oklch(0.65 0.16 55);
+  --color-status-idle:      oklch(0.65 0.008 240);
+
+  --font-display: "Bricolage Grotesque", system-ui, sans-serif;
+  --font-body:    "Geist Variable", "Geist", system-ui, sans-serif;
+  --font-mono:    "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
