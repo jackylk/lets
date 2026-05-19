@@ -12,3 +12,5 @@ v[0-9]*.png
 *.swp
 .idea/
 .vscode/
+frontend/node_modules
+frontend/dist
