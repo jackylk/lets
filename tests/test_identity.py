@@ -122,3 +122,47 @@ def test_ensure_agent_instance_unknown_role_raises(temp_db):
     import pytest
     with pytest.raises(ValueError, match="unknown agent role"):
         ensure_agent_instance(role="nonexistent", human_id=hid, device_label="x")
+
+
+def test_identity_me_creates_human_on_first_call(client):
+    response = client.get(
+        "/api/identity/me",
+        headers={
+            "X-Lets-Human": "Neo",
+            "X-Lets-Human-Email": "neo@example.com",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["human"]["name"] == "Neo"
+    assert isinstance(data["human"]["id"], int)
+
+
+def test_identity_me_idempotent(client):
+    response1 = client.get("/api/identity/me", headers={"X-Lets-Human": "Trinity"})
+    response2 = client.get("/api/identity/me", headers={"X-Lets-Human": "Trinity"})
+
+    assert response1.json()["human"]["id"] == response2.json()["human"]["id"]
+
+
+def test_identity_me_includes_agent_instance_when_headers_given(client):
+    response = client.get(
+        "/api/identity/me",
+        headers={
+            "X-Lets-Human": "Neo",
+            "X-Lets-Agent-Role": "claude",
+            "X-Lets-Device": "neo-mbp",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["agent_instance"]["device_label"] == "neo-mbp"
+    assert data["agent_instance"]["role"] == "claude"
+
+
+def test_identity_me_missing_human_returns_400(client):
+    response = client.get("/api/identity/me")
+
+    assert response.status_code == 400
