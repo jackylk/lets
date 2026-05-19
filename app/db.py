@@ -85,6 +85,24 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_agent_instances_human ON agent_instances(human_id);
             CREATE INDEX IF NOT EXISTS idx_agent_instances_role ON agent_instances(role_id);
 
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
+                actor_id INTEGER,
+                target_type TEXT NOT NULL,
+                target_id INTEGER,
+                project_id INTEGER,
+                topic_id INTEGER,
+                payload TEXT NOT NULL DEFAULT '{}',
+                occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_events_target ON events(target_type, target_id);
+            CREATE INDEX IF NOT EXISTS idx_events_occurred_at ON events(occurred_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+            CREATE INDEX IF NOT EXISTS idx_events_topic ON events(topic_id, occurred_at DESC);
+
             CREATE TABLE IF NOT EXISTS status_updates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id INTEGER NOT NULL,
