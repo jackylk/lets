@@ -181,7 +181,7 @@ def init_db() -> None:
                     'chat', 'status', 'finding', 'decision', 'question',
                     'handoff', 'review', 'artifact_revision', 'spec_change',
                     'nudge', 'proactive_finding', 'task_tree_proposal',
-                    'project_proposal', 'system'
+                    'project_proposal', 'goal_proposal', 'system'
                 )),
                 actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
                 actor_id INTEGER,
@@ -235,13 +235,15 @@ def init_db() -> None:
         if "feedback_type" not in existing_cols:
             conn.execute("ALTER TABLE human_notes ADD COLUMN feedback_type TEXT")
 
-        # Widen messages.type CHECK to include 'project_proposal' (Track C1).
-        # SQLite cannot ALTER a CHECK; rebuild the table when the constraint
-        # in sqlite_master doesn't yet list the new value.
+        # Widen messages.type CHECK to include 'project_proposal' (Track C1)
+        # and 'goal_proposal' (Track C1.5). SQLite cannot ALTER a CHECK; rebuild
+        # the table when the constraint in sqlite_master doesn't yet list a
+        # required new value.
         msg_sql = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
         ).fetchone()
-        if msg_sql and "project_proposal" not in (msg_sql["sql"] or ""):
+        sql_text = (msg_sql["sql"] or "") if msg_sql else ""
+        if msg_sql and ("project_proposal" not in sql_text or "goal_proposal" not in sql_text):
             pre_cols = {
                 r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()
             }
@@ -255,7 +257,7 @@ def init_db() -> None:
                         'chat', 'status', 'finding', 'decision', 'question',
                         'handoff', 'review', 'artifact_revision', 'spec_change',
                         'nudge', 'proactive_finding', 'task_tree_proposal',
-                        'project_proposal', 'system'
+                        'project_proposal', 'goal_proposal', 'system'
                     )),
                     actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
                     actor_id INTEGER,

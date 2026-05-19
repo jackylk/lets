@@ -20,6 +20,7 @@ ALLOWED_TYPES = {
     "proactive_finding",
     "task_tree_proposal",
     "project_proposal",
+    "goal_proposal",
     "system",
 }
 
@@ -37,6 +38,7 @@ MessageType = Literal[
     "proactive_finding",
     "task_tree_proposal",
     "project_proposal",
+    "goal_proposal",
     "system",
 ]
 
