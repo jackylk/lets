@@ -200,6 +200,19 @@ class GoalAdoptInput(BaseModel):
     spec_text: str | None = None
 
 
+class TaskItemCreate(BaseModel):
+    task_tree_id: int
+    title: str
+    parent_item_id: int | None = None
+    owner_human_id: int | None = None
+    owner_agent_instance_id: int | None = None
+
+
+class TaskItemPatch(BaseModel):
+    status: str | None = None
+    title: str | None = None
+
+
 class ArtifactCreate(BaseModel):
     slug: str = Field(min_length=1)
     type: str = Field(min_length=1)
@@ -797,6 +810,36 @@ def adopt_goal(
         approved_by_human_id=principal["human_id"],
     )
     return {"tree": tree, "items": list_items(tree["id"])}
+
+
+@app.post("/api/task-items", status_code=201)
+def post_task_item(
+    payload: TaskItemCreate,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .task_trees import add_item
+    return add_item(
+        tree_id=payload.task_tree_id,
+        title=payload.title,
+        parent_item_id=payload.parent_item_id,
+        owner_human_id=payload.owner_human_id,
+        owner_agent_instance_id=payload.owner_agent_instance_id,
+    )
+
+
+@app.patch("/api/task-items/{item_id}")
+def patch_task_item(
+    item_id: int,
+    payload: TaskItemPatch,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .task_trees import update_item
+    try:
+        return update_item(item_id, status=payload.status, title=payload.title)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="task_item not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/api/events")

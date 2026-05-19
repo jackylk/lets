@@ -165,3 +165,79 @@ def test_adopt_goal_from_proposal(client):
     body = res.json()
     assert body["tree"]["goal_spec_text"] == "30 分钟 talk · 技术受众"
     assert body["items"] == []  # goal adoption alone does not create items
+
+
+def test_add_task_item(client):
+    from app.auth import issue_session
+    from app.db import connect
+    from app.identity import ensure_human
+    from app.task_trees import upsert_tree
+
+    hid = ensure_human("AddHuman")
+    sess = issue_session(hid)
+    with connect() as conn:
+        cur = conn.execute("INSERT INTO topics (slug, title) VALUES ('add-item', 'x')")
+        tid = cur.lastrowid
+    tree = upsert_tree(
+        topic_id=tid, goal_artifact_id=None, goal_spec_text=None,
+        proposal_message_id=None, approved_by_human_id=hid,
+    )
+    res = client.post(
+        "/api/task-items",
+        cookies={"lets_session": sess},
+        json={"task_tree_id": tree["id"], "title": "new item"},
+    )
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert body["title"] == "new item"
+    assert body["status"] == "pending"
+    assert body["position"] == 0
+
+
+def test_patch_task_item_status(client):
+    from app.auth import issue_session
+    from app.db import connect
+    from app.identity import ensure_human
+    from app.task_trees import upsert_tree, add_item
+
+    hid = ensure_human("PatchHuman")
+    sess = issue_session(hid)
+    with connect() as conn:
+        cur = conn.execute("INSERT INTO topics (slug, title) VALUES ('patch-item', 'x')")
+        tid = cur.lastrowid
+    tree = upsert_tree(
+        topic_id=tid, goal_artifact_id=None, goal_spec_text=None,
+        proposal_message_id=None, approved_by_human_id=hid,
+    )
+    item = add_item(tree["id"], "todo")
+    res = client.patch(
+        f"/api/task-items/{item['id']}",
+        cookies={"lets_session": sess},
+        json={"status": "done"},
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "done"
+
+
+def test_patch_task_item_invalid_status(client):
+    from app.auth import issue_session
+    from app.db import connect
+    from app.identity import ensure_human
+    from app.task_trees import upsert_tree, add_item
+
+    hid = ensure_human("BadPatchHuman")
+    sess = issue_session(hid)
+    with connect() as conn:
+        cur = conn.execute("INSERT INTO topics (slug, title) VALUES ('badpatch', 'x')")
+        tid = cur.lastrowid
+    tree = upsert_tree(
+        topic_id=tid, goal_artifact_id=None, goal_spec_text=None,
+        proposal_message_id=None, approved_by_human_id=hid,
+    )
+    item = add_item(tree["id"], "todo")
+    res = client.patch(
+        f"/api/task-items/{item['id']}",
+        cookies={"lets_session": sess},
+        json={"status": "in-progress"},
+    )
+    assert res.status_code == 400
