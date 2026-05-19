@@ -135,3 +135,28 @@ def test_diff_between_versions(client, git_artifacts_repo, auth):
     diff = r.json()["diff"]
     assert "-beta" in diff
     assert "+GAMMA" in diff
+
+
+def test_read_artifact_current(client, git_artifacts_repo, auth):
+    import base64
+    from app.db import connect
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('tr','TR')")
+        topic_id = cursor.lastrowid
+
+    c = client.post("/api/artifacts", headers=auth, json={
+        "slug": "rr", "type": "text", "backend": "git", "title": "RR",
+        "topic_id": topic_id, "content_b64": "YWJj",
+        "summary": "init",
+    }).json()
+    aid = c["artifact"]["id"]
+    client.post(f"/api/artifacts/{aid}/update", headers=auth, json={
+        "content_b64": "ZGVm", "summary": "edit", "version_label": "v1",
+    })
+
+    r = client.get(f"/api/artifacts/{aid}", headers=auth)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["artifact"]["slug"] == "rr"
+    assert base64.b64decode(data["content_b64"]) == b"def"
+    assert data["current_version_label"] == "v1"
