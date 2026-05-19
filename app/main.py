@@ -1,16 +1,75 @@
 from __future__ import annotations
 
 import json
+import importlib
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from .auth import get_current_principal
+from . import mcp_server as mcp_server_module
+from .auth import get_current_principal, verify_token
 from .db import connect, init_db
 
-app = FastAPI(title="Lets")
+mcp_server_module = importlib.reload(mcp_server_module)
+
+_mcp_http = mcp_server_module.get_http_app()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    async with mcp_server_module.mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="Lets", lifespan=lifespan)
+
+
+class BearerAuthMiddleware:
+    """Strict ASGI middleware: rejects non-Bearer or invalid-token requests."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.decode().lower(): value.decode()
+            for key, value in scope.get("headers", [])
+        }
+        authorization = headers.get("authorization", "")
+        parts = authorization.split(" ", 1)
+        if (
+            len(parts) != 2
+            or parts[0].lower() != "bearer"
+            or verify_token(parts[1].strip()) is None
+        ):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b'{"detail":"missing or invalid token"}',
+                }
+            )
+            return
+
+        await self.app(scope, receive, send)
+
+
+app.mount("/mcp", BearerAuthMiddleware(_mcp_http))
 
 
 class WorkItemCreate(BaseModel):
@@ -115,11 +174,6 @@ class EventCreate(BaseModel):
     project_id: int | None = None
     topic_id: int | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
-
-
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
 
 
 def ensure_agent(name: str, agent_type: str) -> int:
