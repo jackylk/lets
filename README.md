@@ -252,3 +252,39 @@ curl http://127.0.0.1:8000/api/projects/2/spec -H "Authorization: Bearer $TOKEN"
 
 See `docs/agent-spec-collaboration.md` for the `project_proposal` typed message
 convention used by the Web UI / agents when suggesting new projects.
+
+## v1.5 Web-UI Backend Glue (Track C1.5)
+
+New endpoints / capability added to support the Track F React frontend without
+forcing it to fall back to polling or in-memory state. All require Bearer auth.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET  /api/topics/{id}/messages?after_id=N` | Incremental fetch (poll fallback for SSE reconnect) |
+| `GET  /api/topics/{id}/stream` | SSE live updates (single-process in-memory broadcaster) |
+| `GET  /api/attention?human_id=N` | Cross-topic queue: `needs_decision` / `mentioned_questions` / `suggestions` |
+| `GET  /api/artifacts?topic_id=N` | List artifacts in a topic |
+| `GET  /api/topics/{id}/participants` | Humans + agents who've posted in a topic |
+| `GET  /api/projects/{id}/git-status` | HEAD commit + dirty file list (read-only `git log -1` + `git status --short`) |
+| `POST /api/projects/{id}/spec/apply` | Atomic write-back for `CLAUDE.md` / `.mcp.json` / `.claude/**` |
+| `GET  /api/agents/online` | Agent instances whose Bearer token was used in the last 5 min |
+| `/app` (static mount) | Serves built frontend when `LETS_FRONTEND_DIST=/abs/path/to/frontend/dist` is set |
+
+New typed messages added by Track C1.5:
+- `goal_proposal` — used by the Goal Card flow above the topic stream
+
+### SSE limitations (v1.5b)
+
+The SSE broadcaster keeps its subscriber list in **process memory**. Single Railway
+replica works; horizontally scaling means a publish on replica A doesn't reach a
+subscriber on replica B. The multi-replica path (Postgres `LISTEN/NOTIFY` or
+Redis pub/sub) is documented as Track I in `docs/superpowers/plans/RAILWAY.md`.
+
+### Quick dev: open the built SPA against this backend
+
+```bash
+cd frontend && pnpm install && pnpm build
+cd ..
+LETS_FRONTEND_DIST=$(pwd)/frontend/dist .venv/bin/uvicorn app.main:app --reload
+# Open http://127.0.0.1:8000/app/
+```

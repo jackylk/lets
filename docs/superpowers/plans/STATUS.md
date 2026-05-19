@@ -1,21 +1,30 @@
 # Lets v1.5 Delivery Status
 
-> **Snapshot at 2026-05-19** —— v1.5a + v1.5b 主体已交付，**102/102 tests passing**。Track C / E / v1.5c 待启动。
+> **Snapshot at 2026-05-19 (refresh after Track C1 + C1.5)** —— v1.5a + v1.5b + 本地 dogfood backend 主体已交付，**174 / 174 tests passing**。Track F (frontend) 进行中（另一个 CC 在跑 Phase 0+1），Railway 三轨 (G/H/I) 待启动。
 >
-> Branch with all work: `track-d-artifacts` (39 commits, including original Track D + Track B work that Codex committed onto the same branch). See "Branch hygiene" section below for cleanup options.
+> 所有工作都直接 land 在 `main`（C1 之后我们改了协作约定：两个 CC + Codex 都在 main，每个 commit 后 `git update-ref refs/heads/main HEAD` 跟住 tip）。
 
 ---
 
-## 1. v1.5a + 1.5b 全景
+## 1. v1.5a + 1.5b + 本地 dogfood 全景
 
 | Track | Plan | Tasks | Status |
 |-------|------|:-----:|:------:|
 | **A. Schema Substrate** | `2026-05-19-track-a-schema-substrate.md` | 15 / 15 | ✅ |
 | **B. Network Transport** | `2026-05-19-track-b-network-transport.md` | 12 / 12 | ✅ |
 | **D. Artifact Substrate** | `2026-05-19-track-d-artifact-substrate.md` | 13 / 13 | ✅ |
-| **总计** | | **40 / 40** | ✅ |
+| **C1. Local Project Lifecycle** | `2026-05-19-track-c1-local-projects.md` | 10 / 10 | ✅ |
+| **C1.5. Web-UI Backend Glue** | `2026-05-19-track-c1.5-webui-backend-glue.md` | 7 / 7 (+ T8 文档) | ✅ |
+| **F. Web Frontend** | `2026-05-19-track-f-web-frontend.md` | Phase 0+1 进行中（另一个 CC） | ⏳ |
+| **G/H/I. Railway** | `RAILWAY.md` | 未启动 | 📦 backlog |
+| **总计 (已交付)** | | **57 / 57** | ✅ |
 
-测试: 102 passed, 0 failed. 完整跑通的端到端 demo：见 §5 "Verified end-to-end" 。
+测试: 174 passed, 0 failed. C1 端到端 demo: `tests/test_e2e_project_lifecycle.py`. Track A 原 PPT 场景仍跑: `tests/test_e2e_ppt_scenario.py`.
+
+### Track C1 / C1.5 增量速览
+
+- **C1**: projects 表 + topics.project_id FK + 8 个 endpoint (POST/GET/PATCH /api/projects, POST/GET /api/projects/{id}/topics, GET /api/topics/{id}, GET /api/projects/{id}/spec)。同时补了 Track A plan 误以为已有但实际没有的 `project_proposal` typed message (idempotent CHECK rebuild)。
+- **C1.5**: SSE broadcaster (`/api/topics/{id}/stream`) + `?after_id=` 增量 + 跨 topic 聚合 (`/api/attention`) + context pane 三个端点 (artifacts-by-topic / participants / git-status) + `goal_proposal` typed message + spec write-back (`/api/projects/{id}/spec/apply`) + agents-online (`/api/agents/online` 基于 token.last_used_at) + SPA 静态挂载 (`/app` via `LETS_FRONTEND_DIST`)。新增 `messages.addressed_to` 列 + `addressed_to`-aware CHECK rebuild。
 
 ---
 
