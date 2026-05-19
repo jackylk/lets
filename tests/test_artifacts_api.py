@@ -64,3 +64,25 @@ def test_post_artifact_requires_auth(client, git_artifacts_repo):
         "content_b64": "eA==", "summary": "x",
     })
     assert r.status_code == 401
+
+
+def test_update_artifact_creates_new_version(client, git_artifacts_repo, auth):
+    from app.db import connect
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('tu','TU')")
+        topic_id = cursor.lastrowid
+
+    create = client.post("/api/artifacts", headers=auth, json={
+        "slug": "u", "type": "text", "backend": "git", "title": "U",
+        "topic_id": topic_id, "content_b64": "djA=", "summary": "init",
+    }).json()
+    aid = create["artifact"]["id"]
+
+    upd = client.post(f"/api/artifacts/{aid}/update", headers=auth, json={
+        "content_b64": "djE=", "summary": "second pass",
+        "version_label": "v1",
+    })
+    assert upd.status_code == 200
+    data = upd.json()
+    assert data["version"]["version_label"] == "v1"
+    assert data["version"]["backend_revision_id"] != create["version"]["backend_revision_id"]
