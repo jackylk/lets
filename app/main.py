@@ -207,6 +207,11 @@ class ProjectPatch(BaseModel):
     repo_path: str | None = None
 
 
+class TopicCreate(BaseModel):
+    slug: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+
+
 def ensure_agent(name: str, agent_type: str) -> int:
     with connect() as conn:
         row = conn.execute("SELECT id FROM agents WHERE name = ?", (name,)).fetchone()
@@ -914,3 +919,44 @@ def patch_project(
         repo_path=payload.repo_path,
     )
     return get_project_by_id(project_id)
+
+
+@app.post("/api/projects/{project_id}/topics")
+def post_topic(
+    project_id: int,
+    payload: TopicCreate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .projects import get_project_by_id
+    from .topics import create_topic, get_topic_by_id
+    if not get_project_by_id(project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        tid = create_topic(slug=payload.slug, title=payload.title, project_id=project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return get_topic_by_id(tid)
+
+
+@app.get("/api/projects/{project_id}/topics")
+def get_topics_in_project(
+    project_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> list[dict]:
+    from .projects import get_project_by_id
+    from .topics import list_topics_by_project
+    if not get_project_by_id(project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    return list_topics_by_project(project_id)
+
+
+@app.get("/api/topics/{topic_id}")
+def get_topic(
+    topic_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .topics import get_topic_by_id
+    t = get_topic_by_id(topic_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return t
