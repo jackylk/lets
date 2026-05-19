@@ -1,13 +1,11 @@
 {
   "mcpServers": {
     "lets": {
-      "type": "stdio",
-      "command": "/Users/jacky/code/Lets/.venv/bin/python",
-      "args": [
-        "-m",
-        "app.mcp_server"
-      ],
-      "env": {}
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp/",
+      "headers": {
+        "Authorization": "Bearer lets_REPLACE_WITH_LOCAL_TOKEN"
+      }
     }
   }
 }

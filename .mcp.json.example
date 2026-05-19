@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "lets": {
+      "type": "http",
+      "url": "https://lets.example.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer lets_REPLACE_WITH_YOUR_TOKEN"
+      }
+    }
+  }
+}

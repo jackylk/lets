@@ -14,6 +14,13 @@ uvicorn app.main:app --reload
 
 Then open `http://127.0.0.1:8000`.
 
+For local MCP dogfooding, replace `lets_REPLACE_WITH_LOCAL_TOKEN` in
+`.mcp.json` with a token from:
+
+```bash
+.venv/bin/python -m app.tokens_cli issue --human admin --label local-dev
+```
+
 ## Core Flow
 
 1. Create an idea or task in the web UI.
