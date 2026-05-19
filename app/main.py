@@ -1087,3 +1087,97 @@ async def stream_topic(
             broadcaster.unsubscribe(topic_id, queue)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Context-pane endpoints (Track C1.5 Task 3)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/artifacts")
+def list_artifacts_by_topic(
+    topic_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> list[dict]:
+    """List artifacts attached to ``topic_id``, ordered by id ASC."""
+    from .db import connect
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM artifacts WHERE topic_id = ? ORDER BY id ASC",
+            (topic_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/topics/{topic_id}/participants")
+def get_topic_participants(
+    topic_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    """Return the distinct humans and agents that have posted on a topic."""
+    from .db import connect
+    with connect() as conn:
+        humans = [dict(r) for r in conn.execute(
+            """
+            SELECT DISTINCT h.id, h.name, h.email
+            FROM messages m JOIN humans h ON h.id = m.actor_id
+            WHERE m.topic_id = ? AND m.actor_type = 'human'
+            ORDER BY h.id ASC
+            """,
+            (topic_id,),
+        ).fetchall()]
+        agents = [dict(r) for r in conn.execute(
+            """
+            SELECT DISTINCT
+                ai.id,
+                ai.device_label,
+                ar.name AS role,
+                ah.name AS human_name
+            FROM messages m
+            JOIN agent_instances ai ON ai.id = m.actor_id
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN humans ah ON ah.id = ai.human_id
+            WHERE m.topic_id = ? AND m.actor_type = 'agent'
+            ORDER BY ai.id ASC
+            """,
+            (topic_id,),
+        ).fetchall()]
+    return {"humans": humans, "agents": agents}
+
+
+@app.get("/api/projects/{project_id}/git-status")
+def get_project_git_status(
+    project_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    """Return HEAD commit + dirty-file list for a project's repo_path."""
+    import subprocess
+    from pathlib import Path
+    from .projects import get_project_by_id
+
+    p = get_project_by_id(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="project not found")
+    if not p.get("repo_path"):
+        raise HTTPException(status_code=404, detail="project has no repo_path")
+    repo = Path(p["repo_path"]).resolve()
+    if not (repo / ".git").exists():
+        raise HTTPException(status_code=404, detail="repo_path is not a git repo")
+
+    def _run(args: list[str]) -> str:
+        return subprocess.run(
+            ["git"] + args, cwd=repo, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    log = _run(["log", "-1", "--pretty=format:%H|%h|%s|%an|%ai"])
+    parts = log.split("|", 4)
+    head = {
+        "sha": parts[0],
+        "short_sha": parts[1] if len(parts) > 1 else "",
+        "subject": parts[2] if len(parts) > 2 else "",
+        "author": parts[3] if len(parts) > 3 else "",
+        "date": parts[4] if len(parts) > 4 else "",
+    }
+    status = _run(["status", "--short"])
+    dirty = [line for line in status.splitlines() if line.strip()]
+    return {"head": head, "dirty": dirty}
