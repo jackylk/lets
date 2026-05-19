@@ -102,3 +102,42 @@ Existing endpoints (`POST /api/status`, `POST /api/findings`, `POST /api/feedbac
 ```
 
 49 tests, full suite green. End-to-end PPT scenario at `tests/test_e2e_ppt_scenario.py` stitches identity + events + messages through HTTP to verify the substrate.
+
+## v1.5 Artifact Substrate (Track D)
+
+Artifacts are the structured products of collaboration (PPTs / docs / code /
+analyses). Each artifact has a stable identity, a version chain, and a backend
+adapter that knows how to read / write / diff / list versions.
+
+### Schema (added by Track D)
+
+- `artifacts` (id, slug, type, backend, backend_ref, title, topic_id, current_version_id, ...)
+- `artifact_versions` (id, artifact_id, version_label, backend_revision_id, summary, preview_uri, created_by_*)
+
+### Backend supported in v1.5b
+
+- `git` — files live in a git repo pointed to by `LETS_GIT_REPO` env var
+
+Future backends (v1.5c+): `google-slides`, `google-docs`, `google-sheets`,
+`object-storage`, `feishu-*`. See `docs/artifact-sync-strategy.md`.
+
+### API
+
+```text
+POST   /api/artifacts                 # create (initial version v0)
+POST   /api/artifacts/{id}/update     # add a new version with semantic label
+GET    /api/artifacts/{id}            # read current (or ?version_label=v1)
+GET    /api/artifacts/{id}/versions   # list version chain
+GET    /api/artifacts/{id}/diff       # ?from_label=v0&to_label=v1
+```
+
+All require `Authorization: Bearer lets_...` (see Track B docs).
+
+### Setup
+
+```bash
+mkdir -p ~/lets-artifacts && cd ~/lets-artifacts && git init && \
+  git commit --allow-empty -m init
+export LETS_GIT_REPO=~/lets-artifacts
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
