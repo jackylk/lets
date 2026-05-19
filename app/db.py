@@ -180,7 +180,8 @@ def init_db() -> None:
                 type TEXT NOT NULL CHECK (type IN (
                     'chat', 'status', 'finding', 'decision', 'question',
                     'handoff', 'review', 'artifact_revision', 'spec_change',
-                    'nudge', 'proactive_finding', 'task_tree_proposal', 'system'
+                    'nudge', 'proactive_finding', 'task_tree_proposal',
+                    'project_proposal', 'system'
                 )),
                 actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
                 actor_id INTEGER,
@@ -233,6 +234,44 @@ def init_db() -> None:
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(human_notes)").fetchall()}
         if "feedback_type" not in existing_cols:
             conn.execute("ALTER TABLE human_notes ADD COLUMN feedback_type TEXT")
+
+        # Widen messages.type CHECK to include 'project_proposal' (Track C1).
+        # SQLite cannot ALTER a CHECK; rebuild the table when the constraint
+        # in sqlite_master doesn't yet list the new value.
+        msg_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+        ).fetchone()
+        if msg_sql and "project_proposal" not in (msg_sql["sql"] or ""):
+            conn.executescript(
+                """
+                CREATE TABLE messages_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    topic_id INTEGER NOT NULL,
+                    type TEXT NOT NULL CHECK (type IN (
+                        'chat', 'status', 'finding', 'decision', 'question',
+                        'handoff', 'review', 'artifact_revision', 'spec_change',
+                        'nudge', 'proactive_finding', 'task_tree_proposal',
+                        'project_proposal', 'system'
+                    )),
+                    actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
+                    actor_id INTEGER,
+                    body TEXT NOT NULL,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    ref_event_id INTEGER,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(topic_id) REFERENCES topics(id),
+                    FOREIGN KEY(ref_event_id) REFERENCES events(id)
+                );
+                INSERT INTO messages_new
+                    (id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at)
+                SELECT id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at
+                FROM messages;
+                DROP TABLE messages;
+                ALTER TABLE messages_new RENAME TO messages;
+                CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
+                """
+            )
 
         # Add project_id column to topics if missing (idempotent migration)
         topic_cols = {r["name"] for r in conn.execute("PRAGMA table_info(topics)").fetchall()}

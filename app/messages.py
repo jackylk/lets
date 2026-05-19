@@ -19,6 +19,7 @@ ALLOWED_TYPES = {
     "nudge",
     "proactive_finding",
     "task_tree_proposal",
+    "project_proposal",
     "system",
 }
 
@@ -35,6 +36,7 @@ MessageType = Literal[
     "nudge",
     "proactive_finding",
     "task_tree_proposal",
+    "project_proposal",
     "system",
 ]
 

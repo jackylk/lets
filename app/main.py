@@ -153,6 +153,7 @@ MessageTypeStr = Literal[
     "nudge",
     "proactive_finding",
     "task_tree_proposal",
+    "project_proposal",
     "system",
 ]
 
