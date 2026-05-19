@@ -163,6 +163,23 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
+
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL,
+                type TEXT NOT NULL,
+                backend TEXT NOT NULL,
+                backend_ref TEXT NOT NULL,
+                title TEXT NOT NULL,
+                topic_id INTEGER NOT NULL,
+                current_version_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(slug, topic_id),
+                FOREIGN KEY(topic_id) REFERENCES topics(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_artifacts_topic ON artifacts(topic_id);
+            CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(type);
             """
         )
 
