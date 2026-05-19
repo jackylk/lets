@@ -77,8 +77,13 @@ def topic_stream(
     order: str = "asc",
     type_filter: list[str] | None = None,
     limit: int = 500,
+    after_id: int | None = None,
 ) -> list[dict]:
-    """Return messages for a topic. order='asc' for chronological, 'desc' for newest first."""
+    """Return messages for a topic. order='asc' for chronological, 'desc' for newest first.
+
+    When ``after_id`` is set, only messages with ``id > after_id`` are returned —
+    used by SSE clients for catch-up polling on reconnect.
+    """
     if order not in ("asc", "desc"):
         raise ValueError("order must be 'asc' or 'desc'")
 
@@ -88,6 +93,9 @@ def topic_stream(
         placeholders = ",".join("?" * len(type_filter))
         clauses.append(f"type IN ({placeholders})")
         params.extend(type_filter)
+    if after_id is not None:
+        clauses.append("id > ?")
+        params.append(after_id)
 
     where = " AND ".join(clauses)
     sql = f"""

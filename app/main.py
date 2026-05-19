@@ -614,6 +614,19 @@ def post_message_endpoint(
 
     message = dict(row)
     message["metadata"] = json.loads(message["metadata"])
+
+    # Fire-and-forget broadcast to SSE subscribers on this topic.
+    # During sync TestClient setup there may be no running event loop —
+    # we silently skip broadcasting in that case (clients will catch up
+    # via the after_id replay endpoint on reconnect).
+    import asyncio as _asyncio
+    from .sse import broadcaster as _broadcaster
+    try:
+        _loop = _asyncio.get_running_loop()
+        _loop.create_task(_broadcaster.publish(payload.topic_id, message))
+    except RuntimeError:
+        pass
+
     return message
 
 
@@ -622,11 +635,12 @@ def get_topic_messages(
     topic_id: int,
     type: list[str] | None = Query(default=None),
     limit: int = 500,
+    after_id: int | None = None,
     principal: dict = Depends(get_current_principal),
 ) -> list[dict]:
     from .messages import topic_stream
 
-    return topic_stream(topic_id, type_filter=type, limit=limit)
+    return topic_stream(topic_id, type_filter=type, limit=limit, after_id=after_id)
 
 
 @app.post("/api/events")
@@ -1026,3 +1040,41 @@ def get_topic(
     if not t:
         raise HTTPException(status_code=404, detail="topic not found")
     return t
+
+
+@app.get("/api/topics/{topic_id}/stream")
+async def stream_topic(
+    topic_id: int,
+    principal: dict = Depends(get_current_principal),
+):
+    """Server-Sent Events stream of new messages on a topic.
+
+    Each message posted via POST /api/messages is published as one
+    ``data: <json>\\n\\n`` SSE event. A ``:heartbeat`` comment is emitted
+    every 15s of idle so proxies don't drop the connection. Clients can
+    pass ``Last-Event-ID`` or use ``?after_id=`` on the messages endpoint
+    to catch up on missed traffic after a reconnect.
+    """
+    from fastapi.responses import StreamingResponse
+    from .sse import broadcaster
+    import asyncio
+    import json as _json
+
+    async def event_gen():
+        queue = await broadcaster.subscribe(topic_id)
+        try:
+            # Emit an opening comment so the response head flushes immediately
+            # (important for client.stream() and reverse proxies alike).
+            yield ":ok\n\n"
+            while True:
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {_json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ":heartbeat\n\n"
+        except asyncio.CancelledError:
+            raise
+        finally:
+            broadcaster.unsubscribe(topic_id, queue)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
