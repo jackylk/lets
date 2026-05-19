@@ -56,3 +56,41 @@ def test_get_projects_lists(client, auth):
 def test_get_projects_requires_auth(client):
     r = client.get("/api/projects")
     assert r.status_code == 401
+
+
+def test_get_project_by_id(client, auth):
+    created = client.post("/api/projects", headers=auth, json={"name": "Gamma"}).json()
+    r = client.get(f"/api/projects/{created['id']}", headers=auth)
+    assert r.status_code == 200
+    assert r.json()["name"] == "Gamma"
+
+
+def test_get_project_404(client, auth):
+    r = client.get("/api/projects/99999", headers=auth)
+    assert r.status_code == 404
+
+
+def test_patch_project_name(client, auth):
+    created = client.post("/api/projects", headers=auth, json={"name": "Old"}).json()
+    r = client.patch(f"/api/projects/{created['id']}", headers=auth, json={"name": "New"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "New"
+
+
+def test_patch_project_repo_path(client, auth):
+    created = client.post("/api/projects", headers=auth, json={"name": "WithRepo"}).json()
+    r = client.patch(f"/api/projects/{created['id']}", headers=auth, json={
+        "repo_path": "/tmp/foo"
+    })
+    assert r.status_code == 200
+    assert r.json()["repo_path"] == "/tmp/foo"
+
+
+def test_patch_project_404(client, auth):
+    r = client.patch("/api/projects/99999", headers=auth, json={"name": "x"})
+    assert r.status_code == 404
+
+
+def test_patch_project_requires_auth(client):
+    r = client.patch("/api/projects/1", json={"name": "x"})
+    assert r.status_code == 401

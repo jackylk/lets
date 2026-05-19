@@ -201,6 +201,12 @@ class ProjectCreate(BaseModel):
     repo_path: str | None = None
 
 
+class ProjectPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    repo_path: str | None = None
+
+
 def ensure_agent(name: str, agent_type: str) -> int:
     with connect() as conn:
         row = conn.execute("SELECT id FROM agents WHERE name = ?", (name,)).fetchone()
@@ -878,3 +884,33 @@ def get_projects(
 ) -> list[dict]:
     from .projects import list_projects
     return list_projects()
+
+
+@app.get("/api/projects/{project_id}")
+def get_project(
+    project_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .projects import get_project_by_id
+    p = get_project_by_id(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="project not found")
+    return p
+
+
+@app.patch("/api/projects/{project_id}")
+def patch_project(
+    project_id: int,
+    payload: ProjectPatch,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .projects import get_project_by_id, update_project
+    if not get_project_by_id(project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    update_project(
+        project_id,
+        name=payload.name,
+        description=payload.description,
+        repo_path=payload.repo_path,
+    )
+    return get_project_by_id(project_id)
