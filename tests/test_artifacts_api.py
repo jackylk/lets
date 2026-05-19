@@ -111,3 +111,27 @@ def test_list_artifact_versions(client, git_artifacts_repo, auth):
     versions = r.json()
     labels = [v["version_label"] for v in versions]
     assert labels == ["v0", "v1", "v2"]
+
+
+def test_diff_between_versions(client, git_artifacts_repo, auth):
+    from app.db import connect
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('td','TD')")
+        topic_id = cursor.lastrowid
+
+    c = client.post("/api/artifacts", headers=auth, json={
+        "slug": "dd", "type": "text", "backend": "git", "title": "DD",
+        "topic_id": topic_id, "content_b64": "YWxwaGEKYmV0YQo=",
+        "summary": "init",
+    }).json()
+    aid = c["artifact"]["id"]
+    client.post(f"/api/artifacts/{aid}/update", headers=auth, json={
+        "content_b64": "YWxwaGEKR0FNTUEK",
+        "summary": "edit", "version_label": "v1",
+    })
+
+    r = client.get(f"/api/artifacts/{aid}/diff?from_label=v0&to_label=v1", headers=auth)
+    assert r.status_code == 200
+    diff = r.json()["diff"]
+    assert "-beta" in diff
+    assert "+GAMMA" in diff
