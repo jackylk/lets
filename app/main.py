@@ -842,6 +842,80 @@ def patch_task_item(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+class NudgeResolveInput(BaseModel):
+    resolved_by: str
+    spinoff_title: str | None = None
+
+
+@app.post("/api/nudges/{drift_nudge_id}/resolve")
+def resolve_drift_nudge(
+    drift_nudge_id: int,
+    payload: NudgeResolveInput,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    from .auth import verify_session
+    from .db import connect
+    from .drift import resolve_nudge
+    from .messages import post_message
+
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="session required")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+
+    # Read the existing nudge for context
+    with connect() as conn:
+        nudge_row = conn.execute(
+            "SELECT * FROM drift_nudges WHERE id = ?", (drift_nudge_id,)
+        ).fetchone()
+    if nudge_row is None:
+        raise HTTPException(status_code=404, detail="nudge not found")
+
+    resolved_to_topic_id: int | None = None
+
+    if payload.resolved_by == "moved_to_topic":
+        if not payload.spinoff_title:
+            raise HTTPException(status_code=400, detail="spinoff_title required")
+        # Create the new topic in the same project
+        with connect() as conn:
+            src_topic = conn.execute(
+                "SELECT project_id FROM topics WHERE id = ?", (nudge_row["topic_id"],)
+            ).fetchone()
+            project_id = src_topic["project_id"] if src_topic else None
+            # Generate a slug from the title (lower, replace ws with -)
+            import re, time
+            slug_base = re.sub(r"\s+", "-", payload.spinoff_title.strip().lower())[:60]
+            slug = f"{slug_base}-{int(time.time())}"
+            cur = conn.execute(
+                "INSERT INTO topics (slug, title, project_id) VALUES (?, ?, ?)",
+                (slug, payload.spinoff_title, project_id),
+            )
+            new_topic_id = int(cur.lastrowid)
+        # Post a system message summarizing the spinoff
+        summary_body = (
+            f"从 topic#{nudge_row['topic_id']} 迁移而来。"
+            f"摘要：{nudge_row['drift_summary'] or '（无摘要）'}"
+        )
+        post_message(
+            topic_id=new_topic_id, type="system",
+            actor_type="system", actor_id=None,
+            body=summary_body, metadata={"source_topic_id": nudge_row["topic_id"]},
+        )
+        resolved_to_topic_id = new_topic_id
+
+    elif payload.resolved_by not in ("returned", "dismissed"):
+        raise HTTPException(status_code=400, detail="invalid resolved_by")
+
+    try:
+        return resolve_nudge(
+            drift_nudge_id, payload.resolved_by,
+            resolved_to_topic_id=resolved_to_topic_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/events")
 def post_event(
     payload: EventCreate,
