@@ -24,7 +24,7 @@ export function Composer({ onSend, placeholder, disabled }: Props) {
   }
 
   return (
-    <div className="border-t border-border-soft px-6 py-3 bg-surface">
+    <div className="px-6 py-3">
       <div className="rounded-lg border border-border bg-surface-elev px-3 py-2 flex flex-col gap-2">
         <textarea
           rows={1}

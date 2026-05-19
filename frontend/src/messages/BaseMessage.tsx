@@ -21,16 +21,16 @@ interface Props {
 const toneClasses: Record<NonNullable<Props["tone"]>, string> = {
   default: "",
   status: "bg-surface-elev border border-border-soft",
-  finding: "bg-finding-bg/40 border-l-2 border-finding pl-3",
-  decision: "bg-decision-bg/40 border-l-2 border-decision pl-3",
-  handoff: "bg-handoff-bg/40 border-l-2 border-handoff pl-3",
-  review: "bg-review-bg/40 border-l-2 border-review pl-3",
-  artifact: "bg-artifact-bg/40 border-l-2 border-artifact pl-3",
-  spec: "bg-spec-bg/40 border-l-2 border-spec pl-3",
-  proactive: "bg-proactive-bg/40 border-l-2 border-proactive pl-3",
-  tree: "bg-tree-bg/40 border-l-2 border-tree pl-3",
-  nudge: "bg-nudge-bg border-l-2 border-nudge pl-3 italic text-nudge",
-  question: "bg-accent-soft/30 border-l-2 border-accent pl-3",
+  finding: "bg-finding-bg/25",
+  decision: "bg-decision-bg/25",
+  handoff: "bg-handoff-bg/25",
+  review: "bg-review-bg/25",
+  artifact: "bg-artifact-bg/25",
+  spec: "bg-spec-bg/25",
+  proactive: "bg-proactive-bg/25",
+  tree: "bg-tree-bg/25",
+  nudge: "bg-nudge-bg/60 italic text-nudge",
+  question: "bg-accent-soft/20",
 };
 
 const tagToneClass: Record<NonNullable<Props["tone"]>, string> = {
