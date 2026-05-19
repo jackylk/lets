@@ -2,7 +2,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .db import connect, init_db
 
-mcp = FastMCP("Lets")
+mcp = FastMCP("Lets", streamable_http_path="/", stateless_http=True)
 
 
 def ensure_agent(name: str, agent_type: str) -> int:
@@ -335,8 +335,15 @@ def list_peer_activity() -> dict:
 
 
 def main() -> None:
+    """Stand-alone stdio entry, kept for backward compatibility."""
     init_db()
     mcp.run()
+
+
+def get_http_app():
+    """Return an ASGI app for FastMCP's streamable-http transport."""
+    init_db()
+    return mcp.streamable_http_app()
 
 
 if __name__ == "__main__":

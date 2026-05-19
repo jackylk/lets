@@ -1,14 +1,77 @@
 from __future__ import annotations
 
-from typing import Literal
+import base64
+import json
+import importlib
+import os
+from contextlib import asynccontextmanager
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+from . import mcp_server as mcp_server_module
+from .auth import get_current_principal, verify_token
 from .db import connect, init_db
 
-app = FastAPI(title="Lets")
+mcp_server_module = importlib.reload(mcp_server_module)
+
+_mcp_http = mcp_server_module.get_http_app()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    async with mcp_server_module.mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="Lets", lifespan=lifespan)
+
+
+class BearerAuthMiddleware:
+    """Strict ASGI middleware: rejects non-Bearer or invalid-token requests."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.decode().lower(): value.decode()
+            for key, value in scope.get("headers", [])
+        }
+        authorization = headers.get("authorization", "")
+        parts = authorization.split(" ", 1)
+        if (
+            len(parts) != 2
+            or parts[0].lower() != "bearer"
+            or verify_token(parts[1].strip()) is None
+        ):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b'{"detail":"missing or invalid token"}',
+                }
+            )
+            return
+
+        await self.app(scope, receive, send)
+
+
+app.mount("/mcp", BearerAuthMiddleware(_mcp_http))
 
 
 class WorkItemCreate(BaseModel):
@@ -32,6 +95,7 @@ class WorkItemStatusUpdate(BaseModel):
     agent_name: str | None = None
     agent_type: str = "unknown"
     message: str | None = None
+    topic_id: int | None = None
 
 
 class StatusCreate(BaseModel):
@@ -40,6 +104,7 @@ class StatusCreate(BaseModel):
     work_item_id: int | None = None
     status: Literal["idle", "active", "blocked", "offline"]
     message: str
+    topic_id: int | None = None
 
 
 class FindingCreate(BaseModel):
@@ -48,6 +113,7 @@ class FindingCreate(BaseModel):
     work_item_id: int | None = None
     title: str
     body: str
+    topic_id: int | None = None
 
 
 class HumanNoteCreate(BaseModel):
@@ -69,11 +135,63 @@ class FeedbackCreate(BaseModel):
     work_item_id: int | None = None
     feedback_type: FeedbackType
     body: str = Field(min_length=1)
+    topic_id: int | None = None
 
 
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
+ActorType = Literal["human", "agent", "system"]
+
+MessageTypeStr = Literal[
+    "chat",
+    "status",
+    "finding",
+    "decision",
+    "question",
+    "handoff",
+    "review",
+    "artifact_revision",
+    "spec_change",
+    "nudge",
+    "proactive_finding",
+    "task_tree_proposal",
+    "system",
+]
+
+
+class MessageCreate(BaseModel):
+    topic_id: int
+    type: MessageTypeStr
+    actor_type: ActorType
+    actor_id: int | None = None
+    body: str = Field(min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    ref_event_id: int | None = None
+
+
+class EventCreate(BaseModel):
+    event_type: str
+    actor_type: ActorType
+    actor_id: int | None = None
+    target_type: str
+    target_id: int | None = None
+    project_id: int | None = None
+    topic_id: int | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArtifactCreate(BaseModel):
+    slug: str = Field(min_length=1)
+    type: str = Field(min_length=1)
+    backend: str = Field(default="git")
+    title: str = Field(min_length=1)
+    topic_id: int
+    content_b64: str
+    summary: str | None = None
+
+
+class ArtifactUpdate(BaseModel):
+    content_b64: str
+    summary: str | None = None
+    version_label: str
 
 
 def ensure_agent(name: str, agent_type: str) -> int:
@@ -211,6 +329,8 @@ def set_work_item_status(work_item_id: int, payload: WorkItemStatusUpdate) -> di
     agent_id = (
         ensure_agent(payload.agent_name, payload.agent_type) if payload.agent_name else None
     )
+    legacy_status_id: int | None = None
+    status_message = payload.message or f"transitioned work item to {payload.status}"
     with connect() as conn:
         item = conn.execute("SELECT * FROM work_items WHERE id = ?", (work_item_id,)).fetchone()
         if not item:
@@ -226,7 +346,7 @@ def set_work_item_status(work_item_id: int, payload: WorkItemStatusUpdate) -> di
         )
 
         if agent_id is not None:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO status_updates (agent_id, work_item_id, status, message)
                 VALUES (?, ?, ?, ?)
@@ -235,9 +355,10 @@ def set_work_item_status(work_item_id: int, payload: WorkItemStatusUpdate) -> di
                     agent_id,
                     work_item_id,
                     payload.status,
-                    payload.message or f"transitioned work item to {payload.status}",
+                    status_message,
                 ),
             )
+            legacy_status_id = int(cursor.lastrowid)
 
         row = conn.execute(
             """
@@ -248,6 +369,21 @@ def set_work_item_status(work_item_id: int, payload: WorkItemStatusUpdate) -> di
             """,
             (work_item_id,),
         ).fetchone()
+    if payload.topic_id is not None:
+        from .messages import post_message
+
+        post_message(
+            topic_id=payload.topic_id,
+            type="status",
+            actor_type="agent" if agent_id is not None else "system",
+            actor_id=agent_id,
+            body=status_message,
+            metadata={
+                "agent_status": payload.status,
+                "work_item_id": work_item_id,
+                "legacy_row_id": legacy_status_id,
+            },
+        )
     return dict(row)
 
 
@@ -280,6 +416,21 @@ def create_status(payload: StatusCreate) -> dict:
             """,
             (cursor.lastrowid,),
         ).fetchone()
+    if payload.topic_id is not None:
+        from .messages import post_message
+
+        post_message(
+            topic_id=payload.topic_id,
+            type="status",
+            actor_type="agent",
+            actor_id=agent_id,
+            body=payload.message,
+            metadata={
+                "agent_status": payload.status,
+                "work_item_id": payload.work_item_id,
+                "legacy_row_id": cursor.lastrowid,
+            },
+        )
     return dict(row)
 
 
@@ -304,6 +455,21 @@ def create_finding(payload: FindingCreate) -> dict:
             """,
             (cursor.lastrowid,),
         ).fetchone()
+    if payload.topic_id is not None:
+        from .messages import post_message
+
+        post_message(
+            topic_id=payload.topic_id,
+            type="finding",
+            actor_type="agent",
+            actor_id=agent_id,
+            body=f"{payload.title}\n\n{payload.body}",
+            metadata={
+                "title": payload.title,
+                "work_item_id": payload.work_item_id,
+                "legacy_row_id": cursor.lastrowid,
+            },
+        )
     return dict(row)
 
 
@@ -332,6 +498,22 @@ def create_feedback(payload: FeedbackCreate) -> dict:
             (payload.work_item_id, payload.body, payload.feedback_type),
         )
         row = conn.execute("SELECT * FROM human_notes WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    if payload.topic_id is not None:
+        from .messages import post_message
+
+        message_type = "question" if payload.feedback_type == "question" else "chat"
+        post_message(
+            topic_id=payload.topic_id,
+            type=message_type,
+            actor_type="human",
+            actor_id=None,
+            body=payload.body,
+            metadata={
+                "feedback_type": payload.feedback_type,
+                "work_item_id": payload.work_item_id,
+                "legacy_row_id": cursor.lastrowid,
+            },
+        )
     return dict(row)
 
 
@@ -390,3 +572,275 @@ def list_activity() -> list[dict]:
             """
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+@app.post("/api/messages")
+def post_message_endpoint(
+    payload: MessageCreate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .messages import post_message
+
+    message_id = post_message(
+        topic_id=payload.topic_id,
+        type=payload.type,
+        actor_type=payload.actor_type,
+        actor_id=payload.actor_id,
+        body=payload.body,
+        metadata=payload.metadata,
+        ref_event_id=payload.ref_event_id,
+    )
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+
+    message = dict(row)
+    message["metadata"] = json.loads(message["metadata"])
+    return message
+
+
+@app.get("/api/topics/{topic_id}/messages")
+def get_topic_messages(
+    topic_id: int,
+    type: list[str] | None = Query(default=None),
+    limit: int = 500,
+    principal: dict = Depends(get_current_principal),
+) -> list[dict]:
+    from .messages import topic_stream
+
+    return topic_stream(topic_id, type_filter=type, limit=limit)
+
+
+@app.post("/api/events")
+def post_event(
+    payload: EventCreate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .events import record_event
+
+    event_id = record_event(
+        event_type=payload.event_type,
+        actor_type=payload.actor_type,
+        actor_id=payload.actor_id,
+        target_type=payload.target_type,
+        target_id=payload.target_id,
+        project_id=payload.project_id,
+        topic_id=payload.topic_id,
+        payload=payload.payload,
+    )
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+
+    event = dict(row)
+    event["payload"] = json.loads(event["payload"])
+    return event
+
+
+@app.get("/api/events")
+def get_events(
+    target_type: str | None = None,
+    target_id: int | None = None,
+    topic_id: int | None = None,
+    event_type: str | None = None,
+    limit: int = 100,
+    principal: dict = Depends(get_current_principal),
+) -> list[dict]:
+    from .events import query_events
+
+    return query_events(
+        target_type=target_type,
+        target_id=target_id,
+        topic_id=topic_id,
+        event_type=event_type,
+        limit=limit,
+    )
+
+
+@app.get("/api/identity/me")
+def identity_me(
+    x_lets_human: str | None = Header(default=None, alias="X-Lets-Human"),
+    x_lets_human_email: str | None = Header(default=None, alias="X-Lets-Human-Email"),
+    x_lets_agent_role: str | None = Header(default=None, alias="X-Lets-Agent-Role"),
+    x_lets_device: str | None = Header(default=None, alias="X-Lets-Device"),
+) -> dict:
+    if not x_lets_human:
+        raise HTTPException(status_code=400, detail="X-Lets-Human header required")
+
+    from .identity import ensure_agent_instance, ensure_human
+
+    human_id = ensure_human(x_lets_human, email=x_lets_human_email)
+    result: dict[str, Any] = {
+        "human": {"id": human_id, "name": x_lets_human},
+    }
+    if x_lets_agent_role and x_lets_device:
+        try:
+            agent_instance_id = ensure_agent_instance(
+                role=x_lets_agent_role,
+                human_id=human_id,
+                device_label=x_lets_device,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        result["agent_instance"] = {
+            "id": agent_instance_id,
+            "role": x_lets_agent_role,
+            "device_label": x_lets_device,
+        }
+
+    return result
+
+
+@app.post("/api/artifacts")
+def post_artifact(
+    payload: ArtifactCreate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import create_artifact_row, record_version, get_artifact_by_id
+
+    if payload.backend != "git":
+        raise HTTPException(status_code=400, detail="only 'git' backend supported in v1.5b")
+
+    repo_path = os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise HTTPException(status_code=500, detail="LETS_GIT_REPO not configured")
+
+    adapter = get_adapter("git", repo_path=repo_path)
+    content = base64.b64decode(payload.content_b64)
+    try:
+        result = adapter.create(
+            slug=payload.slug, content=content,
+            metadata={"type": payload.type, "summary": payload.summary or f"create {payload.slug}"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"backend error: {e}")
+
+    art_id = create_artifact_row(
+        slug=payload.slug, type=payload.type, backend=payload.backend,
+        backend_ref=result.backend_ref, title=payload.title, topic_id=payload.topic_id,
+    )
+    v_id = record_version(
+        artifact_id=art_id, version_label="v0",
+        backend_revision_id=result.revision_id, summary=payload.summary,
+    )
+    return {
+        "artifact": get_artifact_by_id(art_id),
+        "version": {"id": v_id, "version_label": "v0",
+                    "backend_revision_id": result.revision_id},
+    }
+
+
+@app.post("/api/artifacts/{artifact_id}/update")
+def update_artifact(
+    artifact_id: int,
+    payload: ArtifactUpdate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import record_version, get_artifact_by_id
+
+    art = get_artifact_by_id(artifact_id)
+    if not art:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if art["backend"] != "git":
+        raise HTTPException(status_code=400, detail="only 'git' backend supported in v1.5b")
+    repo_path = os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise HTTPException(status_code=500, detail="LETS_GIT_REPO not configured")
+
+    adapter = get_adapter("git", repo_path=repo_path)
+    content = base64.b64decode(payload.content_b64)
+    try:
+        result = adapter.update(
+            backend_ref=art["backend_ref"], content=content,
+            metadata={"summary": payload.summary or f"update {art['slug']}"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"backend error: {e}")
+
+    v_id = record_version(
+        artifact_id=artifact_id, version_label=payload.version_label,
+        backend_revision_id=result.revision_id, summary=payload.summary,
+    )
+    return {"version": {"id": v_id, "version_label": payload.version_label,
+                        "backend_revision_id": result.revision_id}}
+
+
+@app.get("/api/artifacts/{artifact_id}/versions")
+def list_artifact_versions(
+    artifact_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> list[dict]:
+    from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
+    if not get_artifact_by_id(artifact_id):
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return list_versions_by_artifact(artifact_id)
+
+
+@app.get("/api/artifacts/{artifact_id}/diff")
+def artifact_diff(
+    artifact_id: int,
+    from_label: str,
+    to_label: str,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
+
+    art = get_artifact_by_id(artifact_id)
+    if not art:
+        raise HTTPException(status_code=404, detail="artifact not found")
+
+    versions = list_versions_by_artifact(artifact_id)
+    by_label = {v["version_label"]: v for v in versions}
+    if from_label not in by_label or to_label not in by_label:
+        raise HTTPException(status_code=404, detail="version label not found")
+
+    repo_path = os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise HTTPException(status_code=500, detail="LETS_GIT_REPO not configured")
+    adapter = get_adapter("git", repo_path=repo_path)
+    diff = adapter.diff(
+        backend_ref=art["backend_ref"],
+        from_revision=by_label[from_label]["backend_revision_id"],
+        to_revision=by_label[to_label]["backend_revision_id"],
+    )
+    return {"from_label": from_label, "to_label": to_label, "diff": diff}
+
+
+@app.get("/api/artifacts/{artifact_id}")
+def read_artifact(
+    artifact_id: int,
+    version_label: str | None = None,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
+
+    art = get_artifact_by_id(artifact_id)
+    if not art:
+        raise HTTPException(status_code=404, detail="artifact not found")
+
+    versions = list_versions_by_artifact(artifact_id)
+    by_label = {v["version_label"]: v for v in versions}
+    current_v = None
+    revision_id = None
+    if version_label:
+        if version_label not in by_label:
+            raise HTTPException(status_code=404, detail="version label not found")
+        current_v = version_label
+        revision_id = by_label[version_label]["backend_revision_id"]
+    else:
+        if versions:
+            current_v = versions[-1]["version_label"]
+
+    repo_path = os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise HTTPException(status_code=500, detail="LETS_GIT_REPO not configured")
+    adapter = get_adapter("git", repo_path=repo_path)
+    content = adapter.read(backend_ref=art["backend_ref"], revision_id=revision_id)
+    return {
+        "artifact": art,
+        "content_b64": base64.b64encode(content).decode("ascii"),
+        "current_version_label": current_v,
+    }
