@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+tests/
+docs/
+mock-*.png
+v[0-9]*.png
+*.db
+.playwright-mcp/
+.DS_Store
+README.md

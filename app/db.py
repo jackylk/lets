@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-DB_PATH = Path(__file__).resolve().parent.parent / "lets.db"
+_default = Path(__file__).resolve().parent.parent / "lets.db"
+DB_PATH = Path(os.environ.get("LETS_DB_PATH", str(_default)))
 
 
 @contextmanager
