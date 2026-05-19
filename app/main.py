@@ -695,6 +695,18 @@ def get_topic_messages(
     return topic_stream(topic_id, type_filter=type, limit=limit, after_id=after_id)
 
 
+@app.get("/api/topics/{topic_id}/task-tree")
+def get_topic_task_tree(
+    topic_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .task_trees import get_tree_by_topic, list_items
+    tree = get_tree_by_topic(topic_id)
+    if tree is None:
+        return {"tree": None, "items": []}
+    return {"tree": tree, "items": list_items(tree["id"])}
+
+
 @app.post("/api/events")
 def post_event(
     payload: EventCreate,
