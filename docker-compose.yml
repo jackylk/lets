@@ -1,0 +1,15 @@
+services:
+  lets-backend:
+    build: .
+    image: lets:dev
+    container_name: lets-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - lets-data:/data
+    environment:
+      - LETS_DB_PATH=/data/lets.db
+    restart: unless-stopped
+
+volumes:
+  lets-data:
