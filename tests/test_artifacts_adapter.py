@@ -99,3 +99,19 @@ def test_list_versions_by_artifact_ordered(temp_db):
     versions = list_versions_by_artifact(art_id)
     labels = [v["version_label"] for v in versions]
     assert labels == ["v0", "v1", "v2"]
+
+
+def test_registry_returns_git_backend(tmp_path):
+    import subprocess
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    from app.artifacts.registry import get_adapter
+    adapter = get_adapter("git", repo_path=str(tmp_path))
+    from app.artifacts.git_backend import GitBackend
+    assert isinstance(adapter, GitBackend)
+
+
+def test_registry_unknown_backend_raises():
+    import pytest
+    from app.artifacts.registry import get_adapter
+    with pytest.raises(ValueError, match="unknown backend"):
+        get_adapter("nonexistent")
