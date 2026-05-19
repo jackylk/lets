@@ -194,6 +194,13 @@ class ArtifactUpdate(BaseModel):
     version_label: str
 
 
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1)
+    slug: str | None = None
+    description: str | None = None
+    repo_path: str | None = None
+
+
 def ensure_agent(name: str, agent_type: str) -> int:
     with connect() as conn:
         row = conn.execute("SELECT id FROM agents WHERE name = ?", (name,)).fetchone()
@@ -844,3 +851,30 @@ def read_artifact(
         "content_b64": base64.b64encode(content).decode("ascii"),
         "current_version_label": current_v,
     }
+
+
+@app.post("/api/projects")
+def post_project(
+    payload: ProjectCreate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .projects import create_project, get_project_by_id
+    try:
+        pid = create_project(
+            name=payload.name,
+            slug=payload.slug,
+            description=payload.description,
+            owner_human_id=principal["human_id"],
+            repo_path=payload.repo_path,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return get_project_by_id(pid)
+
+
+@app.get("/api/projects")
+def get_projects(
+    principal: dict = Depends(get_current_principal),
+) -> list[dict]:
+    from .projects import list_projects
+    return list_projects()
