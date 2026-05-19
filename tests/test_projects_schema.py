@@ -62,3 +62,56 @@ def test_existing_topics_migrated_to_default_project(temp_db):
         default_id = conn.execute("SELECT id FROM projects WHERE slug='default'").fetchone()["id"]
     assert row["project_id"] is not None
     assert row["project_id"] == default_id
+
+
+def test_create_project(temp_db):
+    from app.projects import create_project
+    pid = create_project(name="My Project", description="hello")
+    assert isinstance(pid, int)
+
+
+def test_create_project_slug_derived(temp_db):
+    from app.projects import create_project, get_project_by_id
+    pid = create_project(name="Hello World!")
+    p = get_project_by_id(pid)
+    assert p["slug"] == "hello-world"
+
+
+def test_create_project_explicit_slug(temp_db):
+    from app.projects import create_project, get_project_by_id
+    pid = create_project(name="Hello", slug="my-slug")
+    p = get_project_by_id(pid)
+    assert p["slug"] == "my-slug"
+
+
+def test_create_project_slug_collision_raises(temp_db):
+    import pytest
+    from app.projects import create_project
+    create_project(name="A", slug="dupe")
+    with pytest.raises(ValueError, match="slug already in use"):
+        create_project(name="B", slug="dupe")
+
+
+def test_get_project_by_slug(temp_db):
+    from app.projects import create_project, get_project_by_slug
+    create_project(name="My Project", slug="my-proj")
+    p = get_project_by_slug("my-proj")
+    assert p["name"] == "My Project"
+
+
+def test_list_projects(temp_db):
+    from app.projects import create_project, list_projects
+    # default project already exists from init_db
+    create_project(name="Alpha")
+    create_project(name="Beta")
+    projects = list_projects()
+    slugs = {p["slug"] for p in projects}
+    assert {"default", "alpha", "beta"}.issubset(slugs)
+
+
+def test_update_project_repo_path(temp_db):
+    from app.projects import create_project, get_project_by_id, update_project_repo_path
+    pid = create_project(name="P")
+    update_project_repo_path(pid, "/tmp/some-repo")
+    p = get_project_by_id(pid)
+    assert p["repo_path"] == "/tmp/some-repo"
