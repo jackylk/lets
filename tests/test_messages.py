@@ -15,6 +15,15 @@ ALLOWED_TYPES = {
 }
 
 
+def _auth_header():
+    from app.auth import issue_token
+    from app.identity import ensure_human
+
+    human_id = ensure_human("admin")
+    token, _ = issue_token(human_id=human_id, label="messages-test")
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_messages_table_exists(temp_db):
     from app.db import connect
 
@@ -162,12 +171,14 @@ def test_topic_stream_metadata_decoded(temp_db):
 def test_post_and_get_topic_messages_via_api(client):
     from app.db import connect
 
+    headers = _auth_header()
     with connect() as conn:
         cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('t-api', 'T API')")
         topic_id = cursor.lastrowid
 
     response = client.post(
         "/api/messages",
+        headers=headers,
         json={
             "topic_id": topic_id,
             "type": "chat",
@@ -181,6 +192,7 @@ def test_post_and_get_topic_messages_via_api(client):
 
     response2 = client.post(
         "/api/messages",
+        headers=headers,
         json={
             "topic_id": topic_id,
             "type": "finding",
@@ -192,7 +204,7 @@ def test_post_and_get_topic_messages_via_api(client):
     )
     assert response2.status_code == 200
 
-    response3 = client.get(f"/api/topics/{topic_id}/messages")
+    response3 = client.get(f"/api/topics/{topic_id}/messages", headers=headers)
     assert response3.status_code == 200
     messages = response3.json()
     assert len(messages) == 2
@@ -204,12 +216,14 @@ def test_post_and_get_topic_messages_via_api(client):
 def test_post_message_invalid_type_returns_400(client):
     from app.db import connect
 
+    headers = _auth_header()
     with connect() as conn:
         conn.execute("INSERT INTO topics (slug, title) VALUES ('t-bad', 'T Bad')")
         topic_id = conn.execute("SELECT id FROM topics WHERE slug='t-bad'").fetchone()["id"]
 
     response = client.post(
         "/api/messages",
+        headers=headers,
         json={
             "topic_id": topic_id,
             "type": "bogus_type",
@@ -225,6 +239,7 @@ def test_post_message_invalid_type_returns_400(client):
 def test_get_topic_messages_type_filter(client):
     from app.db import connect
 
+    headers = _auth_header()
     with connect() as conn:
         cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('t-flt', 'T F')")
         topic_id = cursor.lastrowid
@@ -232,6 +247,7 @@ def test_get_topic_messages_type_filter(client):
     for message_type in ("chat", "chat", "finding", "decision"):
         client.post(
             "/api/messages",
+            headers=headers,
             json={
                 "topic_id": topic_id,
                 "type": message_type,
@@ -241,12 +257,15 @@ def test_get_topic_messages_type_filter(client):
             },
         )
 
-    response = client.get(f"/api/topics/{topic_id}/messages?type=chat")
+    response = client.get(f"/api/topics/{topic_id}/messages?type=chat", headers=headers)
     assert response.status_code == 200
     assert all(message["type"] == "chat" for message in response.json())
     assert len(response.json()) == 2
 
-    response2 = client.get(f"/api/topics/{topic_id}/messages?type=chat&type=decision")
+    response2 = client.get(
+        f"/api/topics/{topic_id}/messages?type=chat&type=decision",
+        headers=headers,
+    )
     assert response2.status_code == 200
     types = sorted(message["type"] for message in response2.json())
     assert types == ["chat", "chat", "decision"]

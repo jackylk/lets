@@ -6,6 +6,15 @@ def _make_topic(client, slug="t-legacy"):
         return cursor.lastrowid
 
 
+def _auth_header():
+    from app.auth import issue_token
+    from app.identity import ensure_human
+
+    human_id = ensure_human("admin")
+    token, _ = issue_token(human_id=human_id, label="legacy-compat-test")
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_legacy_status_also_mirrored_to_messages(client):
     work_item = client.post(
         "/api/work-items",
@@ -26,7 +35,10 @@ def test_legacy_status_also_mirrored_to_messages(client):
     )
     assert response.status_code == 200
 
-    messages = client.get(f"/api/topics/{topic_id}/messages?type=status").json()
+    messages = client.get(
+        f"/api/topics/{topic_id}/messages?type=status",
+        headers=_auth_header(),
+    ).json()
     assert len(messages) == 1
     assert messages[0]["type"] == "status"
     assert "starting" in messages[0]["body"]
@@ -51,7 +63,10 @@ def test_legacy_work_item_status_transition_mirrored(client):
     )
     assert response.status_code == 200
 
-    messages = client.get(f"/api/topics/{topic_id}/messages?type=status").json()
+    messages = client.get(
+        f"/api/topics/{topic_id}/messages?type=status",
+        headers=_auth_header(),
+    ).json()
     assert len(messages) == 1
     assert messages[0]["metadata"]["work_item_id"] == work_item["id"]
 
@@ -71,7 +86,10 @@ def test_legacy_finding_mirrored(client):
     )
     assert response.status_code == 200
 
-    messages = client.get(f"/api/topics/{topic_id}/messages?type=finding").json()
+    messages = client.get(
+        f"/api/topics/{topic_id}/messages?type=finding",
+        headers=_auth_header(),
+    ).json()
     assert len(messages) == 1
     assert messages[0]["body"].startswith("F1")
 
@@ -87,7 +105,10 @@ def test_legacy_feedback_mirrored(client):
         },
     )
 
-    messages = client.get(f"/api/topics/{topic_id}/messages?type=question").json()
+    messages = client.get(
+        f"/api/topics/{topic_id}/messages?type=question",
+        headers=_auth_header(),
+    ).json()
     assert len(messages) == 1
     assert "should we do X?" in messages[0]["body"]
 

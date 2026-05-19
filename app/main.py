@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from .auth import get_current_principal
 from .db import connect, init_db
 
 app = FastAPI(title="Lets")
@@ -502,7 +503,10 @@ def list_activity() -> list[dict]:
 
 
 @app.post("/api/messages")
-def post_message_endpoint(payload: MessageCreate) -> dict:
+def post_message_endpoint(
+    payload: MessageCreate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
     from .messages import post_message
 
     message_id = post_message(
@@ -527,6 +531,7 @@ def get_topic_messages(
     topic_id: int,
     type: list[str] | None = Query(default=None),
     limit: int = 500,
+    principal: dict = Depends(get_current_principal),
 ) -> list[dict]:
     from .messages import topic_stream
 
@@ -534,7 +539,10 @@ def get_topic_messages(
 
 
 @app.post("/api/events")
-def post_event(payload: EventCreate) -> dict:
+def post_event(
+    payload: EventCreate,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
     from .events import record_event
 
     event_id = record_event(
@@ -562,6 +570,7 @@ def get_events(
     topic_id: int | None = None,
     event_type: str | None = None,
     limit: int = 100,
+    principal: dict = Depends(get_current_principal),
 ) -> list[dict]:
     from .events import query_events
 
@@ -607,4 +616,3 @@ def identity_me(
         }
 
     return result
-

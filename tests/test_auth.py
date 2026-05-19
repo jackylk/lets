@@ -204,3 +204,84 @@ def test_cli_issue_with_role_and_device(temp_db, capsys):
     tokens = list_tokens(human_id=human_id)
 
     assert tokens[0]["agent_instance_id"] is not None
+
+
+def _auth_header(client):
+    from app.auth import issue_token
+    from app.identity import ensure_human
+
+    human_id = ensure_human("admin")
+    token, _ = issue_token(human_id=human_id, label="test")
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_messages_requires_auth(client):
+    from app.db import connect
+
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('t1','T1')")
+        topic_id = cursor.lastrowid
+
+    response = client.post(
+        "/api/messages",
+        json={
+            "topic_id": topic_id,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": 1,
+            "body": "hi",
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_messages_with_valid_token_works(client):
+    headers = _auth_header(client)
+    from app.db import connect
+
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('t2','T2')")
+        topic_id = cursor.lastrowid
+
+    response = client.post(
+        "/api/messages",
+        headers=headers,
+        json={
+            "topic_id": topic_id,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": 1,
+            "body": "hi",
+        },
+    )
+
+    assert response.status_code == 200
+
+
+def test_events_post_requires_auth(client):
+    response = client.post(
+        "/api/events",
+        json={
+            "event_type": "t",
+            "actor_type": "human",
+            "actor_id": 1,
+            "target_type": "x",
+            "target_id": 1,
+            "payload": {},
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_identity_me_does_not_require_token(client):
+    response = client.get("/api/identity/me", headers={"X-Lets-Human": "Neo"})
+
+    assert response.status_code == 200
+
+
+def test_context_is_public(client):
+    response = client.get("/api/context")
+
+    assert response.status_code == 200

@@ -1,3 +1,12 @@
+def _auth_header():
+    from app.auth import issue_token
+    from app.identity import ensure_human
+
+    human_id = ensure_human("admin")
+    token, _ = issue_token(human_id=human_id, label="events-test")
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_events_table_exists(temp_db):
     from app.db import connect
     with connect() as conn:
@@ -81,8 +90,10 @@ def test_record_event_payload_is_json(temp_db):
 
 
 def test_post_events_endpoint(client):
+    headers = _auth_header()
     r = client.post(
         "/api/events",
+        headers=headers,
         json={
             "event_type": "idea.claimed",
             "actor_type": "agent",
@@ -99,15 +110,16 @@ def test_post_events_endpoint(client):
 
 
 def test_get_events_filtered_by_target(client):
+    headers = _auth_header()
     client.post("/api/events", json={
         "event_type": "a.b", "actor_type": "human", "actor_id": 1,
         "target_type": "topic", "target_id": 10, "payload": {},
-    })
+    }, headers=headers)
     client.post("/api/events", json={
         "event_type": "c.d", "actor_type": "human", "actor_id": 1,
         "target_type": "topic", "target_id": 11, "payload": {},
-    })
-    r = client.get("/api/events?target_type=topic&target_id=10")
+    }, headers=headers)
+    r = client.get("/api/events?target_type=topic&target_id=10", headers=headers)
     assert r.status_code == 200
     events = r.json()
     assert len(events) == 1
