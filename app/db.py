@@ -60,6 +60,13 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS agent_roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS status_updates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id INTEGER NOT NULL,
@@ -126,3 +133,9 @@ def init_db() -> None:
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(human_notes)").fetchall()}
         if "feedback_type" not in existing_cols:
             conn.execute("ALTER TABLE human_notes ADD COLUMN feedback_type TEXT")
+
+        # Seed known agent roles (idempotent via INSERT OR IGNORE)
+        conn.execute("INSERT OR IGNORE INTO agent_roles (name, description) VALUES (?, ?)",
+                     ("claude", "Anthropic Claude Code"))
+        conn.execute("INSERT OR IGNORE INTO agent_roles (name, description) VALUES (?, ?)",
+                     ("codex", "OpenAI Codex CLI"))

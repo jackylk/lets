@@ -23,3 +23,28 @@ def test_humans_insert(temp_db):
         row = conn.execute("SELECT * FROM humans WHERE id = ?", (hid,)).fetchone()
     assert row["name"] == "Neo"
     assert row["email"] == "neo@example.com"
+
+
+def test_agent_roles_table_exists(temp_db):
+    from app.db import connect
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_roles'"
+        ).fetchall()
+    assert len(rows) == 1
+
+
+def test_agent_roles_columns(temp_db):
+    from app.db import connect
+    with connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(agent_roles)").fetchall()}
+    assert {"id", "name", "description", "created_at"}.issubset(cols)
+
+
+def test_agent_roles_seeded(temp_db):
+    """init_db should seed claude and codex roles."""
+    from app.db import connect
+    with connect() as conn:
+        names = {r["name"] for r in conn.execute("SELECT name FROM agent_roles").fetchall()}
+    assert "claude" in names
+    assert "codex" in names
