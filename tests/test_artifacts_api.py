@@ -86,3 +86,28 @@ def test_update_artifact_creates_new_version(client, git_artifacts_repo, auth):
     data = upd.json()
     assert data["version"]["version_label"] == "v1"
     assert data["version"]["backend_revision_id"] != create["version"]["backend_revision_id"]
+
+
+def test_list_artifact_versions(client, git_artifacts_repo, auth):
+    from app.db import connect
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('tl','TL')")
+        topic_id = cursor.lastrowid
+
+    c = client.post("/api/artifacts", headers=auth, json={
+        "slug": "lv", "type": "text", "backend": "git", "title": "LV",
+        "topic_id": topic_id, "content_b64": "djA=", "summary": "init",
+    }).json()
+    aid = c["artifact"]["id"]
+    client.post(f"/api/artifacts/{aid}/update", headers=auth, json={
+        "content_b64": "djE=", "summary": "two", "version_label": "v1",
+    })
+    client.post(f"/api/artifacts/{aid}/update", headers=auth, json={
+        "content_b64": "djI=", "summary": "three", "version_label": "v2",
+    })
+
+    r = client.get(f"/api/artifacts/{aid}/versions", headers=auth)
+    assert r.status_code == 200
+    versions = r.json()
+    labels = [v["version_label"] for v in versions]
+    assert labels == ["v0", "v1", "v2"]
