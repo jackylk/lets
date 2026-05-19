@@ -167,6 +167,7 @@ class MessageCreate(BaseModel):
     body: str = Field(min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
     ref_event_id: int | None = None
+    addressed_to: str | None = None
 
 
 class EventCreate(BaseModel):
@@ -641,11 +642,12 @@ def list_activity() -> list[dict]:
 
 
 @app.post("/api/messages")
-def post_message_endpoint(
+async def post_message_endpoint(
     payload: MessageCreate,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .messages import post_message
+    from .sse import broadcaster
 
     message_id = post_message(
         topic_id=payload.topic_id,
@@ -655,6 +657,7 @@ def post_message_endpoint(
         body=payload.body,
         metadata=payload.metadata,
         ref_event_id=payload.ref_event_id,
+        addressed_to=payload.addressed_to,
     )
     with connect() as conn:
         row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
@@ -662,17 +665,10 @@ def post_message_endpoint(
     message = dict(row)
     message["metadata"] = json.loads(message["metadata"])
 
-    # Fire-and-forget broadcast to SSE subscribers on this topic.
-    # During sync TestClient setup there may be no running event loop —
-    # we silently skip broadcasting in that case (clients will catch up
-    # via the after_id replay endpoint on reconnect).
-    import asyncio as _asyncio
-    from .sse import broadcaster as _broadcaster
-    try:
-        _loop = _asyncio.get_running_loop()
-        _loop.create_task(_broadcaster.publish(payload.topic_id, message))
-    except RuntimeError:
-        pass
+    # The endpoint runs inside the event loop (async def), so publish
+    # is awaited directly — there's no threadpool boundary. Sync sqlite
+    # work above is fine for v1.5b (single-replica + small write rate).
+    await broadcaster.publish(payload.topic_id, message)
 
     return message
 
@@ -1537,11 +1533,33 @@ def list_my_tokens(
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
     tokens = list_tokens(human_id=principal["human_id"])
+    with connect() as conn:
+        agent_rows = {
+            int(r["id"]): {
+                "id": int(r["id"]),
+                "role": r["role"],
+                "device_label": r["device_label"],
+            }
+            for r in conn.execute(
+                """
+                SELECT ai.id, ar.name AS role, ai.device_label
+                FROM agent_instances ai
+                JOIN agent_roles ar ON ar.id = ai.role_id
+                WHERE ai.human_id = ?
+                """,
+                (principal["human_id"],),
+            ).fetchall()
+        }
     # Strip internal fields
-    return [
-        {k: v for k, v in t.items() if k not in ("value_hash",)}
-        for t in tokens
-    ]
+    out = []
+    for t in tokens:
+        row = {k: v for k, v in t.items() if k not in ("value_hash",)}
+        if t.get("agent_instance_id") is not None:
+            row["agent_instance"] = agent_rows.get(int(t["agent_instance_id"]))
+        else:
+            row["agent_instance"] = None
+        out.append(row)
+    return out
 
 
 @app.post("/api/tokens", status_code=201)

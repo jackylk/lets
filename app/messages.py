@@ -53,8 +53,13 @@ def post_message(
     body: str,
     metadata: dict[str, Any] | None = None,
     ref_event_id: int | None = None,
+    addressed_to: str | None = None,
 ) -> int:
-    """Insert a typed message into a topic stream. Returns messages.id."""
+    """Insert a typed message into a topic stream. Returns messages.id.
+
+    ``addressed_to`` is a CSV of human IDs the message is directed at —
+    consumed by GET /api/attention to build the per-user inbox.
+    """
     if type not in ALLOWED_TYPES:
         raise ValueError(f"unknown message type: {type}")
     if actor_type not in ("human", "agent", "system"):
@@ -65,10 +70,10 @@ def post_message(
         cursor = conn.execute(
             """
             INSERT INTO messages
-                (topic_id, type, actor_type, actor_id, body, metadata, ref_event_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, addressed_to)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (topic_id, type, actor_type, actor_id, body, metadata_json, ref_event_id),
+            (topic_id, type, actor_type, actor_id, body, metadata_json, ref_event_id, addressed_to),
         )
         return int(cursor.lastrowid)
 
