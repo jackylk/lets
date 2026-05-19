@@ -33,6 +33,7 @@ class WorkItemStatusUpdate(BaseModel):
     agent_name: str | None = None
     agent_type: str = "unknown"
     message: str | None = None
+    topic_id: int | None = None
 
 
 class StatusCreate(BaseModel):
@@ -41,6 +42,7 @@ class StatusCreate(BaseModel):
     work_item_id: int | None = None
     status: Literal["idle", "active", "blocked", "offline"]
     message: str
+    topic_id: int | None = None
 
 
 class FindingCreate(BaseModel):
@@ -49,6 +51,7 @@ class FindingCreate(BaseModel):
     work_item_id: int | None = None
     title: str
     body: str
+    topic_id: int | None = None
 
 
 class HumanNoteCreate(BaseModel):
@@ -70,6 +73,7 @@ class FeedbackCreate(BaseModel):
     work_item_id: int | None = None
     feedback_type: FeedbackType
     body: str = Field(min_length=1)
+    topic_id: int | None = None
 
 
 ActorType = Literal["human", "agent", "system"]
@@ -241,6 +245,8 @@ def set_work_item_status(work_item_id: int, payload: WorkItemStatusUpdate) -> di
     agent_id = (
         ensure_agent(payload.agent_name, payload.agent_type) if payload.agent_name else None
     )
+    legacy_status_id: int | None = None
+    status_message = payload.message or f"transitioned work item to {payload.status}"
     with connect() as conn:
         item = conn.execute("SELECT * FROM work_items WHERE id = ?", (work_item_id,)).fetchone()
         if not item:
@@ -256,7 +262,7 @@ def set_work_item_status(work_item_id: int, payload: WorkItemStatusUpdate) -> di
         )
 
         if agent_id is not None:
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO status_updates (agent_id, work_item_id, status, message)
                 VALUES (?, ?, ?, ?)
@@ -265,9 +271,10 @@ def set_work_item_status(work_item_id: int, payload: WorkItemStatusUpdate) -> di
                     agent_id,
                     work_item_id,
                     payload.status,
-                    payload.message or f"transitioned work item to {payload.status}",
+                    status_message,
                 ),
             )
+            legacy_status_id = int(cursor.lastrowid)
 
         row = conn.execute(
             """
@@ -278,6 +285,21 @@ def set_work_item_status(work_item_id: int, payload: WorkItemStatusUpdate) -> di
             """,
             (work_item_id,),
         ).fetchone()
+    if payload.topic_id is not None:
+        from .messages import post_message
+
+        post_message(
+            topic_id=payload.topic_id,
+            type="status",
+            actor_type="agent" if agent_id is not None else "system",
+            actor_id=agent_id,
+            body=status_message,
+            metadata={
+                "agent_status": payload.status,
+                "work_item_id": work_item_id,
+                "legacy_row_id": legacy_status_id,
+            },
+        )
     return dict(row)
 
 
@@ -310,6 +332,21 @@ def create_status(payload: StatusCreate) -> dict:
             """,
             (cursor.lastrowid,),
         ).fetchone()
+    if payload.topic_id is not None:
+        from .messages import post_message
+
+        post_message(
+            topic_id=payload.topic_id,
+            type="status",
+            actor_type="agent",
+            actor_id=agent_id,
+            body=payload.message,
+            metadata={
+                "agent_status": payload.status,
+                "work_item_id": payload.work_item_id,
+                "legacy_row_id": cursor.lastrowid,
+            },
+        )
     return dict(row)
 
 
@@ -334,6 +371,21 @@ def create_finding(payload: FindingCreate) -> dict:
             """,
             (cursor.lastrowid,),
         ).fetchone()
+    if payload.topic_id is not None:
+        from .messages import post_message
+
+        post_message(
+            topic_id=payload.topic_id,
+            type="finding",
+            actor_type="agent",
+            actor_id=agent_id,
+            body=f"{payload.title}\n\n{payload.body}",
+            metadata={
+                "title": payload.title,
+                "work_item_id": payload.work_item_id,
+                "legacy_row_id": cursor.lastrowid,
+            },
+        )
     return dict(row)
 
 
@@ -362,6 +414,22 @@ def create_feedback(payload: FeedbackCreate) -> dict:
             (payload.work_item_id, payload.body, payload.feedback_type),
         )
         row = conn.execute("SELECT * FROM human_notes WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    if payload.topic_id is not None:
+        from .messages import post_message
+
+        message_type = "question" if payload.feedback_type == "question" else "chat"
+        post_message(
+            topic_id=payload.topic_id,
+            type=message_type,
+            actor_type="human",
+            actor_id=None,
+            body=payload.body,
+            metadata={
+                "feedback_type": payload.feedback_type,
+                "work_item_id": payload.work_item_id,
+                "legacy_row_id": cursor.lastrowid,
+            },
+        )
     return dict(row)
 
 
