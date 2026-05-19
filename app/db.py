@@ -85,6 +85,21 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_agent_instances_human ON agent_instances(human_id);
             CREATE INDEX IF NOT EXISTS idx_agent_instances_role ON agent_instances(role_id);
 
+            CREATE TABLE IF NOT EXISTS tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                value_hash TEXT NOT NULL UNIQUE,
+                human_id INTEGER NOT NULL,
+                agent_instance_id INTEGER,
+                label TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TEXT,
+                revoked_at TEXT,
+                FOREIGN KEY(human_id) REFERENCES humans(id),
+                FOREIGN KEY(agent_instance_id) REFERENCES agent_instances(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_tokens_value_hash ON tokens(value_hash);
+            CREATE INDEX IF NOT EXISTS idx_tokens_human ON tokens(human_id);
+
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_type TEXT NOT NULL,
