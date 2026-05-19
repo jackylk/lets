@@ -242,7 +242,11 @@ def init_db() -> None:
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
         ).fetchone()
         if msg_sql and "project_proposal" not in (msg_sql["sql"] or ""):
-            conn.executescript(
+            pre_cols = {
+                r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()
+            }
+            has_addr = "addressed_to" in pre_cols
+            conn.execute(
                 """
                 CREATE TABLE messages_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,24 +263,42 @@ def init_db() -> None:
                     metadata TEXT NOT NULL DEFAULT '{}',
                     ref_event_id INTEGER,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    addressed_to TEXT,
                     FOREIGN KEY(topic_id) REFERENCES topics(id),
                     FOREIGN KEY(ref_event_id) REFERENCES events(id)
-                );
-                INSERT INTO messages_new
-                    (id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at)
-                SELECT id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at
-                FROM messages;
-                DROP TABLE messages;
-                ALTER TABLE messages_new RENAME TO messages;
-                CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
+                )
                 """
             )
+            if has_addr:
+                conn.execute(
+                    "INSERT INTO messages_new (id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at, addressed_to) "
+                    "SELECT id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at, addressed_to FROM messages"
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO messages_new (id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at) "
+                    "SELECT id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at FROM messages"
+                )
+            conn.execute("DROP TABLE messages")
+            conn.execute("ALTER TABLE messages_new RENAME TO messages")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC)"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type)")
 
         # Add project_id column to topics if missing (idempotent migration)
         topic_cols = {r["name"] for r in conn.execute("PRAGMA table_info(topics)").fetchall()}
         if "project_id" not in topic_cols:
             conn.execute("ALTER TABLE topics ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+
+        # Add addressed_to column to messages if missing (idempotent migration).
+        # Stores a CSV of human IDs the message is directed at — used by
+        # GET /api/attention to build the per-user inbox.
+        msg_cols_for_addr = {
+            r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()
+        }
+        if "addressed_to" not in msg_cols_for_addr:
+            conn.execute("ALTER TABLE messages ADD COLUMN addressed_to TEXT")
 
         # Seed the default project (idempotent via INSERT OR IGNORE on slug UNIQUE)
         conn.execute(
