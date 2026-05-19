@@ -1,8 +1,8 @@
 # Lets v1.5 Delivery Status
 
-> **Snapshot at 2026-05-19 (refresh after Track C1 + C1.5)** —— v1.5a + v1.5b + 本地 dogfood backend 主体已交付，**174 / 174 tests passing**。Track F (frontend) 进行中（另一个 CC 在跑 Phase 0+1），Railway 三轨 (G/H/I) 待启动。
+> **Snapshot at 2026-05-19 (refresh after Track F)** —— v1.5a + v1.5b + 本地 dogfood **全栈**已交付，**182 backend tests + 52 frontend tests + 3 Playwright E2E passing**。Track F 在 `track-f-web-frontend` 分支（24 commit ahead of main），等 PR merge。下一步：Railway 部署，按 α 路径（SQLite + Railway Volume，单 replica）— Track G/H/I 真有压力时再做。
 >
-> 所有工作都直接 land 在 `main`（C1 之后我们改了协作约定：两个 CC + Codex 都在 main，每个 commit 后 `git update-ref refs/heads/main HEAD` 跟住 tip）。
+> Track F 期间换了协作约定：CC（前端）在 `track-f-web-frontend` 分支跑，并行 Codex（后端 C1/C1.5）继续在 `main` 上推。两边代码无冲突，merge 时按 `--no-ff` 保留交错时序。
 
 ---
 
@@ -15,11 +15,11 @@
 | **D. Artifact Substrate** | `2026-05-19-track-d-artifact-substrate.md` | 13 / 13 | ✅ |
 | **C1. Local Project Lifecycle** | `2026-05-19-track-c1-local-projects.md` | 10 / 10 | ✅ |
 | **C1.5. Web-UI Backend Glue** | `2026-05-19-track-c1.5-webui-backend-glue.md` | 7 / 7 (+ T8 文档) | ✅ |
-| **F. Web Frontend** | `2026-05-19-track-f-web-frontend.md` | Phase 0+1 进行中（另一个 CC） | ⏳ |
-| **G/H/I. Railway** | `RAILWAY.md` | 未启动 | 📦 backlog |
-| **总计 (已交付)** | | **57 / 57** | ✅ |
+| **F. Web Frontend** | `2026-05-19-track-f-web-frontend.md` | 46 / 46 | ✅ |
+| **G/H/I. Railway** | `RAILWAY.md` | 未启动 | 📦 backlog（v1.5a 起步走 α 路径，单 replica + SQLite + Volume）|
+| **总计 (已交付)** | | **103 / 103** | ✅ |
 
-测试: 174 passed, 0 failed. C1 端到端 demo: `tests/test_e2e_project_lifecycle.py`. Track A 原 PPT 场景仍跑: `tests/test_e2e_ppt_scenario.py`.
+测试: 182 backend pytest + 52 frontend vitest + 3 Playwright E2E（1 skipped 是 real-mode 手动场景），0 failed. C1 端到端 demo: `tests/test_e2e_project_lifecycle.py`. Track A 原 PPT 场景仍跑: `tests/test_e2e_ppt_scenario.py`. Track F PPT 场景 Playwright: `frontend/e2e/ppt-scenario.spec.ts`.
 
 ### Track C1 / C1.5 增量速览
 
@@ -259,25 +259,20 @@ Keeps history; one merge commit on master. **Second choice.**
 
 ## 8. 下一步
 
-| Track | Plan | Tasks | Estimated effort |
-|-------|------|-------|------------------|
-| **C. Project Lifecycle** | not yet written | ~18 | needs plan first |
-| **E. Onboarding** | not yet written | ~22 | needs plan first |
-| **v1.5c PPT 协作 demo** | not yet written | depends on C+E | TBD |
+| Item | Description | Estimated effort |
+|------|-------------|------------------|
+| **Merge Track F → main** | 24 commits ahead; PR open at github.com/jackylk/lets | 10 min |
+| **Railway α 部署** | Dockerfile + docker-compose 已有；Railway 新建 service + Volume + GitHub OAuth env vars + 第一次登录 | 半天 |
+| **第一个朋友 dogfood** | Issue GitHub OAuth client；同事 visit `/app` → 自助 token → 粘到本地 `.mcp.json` → CC 接入 | 0.5-1 天 |
+| **Track G (Postgres)** | 真有第二个 active user 或 Railway autoscale 需要时再做 | 1 周（推后）|
+| **Track E (Onboarding installer)** | macOS .dmg + daemon — v1.5b/c 范围，daemon 先不做 | 推后 |
+| **v1.5c PPT 协作 demo** | Google Slides backend + Goal Guardian + nudge business logic | 等 v1.5a dogfood 反馈后 |
 
-**To unblock Track C:**
-- Decide whether to merge `track-d-artifacts` first (§7) or branch directly off it
-- Write the Track C plan (`2026-05-19-track-c-project-lifecycle.md`) using `writing-plans` skill
-- Coordinate with Codex (when budget restored) on parallel execution
-
-**To unblock Track E:**
-- Track C should land first (E depends on `projects` entity from C)
-- Track B's Docker pieces will inform E's installer
-
-**v1.5c PPT 协作:**
-- Needs Google OAuth + Google Slides API integration
-- Needs frontend mock to actually drive (currently only `web/mock.html` static)
-- Needs `goal_proposal` + `task_tree` + `nudge` typed messages backend (some already in `messages.type` CHECK constraint, but no business logic)
+**Track F 自带的几个 follow-up（plan §Self-Review 已记录）**：
+- `useSessionMe` 命名清理（现在是 `useSession` 的 re-export，可统一名字）
+- Real artifact thumbnails — Track D adapter 已有 `preview_uri` 字段，前端 ArtifactPanel 还在画 generic SVG，需要等 Track D 的 GoogleSlidesBackend / preview URL 真生成
+- @mention 解析对接真 directory — 当前 `SCRATCH_DIRECTORY` 硬编码在 TopicView，需要 `useDirectory()` query（依赖 backend `/api/directory` 端点，目前不存在）
+- Design checkpoint A + B（typed-message 饱和度 + accent 色微调）— 第一轮 review pass 已做（去左 bar / bg /40→/25 / sidebar 真折叠 / composer 去外框），后续视觉细节按需迭代
 
 ---
 
