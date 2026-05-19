@@ -67,6 +67,24 @@ def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS agent_instances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role_id INTEGER NOT NULL,
+                human_id INTEGER NOT NULL,
+                device_label TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'idle'
+                    CHECK (status IN ('idle', 'active', 'blocked', 'offline', 'working')),
+                last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(role_id, human_id, device_label),
+                FOREIGN KEY(role_id) REFERENCES agent_roles(id),
+                FOREIGN KEY(human_id) REFERENCES humans(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_agent_instances_human ON agent_instances(human_id);
+            CREATE INDEX IF NOT EXISTS idx_agent_instances_role ON agent_instances(role_id);
+
             CREATE TABLE IF NOT EXISTS status_updates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id INTEGER NOT NULL,
