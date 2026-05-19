@@ -130,3 +130,50 @@ def test_verify_token_updates_last_used_at(temp_db):
             (token_id,),
         ).fetchone()["last_used_at"]
     assert after is not None
+
+
+def test_get_current_principal_valid_token(temp_db):
+    from app.auth import get_current_principal, issue_token
+    from app.identity import ensure_human
+
+    human_id = ensure_human("Neo")
+    token, _ = issue_token(human_id=human_id)
+    principal = get_current_principal(authorization=f"Bearer {token}")
+
+    assert principal["human_id"] == human_id
+
+
+def test_get_current_principal_missing_header(temp_db):
+    import pytest
+    from fastapi import HTTPException
+
+    from app.auth import get_current_principal
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_principal(authorization=None)
+
+    assert exc.value.status_code == 401
+
+
+def test_get_current_principal_bad_scheme(temp_db):
+    import pytest
+    from fastapi import HTTPException
+
+    from app.auth import get_current_principal
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_principal(authorization="Basic abc")
+
+    assert exc.value.status_code == 401
+
+
+def test_get_current_principal_invalid_token(temp_db):
+    import pytest
+    from fastapi import HTTPException
+
+    from app.auth import get_current_principal
+
+    with pytest.raises(HTTPException) as exc:
+        get_current_principal(authorization="Bearer lets_bogus")
+
+    assert exc.value.status_code == 401

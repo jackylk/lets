@@ -4,6 +4,8 @@ import hashlib
 import secrets
 from typing import Any
 
+from fastapi import Header, HTTPException
+
 from .db import connect
 
 
@@ -89,3 +91,20 @@ def list_tokens(human_id: int | None = None) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_current_principal(
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """FastAPI dependency: extract Bearer token and return principal."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="missing or invalid token")
+
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="missing or invalid token")
+
+    principal = verify_token(parts[1].strip())
+    if principal is None:
+        raise HTTPException(status_code=401, detail="missing or invalid token")
+    return principal
