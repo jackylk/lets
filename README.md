@@ -288,3 +288,17 @@ cd ..
 LETS_FRONTEND_DIST=$(pwd)/frontend/dist .venv/bin/uvicorn app.main:app --reload
 # Open http://127.0.0.1:8000/app/
 ```
+
+## Track F: Web Frontend
+
+The React SPA lives under `frontend/`.
+
+```bash
+cd frontend && pnpm install
+cd frontend && pnpm dev    # fixture mode, http://localhost:5173
+cd frontend && pnpm build  # builds into frontend/dist for production serving
+```
+
+Production: `uvicorn app.main:app` then `http://localhost:8000/app`. The backend
+serves the SPA from `frontend/dist` if it exists (no env var required;
+`LETS_FRONTEND_DIST` still works as an explicit override).

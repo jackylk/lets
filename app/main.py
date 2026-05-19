@@ -1259,20 +1259,44 @@ def get_project_git_status(
 
 
 # ---------------------------------------------------------------------------
-# SPA mount (Track C1.5 Task 7)
+# SPA mount (Track C1.5 Task 7 + Track F Task 39)
 #
-# When ``LETS_FRONTEND_DIST`` is set to a directory containing a built
-# frontend (e.g. ``web/dist`` after ``npm run build``), mount it at
-# ``/app`` so the SPA can be served from the same origin as the API.
+# Two resolution paths, in priority order:
+#   1. ``LETS_FRONTEND_DIST`` env var — explicit override (legacy / tests).
+#   2. ``<repo>/frontend/dist`` — auto-discovered from the built React SPA.
+#
+# When a built ``index.html`` is found, expose:
+#   * ``/app/assets/*`` — hashed JS/CSS via StaticFiles
+#   * ``/app`` and ``/app/{rest:path}`` — SPA fallback serving ``index.html``
+#
+# The mount is conditional so ``tests/`` still pass without a built frontend.
 # Resolved at module-import time; tests reload this module under a
 # monkeypatched env var.
 # ---------------------------------------------------------------------------
 
+import pathlib as _spa_pathlib
+from fastapi.staticfiles import StaticFiles as _SpaStaticFiles
+
 _frontend_dist_env = os.environ.get("LETS_FRONTEND_DIST")
 if _frontend_dist_env:
-    from pathlib import Path as _SpaPath
-    from fastapi.staticfiles import StaticFiles as _SpaStaticFiles
+    _FRONTEND_DIST = _spa_pathlib.Path(_frontend_dist_env)
+else:
+    _FRONTEND_DIST = _spa_pathlib.Path(__file__).parent.parent / "frontend" / "dist"
 
-    _spa_dist = _SpaPath(_frontend_dist_env)
-    if _spa_dist.is_dir():
-        app.mount("/app", _SpaStaticFiles(directory=_spa_dist, html=True), name="spa")
+if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
+    _assets_dir = _FRONTEND_DIST / "assets"
+    if _assets_dir.is_dir():
+        app.mount(
+            "/app/assets",
+            _SpaStaticFiles(directory=_assets_dir),
+            name="frontend-assets",
+        )
+
+    @app.get("/app")
+    @app.get("/app/{rest:path}")
+    def serve_app(rest: str = "") -> FileResponse:
+        _ = rest  # path consumed for SPA fallback; index.html does the routing
+        index = _FRONTEND_DIST / "index.html"
+        if not index.exists():
+            raise HTTPException(status_code=404, detail="frontend not built")
+        return FileResponse(index)

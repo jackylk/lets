@@ -19,9 +19,12 @@ def test_spa_mount_serves_index(tmp_path, monkeypatch):
 
 
 def test_spa_mount_absent_when_no_dist(tmp_path, monkeypatch):
-    """If LETS_FRONTEND_DIST is not set or dir missing, /app/ returns 404."""
+    """If LETS_FRONTEND_DIST points at a missing dir (and no fallback build),
+    /app/ returns 404."""
     from fastapi.testclient import TestClient
-    monkeypatch.delenv("LETS_FRONTEND_DIST", raising=False)
+    # Point env var at a non-existent dir so auto-discovery of
+    # ``<repo>/frontend/dist`` (Track F Task 39) is bypassed.
+    monkeypatch.setenv("LETS_FRONTEND_DIST", str(tmp_path / "nope"))
 
     import app.main as m
     importlib.reload(m)
