@@ -244,6 +244,45 @@ def init_db() -> None:
                 FOREIGN KEY(created_by_agent_instance_id) REFERENCES agent_instances(id)
             );
             CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact ON artifact_versions(artifact_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS task_trees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic_id INTEGER NOT NULL UNIQUE,
+                goal_artifact_id INTEGER,
+                goal_spec_text TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
+                approved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                approved_by_human_id INTEGER,
+                proposal_message_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (topic_id) REFERENCES topics(id),
+                FOREIGN KEY (goal_artifact_id) REFERENCES artifacts(id),
+                FOREIGN KEY (approved_by_human_id) REFERENCES humans(id),
+                FOREIGN KEY (proposal_message_id) REFERENCES messages(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_trees_topic ON task_trees(topic_id);
+
+            CREATE TABLE IF NOT EXISTS task_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_tree_id INTEGER NOT NULL,
+                parent_item_id INTEGER,
+                title TEXT NOT NULL,
+                owner_human_id INTEGER,
+                owner_agent_instance_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'active', 'done')),
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_tree_id) REFERENCES task_trees(id),
+                FOREIGN KEY (parent_item_id) REFERENCES task_items(id),
+                FOREIGN KEY (owner_human_id) REFERENCES humans(id),
+                FOREIGN KEY (owner_agent_instance_id) REFERENCES agent_instances(id),
+                CHECK (NOT (owner_human_id IS NOT NULL AND owner_agent_instance_id IS NOT NULL))
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_items_tree ON task_items(task_tree_id, position);
+            CREATE INDEX IF NOT EXISTS idx_task_items_parent ON task_items(parent_item_id);
             """
         )
 
