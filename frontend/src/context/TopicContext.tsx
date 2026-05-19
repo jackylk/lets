@@ -1,5 +1,6 @@
 import { ContextPane, ContextBlock } from "../layout/ContextPane";
 import { TopicInfoCard } from "./TopicInfoCard";
+import { GoalDetailPanel } from "./GoalDetailPanel";
 import { TaskTreePanel } from "./TaskTreePanel";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { SpecTouchedPanel } from "./SpecTouchedPanel";
@@ -15,6 +16,17 @@ export function TopicContext() {
           title="为 Agent 记忆写一个研讨 PPT"
           description="下周三 AI 研讨会 30min talk · 技术受众 · 主讲 Neo"
           chips={["exploratory", "3 agents", "talk-prep"]}
+        />
+      </ContextBlock>
+
+      <ContextBlock label="目标">
+        <GoalDetailPanel
+          artifactName="ai-memory-talk.pptx"
+          artifactVersion="v3"
+          spec="30 分钟 talk · 技术受众 · 突出「事件性记忆 vs 语义记忆」差异化"
+          approvers={["Trinity", "Morpheus", "Neo"]}
+          onMarkFinal={() => {}}
+          onProposeChange={() => {}}
         />
       </ContextBlock>
 
