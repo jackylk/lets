@@ -54,6 +54,9 @@
   --radius-sm: 6px;
   --radius: 10px;
   --radius-lg: 14px;
+
+  --side-w: 296px;
+  --context-w: 360px;
 }
 
 html, body, #root { height: 100%; }
@@ -64,4 +67,13 @@ body {
   -webkit-font-smoothing: antialiased;
   background: var(--color-bg);
   color: var(--color-text);
+}
+
+@media (max-width: 1279px) {
+  [data-testid="app-shell"] { grid-template-columns: var(--side-w) 1fr !important; }
+  [data-testid="app-shell"] > aside:last-child { display: none !important; }
+}
+@media (max-width: 767px) {
+  [data-testid="app-shell"] { grid-template-columns: 1fr !important; }
+  [data-testid="app-shell"] > aside:first-child { display: none !important; }
 }
