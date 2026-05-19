@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal
+import json
+from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -69,6 +70,35 @@ class FeedbackCreate(BaseModel):
     work_item_id: int | None = None
     feedback_type: FeedbackType
     body: str = Field(min_length=1)
+
+
+ActorType = Literal["human", "agent", "system"]
+
+MessageTypeStr = Literal[
+    "chat",
+    "status",
+    "finding",
+    "decision",
+    "question",
+    "handoff",
+    "review",
+    "artifact_revision",
+    "spec_change",
+    "nudge",
+    "proactive_finding",
+    "task_tree_proposal",
+    "system",
+]
+
+
+class MessageCreate(BaseModel):
+    topic_id: int
+    type: MessageTypeStr
+    actor_type: ActorType
+    actor_id: int | None = None
+    body: str = Field(min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    ref_event_id: int | None = None
 
 
 @app.on_event("startup")
@@ -390,3 +420,35 @@ def list_activity() -> list[dict]:
             """
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+@app.post("/api/messages")
+def post_message_endpoint(payload: MessageCreate) -> dict:
+    from .messages import post_message
+
+    message_id = post_message(
+        topic_id=payload.topic_id,
+        type=payload.type,
+        actor_type=payload.actor_type,
+        actor_id=payload.actor_id,
+        body=payload.body,
+        metadata=payload.metadata,
+        ref_event_id=payload.ref_event_id,
+    )
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+
+    message = dict(row)
+    message["metadata"] = json.loads(message["metadata"])
+    return message
+
+
+@app.get("/api/topics/{topic_id}/messages")
+def get_topic_messages(
+    topic_id: int,
+    type: list[str] | None = Query(default=None),
+    limit: int = 500,
+) -> list[dict]:
+    from .messages import topic_stream
+
+    return topic_stream(topic_id, type_filter=type, limit=limit)

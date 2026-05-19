@@ -157,3 +157,96 @@ def test_topic_stream_metadata_decoded(temp_db):
     messages = topic_stream(topic_id)
 
     assert messages[0]["metadata"]["work_item_id"] == 7
+
+
+def test_post_and_get_topic_messages_via_api(client):
+    from app.db import connect
+
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('t-api', 'T API')")
+        topic_id = cursor.lastrowid
+
+    response = client.post(
+        "/api/messages",
+        json={
+            "topic_id": topic_id,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": 1,
+            "body": "hello from api",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["body"] == "hello from api"
+
+    response2 = client.post(
+        "/api/messages",
+        json={
+            "topic_id": topic_id,
+            "type": "finding",
+            "actor_type": "agent",
+            "actor_id": 7,
+            "body": "found something",
+            "metadata": {"finding_type": "observation"},
+        },
+    )
+    assert response2.status_code == 200
+
+    response3 = client.get(f"/api/topics/{topic_id}/messages")
+    assert response3.status_code == 200
+    messages = response3.json()
+    assert len(messages) == 2
+    assert messages[0]["body"] == "hello from api"
+    assert messages[1]["type"] == "finding"
+    assert messages[1]["metadata"]["finding_type"] == "observation"
+
+
+def test_post_message_invalid_type_returns_400(client):
+    from app.db import connect
+
+    with connect() as conn:
+        conn.execute("INSERT INTO topics (slug, title) VALUES ('t-bad', 'T Bad')")
+        topic_id = conn.execute("SELECT id FROM topics WHERE slug='t-bad'").fetchone()["id"]
+
+    response = client.post(
+        "/api/messages",
+        json={
+            "topic_id": topic_id,
+            "type": "bogus_type",
+            "actor_type": "human",
+            "actor_id": 1,
+            "body": "x",
+        },
+    )
+
+    assert response.status_code in (400, 422)
+
+
+def test_get_topic_messages_type_filter(client):
+    from app.db import connect
+
+    with connect() as conn:
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES ('t-flt', 'T F')")
+        topic_id = cursor.lastrowid
+
+    for message_type in ("chat", "chat", "finding", "decision"):
+        client.post(
+            "/api/messages",
+            json={
+                "topic_id": topic_id,
+                "type": message_type,
+                "actor_type": "human",
+                "actor_id": 1,
+                "body": message_type,
+            },
+        )
+
+    response = client.get(f"/api/topics/{topic_id}/messages?type=chat")
+    assert response.status_code == 200
+    assert all(message["type"] == "chat" for message in response.json())
+    assert len(response.json()) == 2
+
+    response2 = client.get(f"/api/topics/{topic_id}/messages?type=chat&type=decision")
+    assert response2.status_code == 200
+    types = sorted(message["type"] for message in response2.json())
+    assert types == ["chat", "chat", "decision"]
