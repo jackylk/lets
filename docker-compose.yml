@@ -9,6 +9,9 @@ services:
       - lets-data:/data
     environment:
       - LETS_DB_PATH=/data/lets.db
+      - LETS_GIT_REPO=/data/lets-artifacts
+      - LETS_FRONTEND_DIST=/app/frontend/dist
+      - LETS_COOKIE_SECURE=false
     restart: unless-stopped
 
 volumes:

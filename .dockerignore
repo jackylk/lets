@@ -3,6 +3,11 @@ __pycache__/
 *.pyc
 .git/
 .gitignore
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/.vite/
 tests/
 docs/
 mock-*.png
