@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -103,6 +103,17 @@ class MessageCreate(BaseModel):
     body: str = Field(min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
     ref_event_id: int | None = None
+
+
+class EventCreate(BaseModel):
+    event_type: str
+    actor_type: ActorType
+    actor_id: int | None = None
+    target_type: str
+    target_id: int | None = None
+    project_id: int | None = None
+    topic_id: int | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 @app.on_event("startup")
@@ -520,3 +531,118 @@ def get_topic_messages(
     from .messages import topic_stream
 
     return topic_stream(topic_id, type_filter=type, limit=limit)
+
+
+@app.post("/api/events")
+def post_event(payload: EventCreate) -> dict:
+    from .events import record_event
+
+    event_id = record_event(
+        event_type=payload.event_type,
+        actor_type=payload.actor_type,
+        actor_id=payload.actor_id,
+        target_type=payload.target_type,
+        target_id=payload.target_id,
+        project_id=payload.project_id,
+        topic_id=payload.topic_id,
+        payload=payload.payload,
+    )
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+
+    event = dict(row)
+    event["payload"] = json.loads(event["payload"])
+    return event
+
+
+@app.get("/api/events")
+def get_events(
+    target_type: str | None = None,
+    target_id: int | None = None,
+    topic_id: int | None = None,
+    event_type: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    from .events import query_events
+
+    return query_events(
+        target_type=target_type,
+        target_id=target_id,
+        topic_id=topic_id,
+        event_type=event_type,
+        limit=limit,
+    )
+
+
+@app.get("/api/identity/me")
+def identity_me(
+    x_lets_human: str | None = Header(default=None, alias="X-Lets-Human"),
+    x_lets_human_email: str | None = Header(default=None, alias="X-Lets-Human-Email"),
+    x_lets_agent_role: str | None = Header(default=None, alias="X-Lets-Agent-Role"),
+    x_lets_device: str | None = Header(default=None, alias="X-Lets-Device"),
+) -> dict:
+    if not x_lets_human:
+        raise HTTPException(status_code=400, detail="X-Lets-Human header required")
+
+    from .identity import ensure_agent_instance, ensure_human
+
+    human_id = ensure_human(x_lets_human, email=x_lets_human_email)
+    result: dict[str, Any] = {
+        "human": {"id": human_id, "name": x_lets_human},
+    }
+    if x_lets_agent_role and x_lets_device:
+        try:
+            agent_instance_id = ensure_agent_instance(
+                role=x_lets_agent_role,
+                human_id=human_id,
+                device_label=x_lets_device,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        result["agent_instance"] = {
+            "id": agent_instance_id,
+            "role": x_lets_agent_role,
+            "device_label": x_lets_device,
+        }
+
+    return result
+
+
+@app.post("/api/events")
+def post_event(payload: EventCreate) -> dict:
+    from .events import record_event, query_events
+    eid = record_event(
+        event_type=payload.event_type,
+        actor_type=payload.actor_type,
+        actor_id=payload.actor_id,
+        target_type=payload.target_type,
+        target_id=payload.target_id,
+        project_id=payload.project_id,
+        topic_id=payload.topic_id,
+        payload=payload.payload,
+    )
+    import json
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM events WHERE id = ?", (eid,)).fetchone()
+    d = dict(row)
+    d["payload"] = json.loads(d["payload"])
+    return d
+
+
+@app.get("/api/events")
+def get_events(
+    target_type: str | None = None,
+    target_id: int | None = None,
+    topic_id: int | None = None,
+    event_type: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    from .events import query_events
+    return query_events(
+        target_type=target_type,
+        target_id=target_id,
+        topic_id=topic_id,
+        event_type=event_type,
+        limit=limit,
+    )

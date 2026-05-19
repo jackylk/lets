@@ -47,3 +47,68 @@ def test_events_indexed_on_target_and_occurred_at(temp_db):
         }
     assert any("target" in n.lower() for n in idx_names)
     assert any("occurred" in n.lower() for n in idx_names)
+
+
+def test_record_event_helper(temp_db):
+    from app.events import record_event
+    eid = record_event(
+        event_type="idea.claimed",
+        actor_type="agent",
+        actor_id=1,
+        target_type="work_item",
+        target_id=42,
+        payload={"git_branch": "master"},
+    )
+    assert isinstance(eid, int)
+
+
+def test_record_event_payload_is_json(temp_db):
+    import json
+    from app.events import record_event
+    from app.db import connect
+    eid = record_event(
+        event_type="t",
+        actor_type="human",
+        actor_id=1,
+        target_type="x",
+        target_id=1,
+        payload={"k": "v"},
+    )
+    with connect() as conn:
+        row = conn.execute("SELECT payload FROM events WHERE id = ?", (eid,)).fetchone()
+    parsed = json.loads(row["payload"])
+    assert parsed["k"] == "v"
+
+
+def test_post_events_endpoint(client):
+    r = client.post(
+        "/api/events",
+        json={
+            "event_type": "idea.claimed",
+            "actor_type": "agent",
+            "actor_id": 1,
+            "target_type": "work_item",
+            "target_id": 42,
+            "payload": {"branch": "master"},
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["event_type"] == "idea.claimed"
+    assert data["payload"]["branch"] == "master"
+
+
+def test_get_events_filtered_by_target(client):
+    client.post("/api/events", json={
+        "event_type": "a.b", "actor_type": "human", "actor_id": 1,
+        "target_type": "topic", "target_id": 10, "payload": {},
+    })
+    client.post("/api/events", json={
+        "event_type": "c.d", "actor_type": "human", "actor_id": 1,
+        "target_type": "topic", "target_id": 11, "payload": {},
+    })
+    r = client.get("/api/events?target_type=topic&target_id=10")
+    assert r.status_code == 200
+    events = r.json()
+    assert len(events) == 1
+    assert events[0]["event_type"] == "a.b"
