@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { render, type RenderOptions } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { IdentityProvider } from "../src/identity/IdentityProvider";
 
 export function makeQueryClient() {
   return new QueryClient({
@@ -10,7 +11,11 @@ export function makeQueryClient() {
 
 function Providers({ children }: { children: ReactNode }) {
   const client = makeQueryClient();
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <IdentityProvider>{children}</IdentityProvider>
+    </QueryClientProvider>
+  );
 }
 
 export function renderWithProviders(
