@@ -1,7 +1,7 @@
 import type { MessageDTO } from "../api/types";
 import { formatHHMM } from "../lib/time";
 
-interface Actor { kind: "system"; initial: string; displayName: string }
+interface Actor { kind: "human" | "claude" | "codex" | "system"; initial: string; displayName: string }
 
 export function SystemMessage({ message }: { message: MessageDTO; actor: Actor }) {
   return (
