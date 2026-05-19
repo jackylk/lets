@@ -283,6 +283,28 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_task_items_tree ON task_items(task_tree_id, position);
             CREATE INDEX IF NOT EXISTS idx_task_items_parent ON task_items(parent_item_id);
+
+            CREATE TABLE IF NOT EXISTS drift_nudges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic_id INTEGER NOT NULL,
+                nudge_message_id INTEGER NOT NULL UNIQUE,
+                triggered_by_agent_instance_id INTEGER,
+                drift_window_start_message_id INTEGER,
+                drift_window_end_message_id INTEGER,
+                drift_summary TEXT,
+                resolved_at TEXT,
+                resolved_by TEXT
+                    CHECK (resolved_by IS NULL OR
+                           resolved_by IN ('moved_to_topic', 'returned', 'dismissed')),
+                resolved_to_topic_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (topic_id) REFERENCES topics(id),
+                FOREIGN KEY (nudge_message_id) REFERENCES messages(id),
+                FOREIGN KEY (triggered_by_agent_instance_id) REFERENCES agent_instances(id),
+                FOREIGN KEY (resolved_to_topic_id) REFERENCES topics(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_drift_nudges_topic
+                ON drift_nudges(topic_id, created_at DESC);
             """
         )
 
