@@ -334,6 +334,264 @@ def list_peer_activity() -> dict:
     return {"findings": findings, "statuses": statuses}
 
 
+# ---------------------------------------------------------------------------
+# v1.5 tools — bridge agents to the typed-message + artifact world the
+# web UI lives in. These read the calling principal from a contextvar set
+# by the BearerAuthMiddleware (so the agent doesn't pass actor_id; the
+# token itself identifies who they are).
+# ---------------------------------------------------------------------------
+
+
+def _require_agent_principal() -> dict:
+    """Return the calling principal or raise. Agent-bound tokens only."""
+    from .auth import get_mcp_principal
+
+    p = get_mcp_principal()
+    if p is None:
+        raise ValueError("MCP call has no authenticated principal")
+    if p.get("agent_instance_id") is None:
+        raise ValueError(
+            "this tool requires a token bound to an agent_instance "
+            "(issue with --role and --device)"
+        )
+    return p
+
+
+@mcp.tool()
+def whoami() -> dict:
+    """Return the human + agent_instance the calling Bearer token is bound to.
+
+    Call this first on a new MCP connection so the agent knows its own
+    identity. Returns ``{human_id, human_name, agent_instance_id, role,
+    device_label}`` — fields that aren't set on the token come back as
+    ``None``.
+    """
+    from .auth import get_mcp_principal
+
+    p = get_mcp_principal()
+    if p is None:
+        raise ValueError("MCP call has no authenticated principal")
+    out = {
+        "human_id": p["human_id"],
+        "agent_instance_id": p.get("agent_instance_id"),
+        "token_id": p.get("token_id"),
+    }
+    with connect() as conn:
+        if out["human_id"] is not None:
+            row = conn.execute(
+                "SELECT name FROM humans WHERE id = ?", (out["human_id"],)
+            ).fetchone()
+            out["human_name"] = row["name"] if row else None
+        if out["agent_instance_id"] is not None:
+            row = conn.execute(
+                """
+                SELECT ai.device_label, ar.name AS role
+                FROM agent_instances ai
+                JOIN agent_roles ar ON ar.id = ai.role_id
+                WHERE ai.id = ?
+                """,
+                (out["agent_instance_id"],),
+            ).fetchone()
+            if row:
+                out["role"] = row["role"]
+                out["device_label"] = row["device_label"]
+    return out
+
+
+@mcp.tool()
+def list_my_topics(limit: int = 50) -> list[dict]:
+    """List topics on this Lets instance, newest activity first.
+
+    For each topic returns: ``{id, slug, title, project_id, project_slug,
+    project_name, last_message_id, last_message_at, last_message_body}``.
+    The single-tenant local-mode assumption is that every topic is visible
+    to every authenticated user — multi-tenant ACLs land in Track C2.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                t.id, t.slug, t.title, t.project_id,
+                p.slug AS project_slug, p.name AS project_name,
+                m.id AS last_message_id,
+                m.created_at AS last_message_at,
+                m.body AS last_message_body
+            FROM topics t
+            LEFT JOIN projects p ON p.id = t.project_id
+            LEFT JOIN messages m ON m.id = (
+                SELECT MAX(id) FROM messages WHERE topic_id = t.id
+            )
+            ORDER BY COALESCE(m.created_at, t.created_at) DESC, t.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@mcp.tool()
+def read_topic(
+    topic_id: int,
+    after_id: int | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """Read the typed message stream of a topic.
+
+    Pass ``after_id`` to fetch only messages with ``id > after_id`` —
+    use this for incremental polling. Returns chronological order (oldest
+    first) so a tail-call appends naturally.
+    """
+    from .messages import topic_stream
+
+    return topic_stream(topic_id, after_id=after_id, limit=limit)
+
+
+@mcp.tool()
+async def post_typed_message(
+    topic_id: int,
+    type: str,
+    body: str,
+    metadata: dict | None = None,
+    addressed_to: str | None = None,
+) -> dict:
+    """Post a typed message into a topic as the calling agent.
+
+    ``type`` is one of the v1.5 typed-message kinds: chat, status,
+    finding, decision, question, handoff, review, artifact_revision,
+    spec_change, nudge, proactive_finding, task_tree_proposal,
+    project_proposal, goal_proposal. ``actor_type`` is fixed to 'agent'
+    and ``actor_id`` is taken from the calling token's agent_instance_id.
+    ``addressed_to`` is a CSV of human IDs the agent wants to ping —
+    those humans will see this message in their /api/attention queue.
+
+    Also broadcasts to SSE subscribers so the web UI updates live.
+    """
+    import json as _json
+    from .messages import post_message
+    from .sse import broadcaster
+
+    p = _require_agent_principal()
+    msg_id = post_message(
+        topic_id=topic_id,
+        type=type,
+        actor_type="agent",
+        actor_id=p["agent_instance_id"],
+        body=body,
+        metadata=metadata,
+        addressed_to=addressed_to,
+    )
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM messages WHERE id = ?", (msg_id,)
+        ).fetchone()
+    message = dict(row)
+    message["metadata"] = _json.loads(message["metadata"])
+    await broadcaster.publish(topic_id, message)
+    return message
+
+
+@mcp.tool()
+def create_artifact(
+    topic_id: int,
+    slug: str,
+    type: str,
+    title: str,
+    content_b64: str,
+    summary: str | None = None,
+    backend: str = "git",
+) -> dict:
+    """Create a new artifact (PPT / doc / code / etc.) attached to a topic.
+
+    ``content_b64`` is the base64-encoded initial bytes. The 'git' backend
+    writes one file per artifact into ``LETS_GIT_REPO`` and commits.
+    Returns ``{artifact, version}`` — version_label of the first revision
+    is always 'v0'.
+    """
+    import base64 as _b64
+    import os as _os
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import (
+        create_artifact_row, record_version, get_artifact_by_id,
+    )
+
+    _require_agent_principal()
+    if backend != "git":
+        raise ValueError("only 'git' backend supported in v1.5b")
+    repo_path = _os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise ValueError("LETS_GIT_REPO not configured on this server")
+
+    adapter = get_adapter("git", repo_path=repo_path)
+    content = _b64.b64decode(content_b64)
+    result = adapter.create(
+        slug=slug, content=content,
+        metadata={"type": type, "summary": summary or f"create {slug}"},
+    )
+    art_id = create_artifact_row(
+        slug=slug, type=type, backend=backend,
+        backend_ref=result.backend_ref, title=title, topic_id=topic_id,
+    )
+    v_id = record_version(
+        artifact_id=art_id, version_label="v0",
+        backend_revision_id=result.revision_id, summary=summary,
+    )
+    return {
+        "artifact": get_artifact_by_id(art_id),
+        "version": {
+            "id": v_id, "version_label": "v0",
+            "backend_revision_id": result.revision_id,
+        },
+    }
+
+
+@mcp.tool()
+def update_artifact(
+    artifact_id: int,
+    version_label: str,
+    content_b64: str,
+    summary: str | None = None,
+) -> dict:
+    """Add a new version to an existing artifact.
+
+    Reads the artifact's ``backend_ref`` from the DB, hands new content
+    to the configured backend (git: rewrites the file + commits), and
+    records a new ``artifact_versions`` row with the agent's chosen
+    semantic ``version_label`` (e.g. 'v1', 'v2-draft').
+    """
+    import base64 as _b64
+    import os as _os
+    from .artifacts.registry import get_adapter
+    from .artifacts.models import record_version, get_artifact_by_id
+
+    _require_agent_principal()
+    art = get_artifact_by_id(artifact_id)
+    if not art:
+        raise ValueError("artifact not found")
+    if art["backend"] != "git":
+        raise ValueError("only 'git' backend supported in v1.5b")
+    repo_path = _os.environ.get("LETS_GIT_REPO")
+    if not repo_path:
+        raise ValueError("LETS_GIT_REPO not configured on this server")
+
+    adapter = get_adapter("git", repo_path=repo_path)
+    content = _b64.b64decode(content_b64)
+    result = adapter.update(
+        backend_ref=art["backend_ref"], content=content,
+        metadata={"summary": summary or f"update {art['slug']} to {version_label}"},
+    )
+    v_id = record_version(
+        artifact_id=artifact_id, version_label=version_label,
+        backend_revision_id=result.revision_id, summary=summary,
+    )
+    return {
+        "artifact": get_artifact_by_id(artifact_id),
+        "version": {
+            "id": v_id, "version_label": version_label,
+            "backend_revision_id": result.revision_id,
+        },
+    }
+
+
 def main() -> None:
     """Stand-alone stdio entry, kept for backward compatibility."""
     init_db()

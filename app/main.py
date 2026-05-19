@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import mcp_server as mcp_server_module
-from .auth import get_api_principal, verify_token
+from .auth import get_api_principal, set_mcp_principal, verify_token
 from .db import connect, init_db
 
 mcp_server_module = importlib.reload(mcp_server_module)
@@ -48,11 +48,12 @@ class BearerAuthMiddleware:
         }
         authorization = headers.get("authorization", "")
         parts = authorization.split(" ", 1)
-        if (
-            len(parts) != 2
-            or parts[0].lower() != "bearer"
-            or verify_token(parts[1].strip()) is None
-        ):
+        principal = (
+            verify_token(parts[1].strip())
+            if len(parts) == 2 and parts[0].lower() == "bearer"
+            else None
+        )
+        if principal is None:
             await send(
                 {
                     "type": "http.response.start",
@@ -68,7 +69,15 @@ class BearerAuthMiddleware:
             )
             return
 
-        await self.app(scope, receive, send)
+        # Stash principal into a contextvar so downstream MCP tools can
+        # read the calling agent without us having to thread it through
+        # the FastMCP request handler. Reset to None on entry/exit so a
+        # stale principal cannot leak across requests.
+        set_mcp_principal(principal)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            set_mcp_principal(None)
 
 
 app.mount("/mcp", BearerAuthMiddleware(_mcp_http))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from contextvars import ContextVar
 from typing import Any
 
 from fastapi import Cookie, Header, HTTPException
@@ -10,6 +11,25 @@ from .db import connect
 
 
 TOKEN_PREFIX = "lets_"
+
+
+# Principal contextvar — set by BearerAuthMiddleware before a /mcp/ request is
+# forwarded; read by MCP tools that need to know the calling agent. Contextvars
+# propagate through asyncio.Task copies, so the value remains correct across
+# the FastMCP request handler chain. Reset to None on every middleware entry
+# so a previous request's principal cannot leak into a request that bypassed
+# the middleware (shouldn't happen, but defense-in-depth).
+_mcp_principal: ContextVar[dict[str, Any] | None] = ContextVar(
+    "lets_mcp_principal", default=None
+)
+
+
+def set_mcp_principal(principal: dict[str, Any] | None) -> None:
+    _mcp_principal.set(principal)
+
+
+def get_mcp_principal() -> dict[str, Any] | None:
+    return _mcp_principal.get()
 
 
 def _hash_token(plaintext: str) -> str:
