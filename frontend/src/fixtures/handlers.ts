@@ -1,6 +1,8 @@
 import { http, HttpResponse } from "msw";
 import { makeSeed, type SeedState } from "./seed";
-import type { MessageDTO, PostMessageInput, IdentityDTO } from "../api/types";
+import type { MessageDTO, PostMessageInput, IdentityDTO, TokenRowDTO } from "../api/types";
+
+type TokenRow = TokenRowDTO;
 
 let seed: SeedState = makeSeed();
 
@@ -65,6 +67,42 @@ export const handlers = [
     };
     seed.messages.push(msg);
     return HttpResponse.json(msg, { status: 201 });
+  }),
+
+  http.get("/api/tokens", () => {
+    return HttpResponse.json(
+      (seed as unknown as { fixtureTokens?: TokenRow[] }).fixtureTokens ?? [],
+    );
+  }),
+
+  http.post("/api/tokens", async ({ request }) => {
+    const body = (await request.json()) as { label: string; role: string; device_label: string };
+    const slot = seed as unknown as { fixtureTokens?: TokenRow[] };
+    const tokens = (slot.fixtureTokens ??= []);
+    const id = tokens.length + 1;
+    const row: TokenRow = {
+      id, label: body.label, human_id: 1,
+      agent_instance_id: 100 + id,
+      created_at: new Date().toISOString(),
+      last_used_at: null, revoked_at: null,
+    };
+    tokens.push(row);
+    return HttpResponse.json(
+      {
+        id, value: `lets_${Math.random().toString(36).slice(2, 10)}`,
+        label: body.label,
+        agent_instance: { id: row.agent_instance_id, role: body.role, device_label: body.device_label },
+      },
+      { status: 201 },
+    );
+  }),
+
+  http.delete("/api/tokens/:id", ({ params }) => {
+    const slot = seed as unknown as { fixtureTokens?: TokenRow[] };
+    const tokens = (slot.fixtureTokens ??= []);
+    const t = tokens.find((x) => x.id === Number(params.id));
+    if (t) t.revoked_at = new Date().toISOString();
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.get("/auth/me", () =>

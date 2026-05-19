@@ -7,6 +7,7 @@ import { AttentionView } from "./attention/AttentionView";
 import { BottomTabs, type MobileTab } from "./layout/BottomTabs";
 import { SessionGate } from "./auth/SessionGate";
 import { LoginPage } from "./auth/LoginPage";
+import { SettingsTokensPage } from "./settings/SettingsTokensPage";
 
 type DesktopView =
   | { kind: "topic"; id: number; title: string }
@@ -51,8 +52,7 @@ function Workspace() {
   } else if (view.kind === "attention") {
     main = <AttentionView userName="Neo" />;
   } else {
-    // settings-tokens — actual page lands in Task 46; placeholder for now.
-    main = <div className="p-6 text-text-muted text-sm">Settings · Tokens (coming in Task 46)</div>;
+    main = <SettingsTokensPage />;
   }
 
   return (

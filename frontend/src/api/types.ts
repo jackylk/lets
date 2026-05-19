@@ -66,3 +66,26 @@ export interface TaskTreeProposalMeta {
 }
 export interface NudgeMeta { reason: string; target_actor_id?: number; }
 export interface DecisionMeta { decision_type: "adopt" | "reject" | "defer"; ref_message_id?: number; }
+
+export interface TokenRowDTO {
+  id: number;
+  label: string | null;
+  human_id: number;
+  agent_instance_id: number | null;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface CreateTokenInput {
+  label: string;
+  role: string;
+  device_label: string;
+}
+
+export interface CreateTokenResponseDTO {
+  id: number;
+  value: string;
+  label: string;
+  agent_instance: { id: number; role: string; device_label: string };
+}

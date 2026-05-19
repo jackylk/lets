@@ -40,5 +40,7 @@ export async function apiRequest<T>(path: string, opts: RequestOptions): Promise
     try { body = await res.json(); } catch { /* ignore */ }
     throw new ApiError(res.status, body);
   }
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return null as T;
   return (await res.json()) as T;
 }
