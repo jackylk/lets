@@ -62,6 +62,19 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                description TEXT,
+                owner_human_id INTEGER,
+                repo_path TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(owner_human_id) REFERENCES humans(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
+
             CREATE TABLE IF NOT EXISTS agent_roles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
@@ -220,6 +233,25 @@ def init_db() -> None:
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(human_notes)").fetchall()}
         if "feedback_type" not in existing_cols:
             conn.execute("ALTER TABLE human_notes ADD COLUMN feedback_type TEXT")
+
+        # Add project_id column to topics if missing (idempotent migration)
+        topic_cols = {r["name"] for r in conn.execute("PRAGMA table_info(topics)").fetchall()}
+        if "project_id" not in topic_cols:
+            conn.execute("ALTER TABLE topics ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+
+        # Seed the default project (idempotent via INSERT OR IGNORE on slug UNIQUE)
+        conn.execute(
+            "INSERT OR IGNORE INTO projects (slug, name, description) VALUES (?, ?, ?)",
+            ("default", "Default Project", "Auto-created for topics without an explicit project."),
+        )
+
+        # Backfill any topics that still have NULL project_id
+        default_id_row = conn.execute("SELECT id FROM projects WHERE slug='default'").fetchone()
+        if default_id_row is not None:
+            conn.execute(
+                "UPDATE topics SET project_id = ? WHERE project_id IS NULL",
+                (default_id_row["id"],),
+            )
 
         # Seed known agent roles (idempotent via INSERT OR IGNORE)
         conn.execute("INSERT OR IGNORE INTO agent_roles (name, description) VALUES (?, ?)",
