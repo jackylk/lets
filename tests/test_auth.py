@@ -177,3 +177,30 @@ def test_get_current_principal_invalid_token(temp_db):
         get_current_principal(authorization="Bearer lets_bogus")
 
     assert exc.value.status_code == 401
+
+
+def test_cli_issue_creates_token(temp_db, capsys):
+    from app.auth import list_tokens
+    from app.identity import ensure_human
+    from app.tokens_cli import cli_issue
+
+    human_id = ensure_human("Neo")
+    cli_issue(human="Neo", role=None, device=None, label="ci-test")
+    captured = capsys.readouterr()
+    tokens = list_tokens(human_id=human_id)
+
+    assert "lets_" in captured.out
+    assert len(tokens) == 1
+    assert tokens[0]["label"] == "ci-test"
+
+
+def test_cli_issue_with_role_and_device(temp_db, capsys):
+    from app.auth import list_tokens
+    from app.identity import ensure_human
+    from app.tokens_cli import cli_issue
+
+    human_id = ensure_human("Neo")
+    cli_issue(human="Neo", role="claude", device="neo-mbp", label=None)
+    tokens = list_tokens(human_id=human_id)
+
+    assert tokens[0]["agent_instance_id"] is not None
