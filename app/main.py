@@ -921,6 +921,71 @@ def patch_project(
     return get_project_by_id(project_id)
 
 
+@app.get("/api/projects/{project_id}/spec")
+def get_project_spec(
+    project_id: int,
+    include_content: bool = False,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    """Read-only Spec view: lists CLAUDE.md, .mcp.json, and .claude/** files.
+
+    Returns each file's relative path, size, and optionally base64-encoded
+    content. Files outside the project's repo_path cannot be reached.
+    """
+    from pathlib import Path
+    from .projects import get_project_by_id
+
+    p = get_project_by_id(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="project not found")
+    if not p.get("repo_path"):
+        raise HTTPException(status_code=404, detail="project has no repo_path configured")
+
+    root = Path(p["repo_path"]).resolve()
+    if not root.exists() or not root.is_dir():
+        raise HTTPException(status_code=404, detail="repo_path does not exist or is not a directory")
+
+    # Collect candidate spec files
+    candidates: list[Path] = []
+    for top_name in ("CLAUDE.md", ".mcp.json", ".claude"):
+        p_node = root / top_name
+        if not p_node.exists():
+            continue
+        if p_node.is_file():
+            candidates.append(p_node)
+        elif p_node.is_dir():
+            for f in p_node.rglob("*"):
+                if f.is_file():
+                    candidates.append(f)
+
+    files_out: list[dict] = []
+    for f in candidates:
+        try:
+            resolved = f.resolve()
+            # Defense: reject anything that escapes root
+            resolved.relative_to(root)
+        except ValueError:
+            continue
+        rel = resolved.relative_to(root).as_posix()
+        entry: dict = {
+            "path": rel,
+            "size": resolved.stat().st_size,
+        }
+        if include_content:
+            import base64
+            try:
+                entry["content_b64"] = base64.b64encode(resolved.read_bytes()).decode("ascii")
+            except OSError:
+                entry["content_b64"] = None
+        files_out.append(entry)
+
+    return {
+        "project_id": project_id,
+        "repo_path": p["repo_path"],
+        "files": sorted(files_out, key=lambda x: x["path"]),
+    }
+
+
 @app.post("/api/projects/{project_id}/topics")
 def post_topic(
     project_id: int,
