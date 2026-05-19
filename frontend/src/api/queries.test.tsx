@@ -9,7 +9,7 @@ function Probe() {
   return (
     <>
       <span data-testid="me">{me.data?.human.name ?? "loading"}</span>
-      <span data-testid="count">{msgs.data?.length ?? -1}</span>
+      <span data-testid="count">{msgs.data?.messages.length ?? -1}</span>
     </>
   );
 }

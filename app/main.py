@@ -712,10 +712,16 @@ def get_topic_messages(
     limit: int = 500,
     after_id: int | None = None,
     principal: dict = Depends(get_api_principal),
-) -> list[dict]:
+) -> dict:
+    from .drift import compute_drift_context
     from .messages import topic_stream
 
-    return topic_stream(topic_id, type_filter=type, limit=limit, after_id=after_id)
+    return {
+        "messages": topic_stream(
+            topic_id, type_filter=type, limit=limit, after_id=after_id,
+        ),
+        "drift_context": compute_drift_context(topic_id),
+    }
 
 
 @app.get("/api/topics/{topic_id}/task-tree")

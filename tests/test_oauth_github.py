@@ -139,4 +139,4 @@ def test_session_cookie_can_use_conversation_api(client, monkeypatch):
         cookies={"lets_session": session},
     )
     assert stream.status_code == 200
-    assert [m["body"] for m in stream.json()] == ["hello from browser session"]
+    assert [m["body"] for m in stream.json()["messages"]] == ["hello from browser session"]

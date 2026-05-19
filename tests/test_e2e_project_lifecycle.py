@@ -77,7 +77,7 @@ def test_e2e_project_lifecycle(client, auth, project_repo):
     })
 
     # 5. Verify the message stream
-    stream = client.get(f"/api/topics/{t1['id']}/messages", headers=auth).json()
+    stream = client.get(f"/api/topics/{t1['id']}/messages", headers=auth).json()["messages"]
     types = [m["type"] for m in stream]
     assert "chat" in types and "project_proposal" in types
 

@@ -105,7 +105,7 @@ def test_ppt_scenario_end_to_end(client):
     )
 
     # 9. Pull full stream and verify ordering + types
-    stream = client.get(f"/api/topics/{topic_id}/messages", headers=auth).json()
+    stream = client.get(f"/api/topics/{topic_id}/messages", headers=auth).json()["messages"]
     types = [m["type"] for m in stream]
     assert types == ["chat", "status", "artifact_revision", "spec_change", "decision"]
 
@@ -113,6 +113,6 @@ def test_ppt_scenario_end_to_end(client):
     only_arts = client.get(
         f"/api/topics/{topic_id}/messages?type=artifact_revision",
         headers=auth,
-    ).json()
+    ).json()["messages"]
     assert len(only_arts) == 1
     assert only_arts[0]["metadata"]["version"] == "v0"

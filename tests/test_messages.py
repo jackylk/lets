@@ -206,7 +206,7 @@ def test_post_and_get_topic_messages_via_api(client):
 
     response3 = client.get(f"/api/topics/{topic_id}/messages", headers=headers)
     assert response3.status_code == 200
-    messages = response3.json()
+    messages = response3.json()["messages"]
     assert len(messages) == 2
     assert messages[0]["body"] == "hello from api"
     assert messages[1]["type"] == "finding"
@@ -259,13 +259,14 @@ def test_get_topic_messages_type_filter(client):
 
     response = client.get(f"/api/topics/{topic_id}/messages?type=chat", headers=headers)
     assert response.status_code == 200
-    assert all(message["type"] == "chat" for message in response.json())
-    assert len(response.json()) == 2
+    body = response.json()["messages"]
+    assert all(message["type"] == "chat" for message in body)
+    assert len(body) == 2
 
     response2 = client.get(
         f"/api/topics/{topic_id}/messages?type=chat&type=decision",
         headers=headers,
     )
     assert response2.status_code == 200
-    types = sorted(message["type"] for message in response2.json())
+    types = sorted(message["type"] for message in response2.json()["messages"])
     assert types == ["chat", "chat", "decision"]

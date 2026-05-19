@@ -18,7 +18,7 @@ function avatarFor(m: MessageDTO): { kind: "human" | "claude" | "codex" | "syste
 
 export function AttentionView({ userName }: Props) {
   const { data, isLoading } = useTopicMessages(1);
-  const messages = data ?? [];
+  const messages = data?.messages ?? [];
 
   const decide = messages.filter((m) => m.type === "spec_change" || (m.type === "chat" && m.body.endsWith("？")));
   const proactive = messages.filter((m) => m.type === "proactive_finding");

@@ -29,7 +29,7 @@ def test_after_id_filter_returns_only_newer_messages(client, auth):
         ids.append(r.json()["id"])
     r = client.get(f"/api/topics/{topic_id}/messages?after_id={ids[1]}", headers=auth)
     assert r.status_code == 200
-    bodies = [m["body"] for m in r.json()]
+    bodies = [m["body"] for m in r.json()["messages"]]
     assert bodies == ["third"]
 
 

@@ -38,7 +38,7 @@ def test_legacy_status_also_mirrored_to_messages(client):
     messages = client.get(
         f"/api/topics/{topic_id}/messages?type=status",
         headers=_auth_header(),
-    ).json()
+    ).json()["messages"]
     assert len(messages) == 1
     assert messages[0]["type"] == "status"
     assert "starting" in messages[0]["body"]
@@ -66,7 +66,7 @@ def test_legacy_work_item_status_transition_mirrored(client):
     messages = client.get(
         f"/api/topics/{topic_id}/messages?type=status",
         headers=_auth_header(),
-    ).json()
+    ).json()["messages"]
     assert len(messages) == 1
     assert messages[0]["metadata"]["work_item_id"] == work_item["id"]
 
@@ -89,7 +89,7 @@ def test_legacy_finding_mirrored(client):
     messages = client.get(
         f"/api/topics/{topic_id}/messages?type=finding",
         headers=_auth_header(),
-    ).json()
+    ).json()["messages"]
     assert len(messages) == 1
     assert messages[0]["body"].startswith("F1")
 
@@ -108,7 +108,7 @@ def test_legacy_feedback_mirrored(client):
     messages = client.get(
         f"/api/topics/{topic_id}/messages?type=question",
         headers=_auth_header(),
-    ).json()
+    ).json()["messages"]
     assert len(messages) == 1
     assert "should we do X?" in messages[0]["body"]
 

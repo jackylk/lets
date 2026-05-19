@@ -49,7 +49,17 @@ export const handlers = [
     const topicId = Number(params.id);
     let messages = seed.messages.filter((m) => m.topic_id === topicId);
     if (types.length) messages = messages.filter((m) => types.includes(m.type));
-    return HttpResponse.json(messages);
+    return HttpResponse.json({
+      messages,
+      drift_context: {
+        topic_mode: "exploratory",
+        active_task: null,
+        last_nudge_at: null,
+        last_nudge_message_id: null,
+        last_nudge_resolved_by: null,
+        messages_since_last_nudge: messages.length,
+      },
+    });
   }),
 
   http.post("/api/messages", async ({ request }) => {

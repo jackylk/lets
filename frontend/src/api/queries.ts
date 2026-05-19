@@ -25,11 +25,25 @@ export function useTopics() {
   });
 }
 
+export interface DriftContextDTO {
+  topic_mode: "exploratory" | "actionable";
+  active_task: { id: number; title: string } | null;
+  last_nudge_at: string | null;
+  last_nudge_message_id: number | null;
+  last_nudge_resolved_by: "moved_to_topic" | "returned" | "dismissed" | null;
+  messages_since_last_nudge: number;
+}
+
+export interface TopicMessagesResponse {
+  messages: MessageDTO[];
+  drift_context: DriftContextDTO;
+}
+
 export function useTopicMessages(topicId: number) {
   const identity = useIdentity();
   return useQuery({
     queryKey: ["topics", topicId, "messages"],
-    queryFn: () => apiRequest<MessageDTO[]>(`/api/topics/${topicId}/messages`, { identity }),
+    queryFn: () => apiRequest<TopicMessagesResponse>(`/api/topics/${topicId}/messages`, { identity }),
   });
 }
 

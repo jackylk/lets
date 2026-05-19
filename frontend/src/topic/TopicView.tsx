@@ -31,7 +31,7 @@ export function TopicView({ topicId, topicTitle }: Props) {
   const postMessage = usePostMessage(topicId);
 
   const merged: MessageDTO[] = useMemo(() => {
-    const base = initial.data ?? [];
+    const base = initial.data?.messages ?? [];
     if (live.messages.length === 0) return base;
     const seen = new Set(base.map((m) => m.id));
     const extra = live.messages.filter((m) => !seen.has(m.id));

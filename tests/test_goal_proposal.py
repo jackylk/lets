@@ -39,5 +39,5 @@ def test_goal_proposal_in_topic_stream(client, auth):
         "actor_type": "human", "actor_id": neo,
         "body": "goal", "metadata": {},
     })
-    stream = client.get(f"/api/topics/{topic_id}/messages", headers=auth).json()
+    stream = client.get(f"/api/topics/{topic_id}/messages", headers=auth).json()["messages"]
     assert any(m["type"] == "goal_proposal" for m in stream)
