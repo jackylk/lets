@@ -180,6 +180,23 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_artifacts_topic ON artifacts(topic_id);
             CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(type);
+
+            CREATE TABLE IF NOT EXISTS artifact_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artifact_id INTEGER NOT NULL,
+                version_label TEXT NOT NULL,
+                backend_revision_id TEXT NOT NULL,
+                created_by_human_id INTEGER,
+                created_by_agent_instance_id INTEGER,
+                summary TEXT,
+                preview_uri TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(artifact_id, version_label),
+                FOREIGN KEY(artifact_id) REFERENCES artifacts(id),
+                FOREIGN KEY(created_by_human_id) REFERENCES humans(id),
+                FOREIGN KEY(created_by_agent_instance_id) REFERENCES agent_instances(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact ON artifact_versions(artifact_id, created_at DESC);
             """
         )
 
