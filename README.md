@@ -141,3 +141,68 @@ mkdir -p ~/lets-artifacts && cd ~/lets-artifacts && git init && \
 export LETS_GIT_REPO=~/lets-artifacts
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+## v1.5 Deploy (Track B)
+
+### Local dev
+
+```bash
+# One-time: initialize the artifacts git repo (Track D needs this)
+mkdir -p ~/lets-artifacts && cd ~/lets-artifacts && git init && \
+  git commit --allow-empty -m "init"
+cd -
+
+# Run the backend
+export LETS_GIT_REPO=~/lets-artifacts
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Verify it's up:
+```bash
+curl http://127.0.0.1:8000/api/context
+# {"project":{"name":"Lets",...}}
+```
+
+### Container
+
+```bash
+docker compose up -d
+curl http://127.0.0.1:8000/api/context
+```
+
+The DB persists in the named volume `lets-data`. To enable Track D artifact endpoints in the container, mount an artifacts git repo and set `LETS_GIT_REPO` (see `docker-compose.yml` comments).
+
+### Issue a token for a remote agent
+
+```bash
+.venv/bin/python -m app.tokens_cli issue --human Neo --role claude --device neo-mbp --label work-laptop
+```
+
+The CLI prints the plaintext token once (the server stores only a SHA256 hash; the plaintext cannot be recovered). Paste it into the remote agent's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "lets": {
+      "type": "http",
+      "url": "https://your-lets-host/mcp/",
+      "headers": { "Authorization": "Bearer lets_..." }
+    }
+  }
+}
+```
+
+Manage tokens:
+
+```bash
+.venv/bin/python -m app.tokens_cli list --human Neo
+.venv/bin/python -m app.tokens_cli revoke --id 5
+```
+
+### Public endpoints (no auth)
+
+`GET /` · `GET /mock` · `GET /api/context` · `GET /api/identity/me`
+
+### Auth-required endpoints
+
+All other `/api/...` routes and the `/mcp/` MCP endpoint require `Authorization: Bearer lets_...`. Without it: `401 missing or invalid token`.
