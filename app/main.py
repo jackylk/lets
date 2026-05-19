@@ -1256,3 +1256,23 @@ def get_project_git_status(
     status = _run(["status", "--short"])
     dirty = [line for line in status.splitlines() if line.strip()]
     return {"head": head, "dirty": dirty}
+
+
+# ---------------------------------------------------------------------------
+# SPA mount (Track C1.5 Task 7)
+#
+# When ``LETS_FRONTEND_DIST`` is set to a directory containing a built
+# frontend (e.g. ``web/dist`` after ``npm run build``), mount it at
+# ``/app`` so the SPA can be served from the same origin as the API.
+# Resolved at module-import time; tests reload this module under a
+# monkeypatched env var.
+# ---------------------------------------------------------------------------
+
+_frontend_dist_env = os.environ.get("LETS_FRONTEND_DIST")
+if _frontend_dist_env:
+    from pathlib import Path as _SpaPath
+    from fastapi.staticfiles import StaticFiles as _SpaStaticFiles
+
+    _spa_dist = _SpaPath(_frontend_dist_env)
+    if _spa_dist.is_dir():
+        app.mount("/app", _SpaStaticFiles(directory=_spa_dist, html=True), name="spa")
