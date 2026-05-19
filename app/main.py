@@ -550,6 +550,35 @@ def list_agents() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+@app.get("/api/agents/online")
+def list_online_agents(
+    principal: dict = Depends(get_current_principal),
+) -> list[dict]:
+    """Returns agent_instances whose token was used in the last 5 minutes."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                ai.id as agent_instance_id,
+                ar.name as role,
+                ai.device_label,
+                h.name as human_name,
+                MAX(t.last_used_at) as last_seen_at
+            FROM tokens t
+            JOIN agent_instances ai ON ai.id = t.agent_instance_id
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN humans h ON h.id = ai.human_id
+            WHERE t.agent_instance_id IS NOT NULL
+              AND t.revoked_at IS NULL
+              AND t.last_used_at IS NOT NULL
+              AND t.last_used_at >= datetime('now', '-5 minutes')
+            GROUP BY ai.id, ar.name, ai.device_label, h.name
+            ORDER BY last_seen_at DESC
+            """
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/findings")
 def list_findings() -> list[dict]:
     with connect() as conn:
