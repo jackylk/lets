@@ -688,6 +688,15 @@ def get_events(
     )
 
 
+@app.get("/api/attention")
+def get_attention_queue(
+    human_id: int,
+    principal: dict = Depends(get_current_principal),
+) -> dict:
+    from .attention import get_attention
+    return get_attention(human_id)
+
+
 @app.get("/api/identity/me")
 def identity_me(
     x_lets_human: str | None = Header(default=None, alias="X-Lets-Human"),
