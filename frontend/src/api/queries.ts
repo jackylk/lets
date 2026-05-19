@@ -3,6 +3,8 @@ import { useIdentity } from "../identity/useIdentity";
 import { apiRequest } from "./client";
 import type { IdentityDTO, MessageDTO, TopicDTO, PostMessageInput } from "./types";
 
+export { useSession as useSessionMe } from "../auth/useSession";
+
 export function useIdentityMe() {
   const identity = useIdentity();
   return useQuery({

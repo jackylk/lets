@@ -4,6 +4,7 @@ interface SidebarProps {
   attentionCount?: number;
   onClickAttention?: () => void;
   onClickTopic?: () => void;
+  onClickSettings?: () => void;
 }
 
 export function Sidebar({
@@ -12,6 +13,7 @@ export function Sidebar({
   attentionCount = 0,
   onClickAttention,
   onClickTopic,
+  onClickSettings: _onClickSettings,
 }: SidebarProps) {
   return (
     <div className="flex flex-col h-full">

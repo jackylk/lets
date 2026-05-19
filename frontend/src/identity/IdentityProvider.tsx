@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { IdentityContext, type Identity } from "./useIdentity";
+import { useSession } from "../auth/useSession";
 
 const STORAGE_KEY = "lets.identity";
 
@@ -20,6 +21,18 @@ function loadIdentity(): Identity {
 
 export function IdentityProvider({ children }: { children: ReactNode }) {
   const [identity, setIdentityState] = useState<Identity>(() => loadIdentity());
+  const session = useSession();
+
+  // When session is known, override humanName from the server (source of truth).
+  useEffect(() => {
+    if (session.data?.human?.name && session.data.human.name !== identity.humanName) {
+      setIdentityState((prev) => {
+        const next = { ...prev, humanName: session.data!.human.name };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        return next;
+      });
+    }
+  }, [session.data, identity.humanName]);
 
   const setIdentity = useCallback((next: Partial<Identity>) => {
     setIdentityState((prev) => {

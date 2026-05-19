@@ -5,12 +5,23 @@ import { TopicView } from "./topic/TopicView";
 import { TopicContext } from "./context/TopicContext";
 import { AttentionView } from "./attention/AttentionView";
 import { BottomTabs, type MobileTab } from "./layout/BottomTabs";
+import { SessionGate } from "./auth/SessionGate";
+import { LoginPage } from "./auth/LoginPage";
 
 type DesktopView =
   | { kind: "topic"; id: number; title: string }
-  | { kind: "attention" };
+  | { kind: "attention" }
+  | { kind: "settings-tokens" };
 
 export default function App() {
+  return (
+    <SessionGate fallback={<LoginPage />}>
+      <Workspace />
+    </SessionGate>
+  );
+}
+
+function Workspace() {
   const [view, setView] = useState<DesktopView>({ kind: "topic", id: 1, title: "为 Agent 记忆写一个研讨 PPT" });
   const [mobileTab, setMobileTab] = useState<MobileTab>("topic");
 
@@ -26,6 +37,7 @@ export default function App() {
       attentionCount={4}
       onClickAttention={() => setView({ kind: "attention" })}
       onClickTopic={() => setView({ kind: "topic", id: 1, title: "为 Agent 记忆写一个研讨 PPT" })}
+      onClickSettings={() => setView({ kind: "settings-tokens" })}
     />
   );
 
@@ -34,10 +46,13 @@ export default function App() {
     if (mobileTab === "topic") main = <TopicView topicId={1} topicTitle="为 Agent 记忆写一个研讨 PPT" />;
     else if (mobileTab === "attention") main = <AttentionView userName="Neo" />;
     else main = <TopicContext />;
+  } else if (view.kind === "topic") {
+    main = <TopicView topicId={view.id} topicTitle={view.title} />;
+  } else if (view.kind === "attention") {
+    main = <AttentionView userName="Neo" />;
   } else {
-    main = view.kind === "topic"
-      ? <TopicView topicId={view.id} topicTitle={view.title} />
-      : <AttentionView userName="Neo" />;
+    // settings-tokens — actual page lands in Task 46; placeholder for now.
+    main = <div className="p-6 text-text-muted text-sm">Settings · Tokens (coming in Task 46)</div>;
   }
 
   return (

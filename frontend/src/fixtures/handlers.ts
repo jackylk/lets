@@ -67,6 +67,17 @@ export const handlers = [
     return HttpResponse.json(msg, { status: 201 });
   }),
 
+  http.get("/auth/me", () =>
+    HttpResponse.json({
+      human: {
+        id: 1, name: "Neo", github_login: "neo",
+        avatar_url: "https://avatars.example/neo.png",
+      },
+    }),
+  ),
+
+  http.post("/auth/logout", () => new HttpResponse(null, { status: 204 })),
+
   http.get("/api/topics/:id/stream", () => {
     const stream = new ReadableStream({
       start(controller) {
