@@ -1,10 +1,13 @@
+import { AppShell } from "./layout/AppShell";
+import { Sidebar } from "./layout/Sidebar";
+import { TopicView } from "./topic/TopicView";
+
 export default function App() {
   return (
-    <div className="min-h-screen grid place-items-center">
-      <div className="text-center">
-        <h1 className="font-[var(--font-display)] text-2xl text-text">Lets</h1>
-        <p className="text-sm text-text-muted">Track F scaffold — Phase 0</p>
-      </div>
-    </div>
+    <AppShell
+      sidebar={<Sidebar projectName="Lets" projectRepo="github.com/echomem/lets" attentionCount={4} />}
+      main={<TopicView topicId={1} />}
+      context={<div className="p-4 text-text-dim text-sm">Context pane (Phase 6)</div>}
+    />
   );
 }
