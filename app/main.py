@@ -1317,3 +1317,195 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
         if not index.exists():
             raise HTTPException(status_code=404, detail="frontend not built")
         return FileResponse(index)
+
+
+# ---------------------------------------------------------------------------
+# GitHub OAuth + session cookie (Track F Task 43)
+#
+# - GET  /auth/github/start     — 307 → github.com/login/oauth/authorize
+# - GET  /auth/github/callback  — exchange code, upsert humans row, set cookie
+# - GET  /auth/me               — current human or 401
+# - POST /auth/logout           — revoke session cookie
+#
+# State store is in-memory (single-process v1.5a; Railway runs one instance).
+# GitHub HTTP calls live in ``_gh_exchange_code`` / ``_gh_fetch_user`` so
+# tests can monkeypatch them without going over the network.
+# ---------------------------------------------------------------------------
+
+import urllib.parse as _urllib_parse
+import secrets as _secrets
+import time as _time
+
+import httpx
+from fastapi import Cookie
+from fastapi.responses import Response
+
+
+_OAUTH_STATES: dict[str, float] = {}
+_OAUTH_TTL_S = 600.0
+
+
+def _new_state() -> str:
+    now = _time.time()
+    # Lazy cleanup of expired states.
+    for k, ts in list(_OAUTH_STATES.items()):
+        if now - ts > _OAUTH_TTL_S:
+            _OAUTH_STATES.pop(k, None)
+    s = _secrets.token_urlsafe(24)
+    _OAUTH_STATES[s] = now
+    return s
+
+
+def _consume_state(s: str) -> bool:
+    return _OAUTH_STATES.pop(s, None) is not None
+
+
+@app.get("/auth/github/start")
+def auth_github_start() -> RedirectResponse:
+    client_id = os.environ.get("GITHUB_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="GITHUB_CLIENT_ID not configured")
+    state = _new_state()
+    params = {
+        "client_id": client_id,
+        "redirect_uri": os.environ.get(
+            "GITHUB_REDIRECT_URI", "http://localhost:8000/auth/github/callback"
+        ),
+        "scope": "read:user user:email",
+        "state": state,
+        "allow_signup": "true",
+    }
+    url = "https://github.com/login/oauth/authorize?" + _urllib_parse.urlencode(params)
+    return RedirectResponse(url=url, status_code=307)
+
+
+async def _gh_exchange_code(code: str):
+    """POST code -> access_token. Patched in tests; do not inline."""
+    async with httpx.AsyncClient(timeout=10.0) as cli:
+        return await cli.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": os.environ["GITHUB_CLIENT_ID"],
+                "client_secret": os.environ["GITHUB_CLIENT_SECRET"],
+                "code": code,
+            },
+            headers={"Accept": "application/json"},
+        )
+
+
+async def _gh_fetch_user(access_token: str):
+    """GET /user with bearer token. Patched in tests; do not inline."""
+    async with httpx.AsyncClient(timeout=10.0) as cli:
+        return await cli.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+
+
+@app.get("/auth/github/callback")
+async def auth_github_callback(code: str, state: str) -> RedirectResponse:
+    if not _consume_state(state):
+        raise HTTPException(status_code=400, detail="invalid state")
+
+    tok = await _gh_exchange_code(code)
+    if tok.status_code != 200:
+        raise HTTPException(status_code=502, detail="github token exchange failed")
+    access_token = tok.json().get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=502, detail="no access_token in github response")
+
+    u = await _gh_fetch_user(access_token)
+    if u.status_code != 200:
+        raise HTTPException(status_code=502, detail="github user fetch failed")
+    info = u.json()
+
+    github_id = int(info["id"])
+    github_login = str(info["login"])
+    display_name = info.get("name") or github_login
+    avatar_url = info.get("avatar_url")
+    email = info.get("email")
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM humans WHERE github_id = ?", (github_id,)
+        ).fetchone()
+        if row is not None:
+            human_id = row["id"]
+            conn.execute(
+                """
+                UPDATE humans SET github_login = ?, avatar_url = ?,
+                       name = COALESCE(?, name), updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (github_login, avatar_url, display_name, human_id),
+            )
+        else:
+            # Resolve name uniqueness — humans.name is UNIQUE.
+            base = display_name
+            candidate = base
+            i = 2
+            while conn.execute(
+                "SELECT 1 FROM humans WHERE name = ?", (candidate,)
+            ).fetchone():
+                candidate = f"{base} ({i})"
+                i += 1
+            cursor = conn.execute(
+                """
+                INSERT INTO humans (name, email, github_id, github_login, avatar_url)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (candidate, email, github_id, github_login, avatar_url),
+            )
+            human_id = int(cursor.lastrowid)
+
+    from .auth import issue_session
+
+    session_value = issue_session(human_id)
+    res = RedirectResponse(url="/app", status_code=307)
+    res.set_cookie(
+        "lets_session",
+        session_value,
+        httponly=True,
+        secure=os.environ.get("LETS_COOKIE_SECURE", "true").lower() != "false",
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+    )
+    return res
+
+
+@app.get("/auth/me")
+def auth_me(
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    from .auth import verify_session
+
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+    return {
+        "human": {
+            "id": principal["human_id"],
+            "name": principal["name"],
+            "github_login": principal["github_login"],
+            "avatar_url": principal["avatar_url"],
+        }
+    }
+
+
+@app.post("/auth/logout", status_code=204)
+def auth_logout(
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> Response:
+    from .auth import revoke_session
+
+    if lets_session:
+        revoke_session(lets_session)
+    res = Response(status_code=204)
+    res.delete_cookie("lets_session", path="/")
+    return res

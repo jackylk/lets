@@ -4,7 +4,7 @@ import hashlib
 import secrets
 from typing import Any
 
-from fastapi import Header, HTTPException
+from fastapi import Cookie, Header, HTTPException
 
 from .db import connect
 
@@ -107,4 +107,76 @@ def get_current_principal(
     principal = verify_token(parts[1].strip())
     if principal is None:
         raise HTTPException(status_code=401, detail="missing or invalid token")
+    return principal
+
+
+# ---------------------------------------------------------------------------
+# Session cookie helpers (Track F Task 43)
+#
+# Sessions authenticate browser users after GitHub OAuth. They are an opaque,
+# random, server-issued credential stored hashed in the ``sessions`` table.
+# Distinct from agent ``tokens`` (Bearer in .mcp.json) which auth CLI agents.
+# ---------------------------------------------------------------------------
+
+
+def issue_session(human_id: int) -> str:
+    """Mint a new opaque session value; return the plaintext (set as cookie)."""
+    raw = secrets.token_urlsafe(32)
+    value_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO sessions (value_hash, human_id) VALUES (?, ?)",
+            (value_hash, human_id),
+        )
+    return raw
+
+
+def verify_session(value: str) -> dict | None:
+    """Return principal dict (human_id, name, github_login, avatar_url) or None.
+
+    Bumps ``last_used_at`` on success. Returns None for revoked or unknown values.
+    """
+    if not value:
+        return None
+    value_hash = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT s.id AS session_id, s.human_id, h.name, h.github_login, h.avatar_url
+            FROM sessions s
+            JOIN humans h ON h.id = s.human_id
+            WHERE s.value_hash = ? AND s.revoked_at IS NULL
+            """,
+            (value_hash,),
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            "UPDATE sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (row["session_id"],),
+        )
+        return dict(row)
+
+
+def revoke_session(value: str) -> None:
+    """Mark the session row revoked. No-op if value is unknown."""
+    if not value:
+        return
+    value_hash = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    with connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE value_hash = ?",
+            (value_hash,),
+        )
+
+
+def get_session_principal(
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    """FastAPI dependency: require a valid ``lets_session`` cookie."""
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
     return principal

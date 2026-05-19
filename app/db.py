@@ -58,9 +58,23 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 email TEXT,
+                github_id INTEGER UNIQUE,
+                github_login TEXT,
+                avatar_url TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                value_hash TEXT NOT NULL UNIQUE,
+                human_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TEXT,
+                revoked_at TEXT,
+                FOREIGN KEY(human_id) REFERENCES humans(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sessions_value_hash ON sessions(value_hash);
 
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -321,3 +335,19 @@ def init_db() -> None:
                      ("claude", "Anthropic Claude Code"))
         conn.execute("INSERT OR IGNORE INTO agent_roles (name, description) VALUES (?, ?)",
                      ("codex", "OpenAI Codex CLI"))
+
+        _migrate_humans_github(conn)
+
+
+def _migrate_humans_github(conn) -> None:
+    """Non-destructive migration: ensure humans has github_id/login/avatar_url."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(humans)").fetchall()}
+    if "github_id" not in cols:
+        conn.execute("ALTER TABLE humans ADD COLUMN github_id INTEGER")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_humans_github_id ON humans(github_id)"
+        )
+    if "github_login" not in cols:
+        conn.execute("ALTER TABLE humans ADD COLUMN github_login TEXT")
+    if "avatar_url" not in cols:
+        conn.execute("ALTER TABLE humans ADD COLUMN avatar_url TEXT")

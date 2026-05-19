@@ -302,3 +302,20 @@ cd frontend && pnpm build  # builds into frontend/dist for production serving
 Production: `uvicorn app.main:app` then `http://localhost:8000/app`. The backend
 serves the SPA from `frontend/dist` if it exists (no env var required;
 `LETS_FRONTEND_DIST` still works as an explicit override).
+
+### v1.5 — GitHub OAuth
+
+Register an OAuth App at https://github.com/settings/applications/new with:
+- Homepage URL: `https://<your-domain>`
+- Authorization callback URL: `https://<your-domain>/auth/github/callback`
+
+Set on the server:
+- `GITHUB_CLIENT_ID=...`
+- `GITHUB_CLIENT_SECRET=...`
+- `GITHUB_REDIRECT_URI=https://<your-domain>/auth/github/callback`
+- `LETS_COOKIE_SECURE=true` (set to `false` for local http)
+
+After successful OAuth, the backend sets an opaque `lets_session` cookie
+(HttpOnly, SameSite=Lax). The SPA reads `/auth/me` to detect the logged-in
+human; agent CLI tokens (Bearer in `.mcp.json`) remain a separate credential
+class for `/mcp` and Track A API access.
