@@ -418,27 +418,40 @@ def _migrate_humans_github(conn) -> None:
 
 
 def _migrate_topics_mode(conn) -> None:
-    """Non-destructive migration: ensure topics has mode column with CHECK."""
+    """Non-destructive migration: ensure topics has mode column with CHECK.
+
+    Wraps the table rebuild in ``PRAGMA foreign_keys=OFF`` so the DROP
+    doesn't trip if a hosting environment has FK enforcement on. The
+    rebuild swaps in a new table with identical id values, so referencing
+    tables (messages, etc.) remain valid by id.
+    """
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(topics)").fetchall()}
     if "mode" in cols:
         return
-    # SQLite cannot add a column with a CHECK constraint via ALTER. Rebuild.
-    conn.execute("""
-        CREATE TABLE topics_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            slug TEXT NOT NULL UNIQUE,
-            title TEXT NOT NULL,
-            project_id INTEGER,
-            mode TEXT NOT NULL DEFAULT 'exploratory'
-                CHECK (mode IN ('exploratory', 'actionable')),
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.execute("""
-        INSERT INTO topics_new (id, slug, title, project_id, created_at, updated_at)
-        SELECT id, slug, title, project_id, created_at, updated_at FROM topics
-    """)
-    conn.execute("DROP TABLE topics")
-    conn.execute("ALTER TABLE topics_new RENAME TO topics")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_topics_project ON topics(project_id)")
+    # Capture and restore foreign_keys around the rebuild
+    prev_fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    if prev_fk:
+        conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("""
+            CREATE TABLE topics_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                project_id INTEGER,
+                mode TEXT NOT NULL DEFAULT 'exploratory'
+                    CHECK (mode IN ('exploratory', 'actionable')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            INSERT INTO topics_new (id, slug, title, project_id, created_at, updated_at)
+            SELECT id, slug, title, project_id, created_at, updated_at FROM topics
+        """)
+        conn.execute("DROP TABLE topics")
+        conn.execute("ALTER TABLE topics_new RENAME TO topics")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_topics_project ON topics(project_id)")
+    finally:
+        if prev_fk:
+            conn.execute("PRAGMA foreign_keys=ON")
