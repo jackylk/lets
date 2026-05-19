@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lets</title>
+  <style>
+    :root {
+      --bg: #f5f3ef;
+      --paper: #fffdf9;
+      --ink: #202427;
+      --muted: #687078;
+      --line: #d9d2c7;
+      --accent: #315d72;
+      --soft: #edf2f4;
+      --warm: #f4eadb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, "PingFang SC", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    header, section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    header {
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 6px; }
+    header p { margin-bottom: 0; color: var(--muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    section { padding: 18px; }
+    form {
+      display: grid;
+      gap: 10px;
+    }
+    input, textarea, select, button {
+      font: inherit;
+    }
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #fff;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: white;
+      background: var(--accent);
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.65;
+      cursor: wait;
+    }
+    .notice {
+      min-height: 20px;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    .notice.success { color: #4f7058; }
+    .notice.error { color: #9b4c3d; }
+    .cards {
+      display: grid;
+      gap: 10px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .icon-button {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--line);
+    }
+    .icon-button:hover {
+      color: #9b4c3d;
+      border-color: #9b4c3d;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pill {
+      background: var(--soft);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+    }
+    .columns {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .list {
+      display: grid;
+      gap: 10px;
+    }
+    .activity {
+      display: grid;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .activity div {
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+    }
+    .muted { color: var(--muted); }
+    @media (max-width: 900px) {
+      .grid, .columns { grid-template-columns: 1fr; }
+      main { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Lets</h1>
+      <p>一个人类和多个本地 coding agent 共用的最小协作板。</p>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>新建工作项</h2>
+        <form id="work-form">
+          <select name="type">
+            <option value="idea">Idea</option>
+            <option value="task">Task</option>
+          </select>
+          <input name="title" placeholder="标题" required>
+          <textarea name="body" placeholder="描述你的想法、问题或任务" required></textarea>
+          <button id="submit-work" type="submit">发布</button>
+        </form>
+        <div id="work-notice" class="notice" aria-live="polite"></div>
+      </section>
+
+      <section>
+        <h2>Agent</h2>
+        <div id="agents" class="cards"></div>
+      </section>
+    </div>
+
+    <section style="margin-bottom:16px;">
+      <h2>工作板</h2>
+      <div class="columns">
+        <div>
+          <h3>Open</h3>
+          <div id="open-items" class="list"></div>
+        </div>
+        <div>
+          <h3>Claimed / In Progress</h3>
+          <div id="claimed-items" class="list"></div>
+        </div>
+        <div>
+          <h3>Done / Rejected</h3>
+          <div id="done-items" class="list"></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section>
+        <h2>最新 Findings</h2>
+        <div id="findings" class="cards"></div>
+      </section>
+      <section>
+        <h2>最近活动</h2>
+        <div id="activity" class="activity"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    async function json(url, options) {
+      const response = await fetch(url, options);
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    }
+
+    function itemCard(item) {
+      return `
+        <div class="card">
+          <div class="card-head">
+            <strong>${item.title}</strong>
+            <button class="icon-button" data-delete-id="${item.id}" title="删除">×</button>
+          </div>
+          <p>${item.body}</p>
+          <div class="meta">
+            <span class="pill">${item.type}</span>
+            <span class="pill">${item.status}</span>
+            ${item.claimed_by_agent_name ? `<span class="pill">${item.claimed_by_agent_name}</span>` : ""}
+            ${item.git_branch ? `<span class="pill">${item.git_branch}</span>` : ""}
+          </div>
+        </div>
+      `;
+    }
+
+    async function refresh() {
+      const [items, agents, findings, activity] = await Promise.all([
+        json("/api/work-items"),
+        json("/api/agents"),
+        json("/api/findings"),
+        json("/api/activity"),
+      ]);
+
+      document.querySelector("#open-items").innerHTML = items
+        .filter((item) => item.status === "open")
+        .map(itemCard).join("");
+      document.querySelector("#claimed-items").innerHTML = items
+        .filter((item) => item.status === "claimed" || item.status === "in_progress")
+        .map(itemCard).join("");
+      document.querySelector("#done-items").innerHTML = items
+        .filter((item) => item.status === "done" || item.status === "rejected")
+        .map(itemCard).join("");
+
+      document.querySelector("#agents").innerHTML = agents.map((agent) => `
+        <div class="card">
+          <strong>${agent.name}</strong>
+          <div class="meta">
+            <span class="pill">${agent.agent_type}</span>
+            <span class="pill">${agent.status}</span>
+          </div>
+        </div>
+      `).join("") || `<p class="muted">还没有 agent 上报状态。</p>`;
+
+      document.querySelector("#findings").innerHTML = findings.map((finding) => `
+        <div class="card">
+          <strong>${finding.title}</strong>
+          <p>${finding.body}</p>
+          <div class="meta">
+            <span class="pill">${finding.agent_name}</span>
+            ${finding.work_item_title ? `<span class="pill">${finding.work_item_title}</span>` : ""}
+          </div>
+        </div>
+      `).join("") || `<p class="muted">还没有 finding。</p>`;
+
+      document.querySelector("#activity").innerHTML = activity.map((entry) => `
+        <div><strong>${entry.actor}</strong> ${entry.kind}: ${entry.summary}</div>
+      `).join("") || `<p class="muted">暂无活动。</p>`;
+    }
+
+    document.querySelector("#work-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = document.querySelector("#submit-work");
+      const notice = document.querySelector("#work-notice");
+      button.disabled = true;
+      notice.className = "notice";
+      notice.textContent = "发布中...";
+      const form = new FormData(event.currentTarget);
+      try {
+        await json("/api/work-items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(Object.fromEntries(form.entries())),
+        });
+        event.currentTarget.reset();
+        notice.className = "notice success";
+        notice.textContent = "已发布。";
+        await refresh();
+      } catch (error) {
+        notice.className = "notice error";
+        notice.textContent = "发布失败，请重试。";
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-delete-id]");
+      if (!button) return;
+      const workItemId = button.dataset.deleteId;
+      button.disabled = true;
+      try {
+        await json(`/api/work-items/${workItemId}`, { method: "DELETE" });
+        await refresh();
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

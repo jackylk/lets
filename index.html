@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Agent Collaboration Architecture</title>
+  <style>
+    :root {
+      --bg: #f5f2ec;
+      --paper: #fffdf8;
+      --ink: #1f2529;
+      --muted: #5f666b;
+      --line: #d8d1c5;
+      --blue: #315d72;
+      --green: #4f7058;
+      --gold: #9a6b22;
+      --red: #9b4c3d;
+      --slate: #63717a;
+      --soft-blue: #e7eef2;
+      --soft-green: #e7efe8;
+      --soft-gold: #f3eadb;
+      --soft-red: #f2e5e1;
+      --soft-slate: #edf0f1;
+      --shadow: 0 14px 40px rgba(40, 31, 18, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px 24px 48px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.6fr);
+      gap: 20px;
+      align-items: stretch;
+      margin-bottom: 20px;
+    }
+
+    .hero, .legend, .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 24px;
+    }
+
+    .eyebrow {
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    h1 {
+      font-size: 30px;
+      line-height: 1.15;
+      letter-spacing: 0;
+      margin: 0 0 12px;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 760px;
+    }
+
+    .legend {
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .legend h2,
+    .panel h2 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    .legend-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .legend-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-top: 4px;
+      flex: 0 0 auto;
+    }
+
+    .stack {
+      display: grid;
+      gap: 20px;
+    }
+
+    .panel {
+      padding: 20px;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+
+    .panel-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .diagram {
+      width: 100%;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .wide-diagram svg {
+      min-width: 980px;
+    }
+
+    .compact-diagram svg {
+      min-width: 0;
+    }
+
+    .caption {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .flow-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .step-index {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--soft-blue);
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 2px;
+      font-size: 14px;
+    }
+
+    .step span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .table th,
+    .table td {
+      text-align: left;
+      vertical-align: top;
+      padding: 11px 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    .table th {
+      color: var(--muted);
+      font-weight: 600;
+      background: #faf7f1;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pill.blue { background: var(--soft-blue); color: var(--blue); }
+    .pill.green { background: var(--soft-green); color: var(--green); }
+    .pill.gold { background: var(--soft-gold); color: var(--gold); }
+    .pill.red { background: var(--soft-red); color: var(--red); }
+    .pill.slate { background: var(--soft-slate); color: var(--slate); }
+
+    .notes {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .section-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 4px 0 -4px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .section-label::before {
+      content: "";
+      width: 28px;
+      height: 2px;
+      background: var(--gold);
+    }
+
+    .scenario-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .scenario {
+      background: #faf7f1;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .scenario h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .scenario p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .note {
+      background: #faf7f1;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .note h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+    }
+
+    .note p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    @media (max-width: 900px) {
+      header,
+      .two-col,
+      .notes,
+      .scenario-grid {
+        grid-template-columns: 1fr;
+      }
+
+      main {
+        padding: 16px 14px 28px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <section class="hero">
+        <div class="eyebrow">Shared State Coordination</div>
+        <h1>多人 + 多 coding agent 协作台架构</h1>
+        <p>
+          这是一个给多人、多设备、多 coding agent 共同研发项目使用的协作台。
+          它让人能发布目标和想法、看清各条架构路线和实验结果，也让不同笔记本上的 agent 知道彼此在做什么，尽量复用成果后再继续探索。
+        </p>
+      </section>
+
+      <aside class="legend">
+        <h2>四个事实面</h2>
+        <div class="legend-grid">
+          <div class="legend-item"><span class="dot" style="background:#315d72"></span><span><strong>GitHub</strong><br>代码、PR、review、merge、CI</span></div>
+          <div class="legend-item"><span class="dot" style="background:#4f7058"></span><span><strong>DBay</strong><br>共享状态、分支记忆、事件、反馈</span></div>
+          <div class="legend-item"><span class="dot" style="background:#9a6b22"></span><span><strong>Web 协作台</strong><br>黑板、架构图、指标、决策</span></div>
+          <div class="legend-item"><span class="dot" style="background:#9b4c3d"></span><span><strong>本地客户端</strong><br>MCP、daemon、git、runner 采集</span></div>
+        </div>
+      </aside>
+    </header>
+
+    <div class="stack">
+      <div class="section-label">场景部分</div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>1. 它解决什么问题</h2>
+          <p>先看用户价值，再看技术实现。</p>
+        </div>
+        <div class="scenario-grid">
+          <div class="scenario">
+            <h3>你能同时驾驭多个 agent</h3>
+            <p>不用逐个问 Claude Code 和 Codex 在做什么；你能一眼看到它们各自目标、分支、状态、实验结果和需要你决策的地方。</p>
+          </div>
+          <div class="scenario">
+            <h3>你和同事能共同研究同一个项目</h3>
+            <p>每个人仍用自己笔记本上的 agent，但大家共享同一份目标、路线、结论和进展，不会各自埋头重复做同一件事。</p>
+          </div>
+          <div class="scenario">
+            <h3>新想法能快速进入研发流</h3>
+            <p>看到文章、论文、博客后，你把 URL 和想法丢到黑板，agent 领取研究，过一会儿你回来直接看结论和下一步建议。</p>
+          </div>
+          <div class="scenario">
+            <h3>架构探索不再只藏在 markdown 里</h3>
+            <p>track、initiative、hypothesis 和它们之间的关系以图形化方式展示，人能看懂当前在探索哪几条路线。</p>
+          </div>
+          <div class="scenario">
+            <h3>agent 尽量复用彼此成果</h3>
+            <p>后来的 agent 会先查已有 branch、finding、artifact、benchmark，不再重复读同一篇论文或重做同一个 spike。</p>
+          </div>
+          <div class="scenario">
+            <h3>结论以证据驱动</h3>
+            <p>LoCoMo、PersonaMem、测试、CI 都绑定到具体 branch 和 commit，路线是否继续不靠口头印象，而看指标。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="two-col">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>2. 人与 agent 如何协同</h2>
+            <p>从一个新 idea 到正式研发路线。</p>
+          </div>
+          <div class="diagram compact-diagram">
+            <svg viewBox="0 0 560 390" role="img" aria-label="人与 agent 协同图">
+              <defs>
+                <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#69737a"></path>
+                </marker>
+              </defs>
+              <rect x="20" y="20" width="170" height="58" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+              <text x="38" y="45" font-size="15" font-weight="700" fill="#9a6b22">1. 人发布 Idea</text>
+              <text x="38" y="65" font-size="13" fill="#5f666b">URL + 想法 + 期望输出</text>
+
+              <rect x="210" y="20" width="150" height="58" rx="8" fill="#e7efe8" stroke="#d8d1c5"/>
+              <text x="228" y="45" font-size="15" font-weight="700" fill="#4f7058">2. DBay 记录</text>
+              <text x="228" y="65" font-size="13" fill="#5f666b">Idea 状态=open</text>
+
+              <rect x="380" y="20" width="160" height="58" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+              <text x="398" y="45" font-size="15" font-weight="700" fill="#9b4c3d">3. Codex 领取</text>
+              <text x="398" y="65" font-size="13" fill="#5f666b">claim + 开始研究</text>
+
+              <rect x="380" y="120" width="160" height="58" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+              <text x="398" y="145" font-size="15" font-weight="700" fill="#9b4c3d">4. Research Session</text>
+              <text x="398" y="165" font-size="13" fill="#5f666b">读资料 / 查已有成果</text>
+
+              <rect x="210" y="120" width="150" height="58" rx="8" fill="#e7efe8" stroke="#d8d1c5"/>
+              <text x="228" y="145" font-size="15" font-weight="700" fill="#4f7058">5. 持续上报</text>
+              <text x="228" y="165" font-size="13" fill="#5f666b">状态 / findings / artifacts</text>
+
+              <rect x="20" y="120" width="170" height="58" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+              <text x="38" y="145" font-size="15" font-weight="700" fill="#9a6b22">6. 人查看进展</text>
+              <text x="38" y="165" font-size="13" fill="#5f666b">黑板 / inbox / 证据</text>
+
+              <rect x="20" y="220" width="170" height="58" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+              <text x="38" y="245" font-size="15" font-weight="700" fill="#9a6b22">7. 人做决策</text>
+              <text x="38" y="265" font-size="13" fill="#5f666b">promote / reject / ask more</text>
+
+              <rect x="210" y="220" width="150" height="58" rx="8" fill="#e7efe8" stroke="#d8d1c5"/>
+              <text x="228" y="245" font-size="15" font-weight="700" fill="#4f7058">8. 状态变更</text>
+              <text x="228" y="265" font-size="13" fill="#5f666b">Idea -> Initiative / archive</text>
+
+              <rect x="380" y="220" width="160" height="58" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+              <text x="398" y="245" font-size="15" font-weight="700" fill="#9b4c3d">9. Agent 继续执行</text>
+              <text x="398" y="265" font-size="13" fill="#5f666b">开 branch / prototype / eval</text>
+
+              <line x1="190" y1="49" x2="210" y2="49" stroke="#69737a" stroke-width="2" marker-end="url(#arrow2)"/>
+              <line x1="360" y1="49" x2="380" y2="49" stroke="#69737a" stroke-width="2" marker-end="url(#arrow2)"/>
+              <line x1="460" y1="78" x2="460" y2="120" stroke="#69737a" stroke-width="2" marker-end="url(#arrow2)"/>
+              <line x1="380" y1="149" x2="360" y2="149" stroke="#69737a" stroke-width="2" marker-end="url(#arrow2)"/>
+              <line x1="210" y1="149" x2="190" y2="149" stroke="#69737a" stroke-width="2" marker-end="url(#arrow2)"/>
+              <line x1="105" y1="178" x2="105" y2="220" stroke="#69737a" stroke-width="2" marker-end="url(#arrow2)"/>
+              <line x1="190" y1="249" x2="210" y2="249" stroke="#69737a" stroke-width="2" marker-end="url(#arrow2)"/>
+              <line x1="360" y1="249" x2="380" y2="249" stroke="#69737a" stroke-width="2" marker-end="url(#arrow2)"/>
+            </svg>
+          </div>
+          <div class="flow-list">
+            <div class="step"><div class="step-index">A</div><div><strong>黑板是新想法入口</strong><span>不是所有输入都先变成任务；先成为 Idea，再由 agent 研究。</span></div></div>
+            <div class="step"><div class="step-index">B</div><div><strong>人保留决策权</strong><span>agent 可以建议 promote，但是否升格为正式路线由人确认。</span></div></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>3. Agent 与 agent 如何协同</h2>
+            <p>避免重复探索，尽量复用彼此成果。</p>
+          </div>
+          <div class="diagram compact-diagram">
+            <svg viewBox="0 0 560 390" role="img" aria-label="agent 间协同图">
+              <defs>
+                <marker id="arrow3" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                  <path d="M0,0 L10,5 L0,10 z" fill="#69737a"></path>
+                </marker>
+              </defs>
+              <rect x="18" y="26" width="156" height="64" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+              <text x="36" y="51" font-size="15" font-weight="700" fill="#9b4c3d">Agent A</text>
+              <text x="36" y="71" font-size="13" fill="#5f666b">正在做 B23</text>
+
+              <rect x="386" y="26" width="156" height="64" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+              <text x="404" y="51" font-size="15" font-weight="700" fill="#9b4c3d">Agent B</text>
+              <text x="404" y="71" font-size="13" fill="#5f666b">想做相关问题</text>
+
+              <rect x="186" y="20" width="188" height="76" rx="8" fill="#e7efe8" stroke="#d8d1c5"/>
+              <text x="204" y="47" font-size="15" font-weight="700" fill="#4f7058">DBay Shared State</text>
+              <text x="204" y="68" font-size="13" fill="#5f666b">WIP / findings / branch / metrics</text>
+
+              <rect x="18" y="144" width="156" height="64" rx="8" fill="#e7eef2" stroke="#d8d1c5"/>
+              <text x="36" y="169" font-size="15" font-weight="700" fill="#315d72">Git branch A</text>
+              <text x="36" y="189" font-size="13" fill="#5f666b">feat/b23-v2</text>
+
+              <rect x="202" y="144" width="156" height="64" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+              <text x="220" y="169" font-size="15" font-weight="700" fill="#9a6b22">Architecture Graph</text>
+              <text x="220" y="189" font-size="13" fill="#5f666b">发现同一路线 / 依赖</text>
+
+              <rect x="386" y="144" width="156" height="64" rx="8" fill="#e7eef2" stroke="#d8d1c5"/>
+              <text x="404" y="169" font-size="15" font-weight="700" fill="#315d72">Git branch B</text>
+              <text x="404" y="189" font-size="13" fill="#5f666b">feat/topic-wm</text>
+
+              <rect x="18" y="272" width="156" height="64" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+              <text x="36" y="297" font-size="15" font-weight="700" fill="#9b4c3d">Agent A output</text>
+              <text x="36" y="317" font-size="13" fill="#5f666b">finding / artifact / metric</text>
+
+              <rect x="202" y="272" width="156" height="64" rx="8" fill="#e7efe8" stroke="#d8d1c5"/>
+              <text x="220" y="297" font-size="15" font-weight="700" fill="#4f7058">可复用资产</text>
+              <text x="220" y="317" font-size="13" fill="#5f666b">代码 / 结论 / 数据</text>
+
+              <rect x="386" y="272" width="156" height="64" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+              <text x="404" y="297" font-size="15" font-weight="700" fill="#9b4c3d">Agent B action</text>
+              <text x="404" y="317" font-size="13" fill="#5f666b">复用 / 避让 / 接力</text>
+
+              <line x1="174" y1="58" x2="186" y2="58" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+              <line x1="386" y1="58" x2="374" y2="58" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+              <line x1="96" y1="90" x2="96" y2="144" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+              <line x1="464" y1="90" x2="464" y2="144" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+              <line x1="174" y1="176" x2="202" y2="176" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+              <line x1="386" y1="176" x2="358" y2="176" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+              <line x1="96" y1="208" x2="96" y2="272" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+              <line x1="174" y1="304" x2="202" y2="304" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+              <line x1="358" y1="304" x2="386" y2="304" stroke="#69737a" stroke-width="2" marker-end="url(#arrow3)"/>
+            </svg>
+          </div>
+          <div class="flow-list">
+            <div class="step"><div class="step-index">A</div><div><strong>先查共享状态，再开工</strong><span>每个 agent 启动时先查 active initiative、peer findings、branch ownership。</span></div></div>
+            <div class="step"><div class="step-index">B</div><div><strong>复用优先于重复</strong><span>如果别人已有 finding、artifact、metric 或半成品，后来的 agent 应优先接力。</span></div></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>4. 一个完整协作周期</h2>
+          <p>从外部文章到最终合并代码，所有参与者都在同一个状态图里。</p>
+        </div>
+        <div class="diagram wide-diagram">
+          <svg viewBox="0 0 1200 260" role="img" aria-label="完整协作周期">
+            <defs>
+              <marker id="arrow4" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="#69737a"></path>
+              </marker>
+            </defs>
+            <rect x="20" y="80" width="150" height="76" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+            <text x="38" y="107" font-size="15" font-weight="700" fill="#9a6b22">外部信号</text>
+            <text x="38" y="130" font-size="13" fill="#5f666b">文章 / 论文 / repo</text>
+
+            <rect x="190" y="80" width="150" height="76" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+            <text x="208" y="107" font-size="15" font-weight="700" fill="#9a6b22">Blackboard Idea</text>
+            <text x="208" y="130" font-size="13" fill="#5f666b">人抛出问题</text>
+
+            <rect x="360" y="80" width="150" height="76" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+            <text x="378" y="107" font-size="15" font-weight="700" fill="#9b4c3d">Agent Research</text>
+            <text x="378" y="130" font-size="13" fill="#5f666b">研究 + finding</text>
+
+            <rect x="530" y="80" width="150" height="76" rx="8" fill="#e7efe8" stroke="#d8d1c5"/>
+            <text x="548" y="107" font-size="15" font-weight="700" fill="#4f7058">Decision</text>
+            <text x="548" y="130" font-size="13" fill="#5f666b">promote / reject</text>
+
+            <rect x="700" y="80" width="150" height="76" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+            <text x="718" y="107" font-size="15" font-weight="700" fill="#9a6b22">Initiative</text>
+            <text x="718" y="130" font-size="13" fill="#5f666b">正式探索路线</text>
+
+            <rect x="870" y="80" width="150" height="76" rx="8" fill="#e7eef2" stroke="#d8d1c5"/>
+            <text x="888" y="107" font-size="15" font-weight="700" fill="#315d72">Git Branch / PR</text>
+            <text x="888" y="130" font-size="13" fill="#5f666b">实现 + review</text>
+
+            <rect x="1040" y="80" width="140" height="76" rx="8" fill="#e7efe8" stroke="#d8d1c5"/>
+            <text x="1058" y="107" font-size="15" font-weight="700" fill="#4f7058">Metrics</text>
+            <text x="1058" y="130" font-size="13" fill="#5f666b">评测 + 证据</text>
+
+            <line x1="170" y1="118" x2="190" y2="118" stroke="#69737a" stroke-width="2" marker-end="url(#arrow4)"/>
+            <line x1="340" y1="118" x2="360" y2="118" stroke="#69737a" stroke-width="2" marker-end="url(#arrow4)"/>
+            <line x1="510" y1="118" x2="530" y2="118" stroke="#69737a" stroke-width="2" marker-end="url(#arrow4)"/>
+            <line x1="680" y1="118" x2="700" y2="118" stroke="#69737a" stroke-width="2" marker-end="url(#arrow4)"/>
+            <line x1="850" y1="118" x2="870" y2="118" stroke="#69737a" stroke-width="2" marker-end="url(#arrow4)"/>
+            <line x1="1020" y1="118" x2="1040" y2="118" stroke="#69737a" stroke-width="2" marker-end="url(#arrow4)"/>
+            <path d="M1110 156 C1110 218, 605 218, 605 160" fill="none" stroke="#69737a" stroke-width="2" marker-end="url(#arrow4)"/>
+            <text x="748" y="214" font-size="13" fill="#5f666b">评测结果回流，影响 initiative 判断和下一轮决策</text>
+          </svg>
+        </div>
+      </section>
+
+      <div class="section-label">技术部分</div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>5. 总体架构</h2>
+          <p>协作台不是替代 GitHub，而是在 GitHub 之上补上共享状态和人机协同层。</p>
+        </div>
+        <div class="diagram wide-diagram">
+          <svg viewBox="0 0 1200 560" role="img" aria-label="总体架构图">
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="#69737a"></path>
+              </marker>
+            </defs>
+
+            <rect x="25" y="28" width="1150" height="72" rx="8" fill="#fff7ea" stroke="#d8d1c5"/>
+            <text x="45" y="55" font-size="18" font-weight="700" fill="#1f2529">人类控制层</text>
+            <text x="45" y="80" font-size="14" fill="#5f666b">你和同事通过 Web 协作台定义目标、抛出 idea、给反馈、做决策</text>
+
+            <rect x="45" y="135" width="250" height="104" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+            <text x="65" y="163" font-size="16" font-weight="700" fill="#9a6b22">Blackboard</text>
+            <text x="65" y="189" font-size="14" fill="#1f2529">目标 / idea / 反馈 / 决策</text>
+            <text x="65" y="212" font-size="13" fill="#5f666b">人的输入入口</text>
+
+            <rect x="325" y="135" width="250" height="104" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+            <text x="345" y="163" font-size="16" font-weight="700" fill="#9a6b22">Architecture Graph</text>
+            <text x="345" y="189" font-size="14" fill="#1f2529">track / initiative / hypothesis</text>
+            <text x="345" y="212" font-size="13" fill="#5f666b">图形化研究地图</text>
+
+            <rect x="605" y="135" width="250" height="104" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+            <text x="625" y="163" font-size="16" font-weight="700" fill="#9a6b22">Workboard</text>
+            <text x="625" y="189" font-size="14" fill="#1f2529">agent / branch / task / status</text>
+            <text x="625" y="212" font-size="13" fill="#5f666b">当前执行态</text>
+
+            <rect x="885" y="135" width="250" height="104" rx="8" fill="#f3eadb" stroke="#d8d1c5"/>
+            <text x="905" y="163" font-size="16" font-weight="700" fill="#9a6b22">Metrics & Evidence</text>
+            <text x="905" y="189" font-size="14" fill="#1f2529">LoCoMo / PersonaMem / CI</text>
+            <text x="905" y="212" font-size="13" fill="#5f666b">证据面板</text>
+
+            <rect x="125" y="286" width="430" height="112" rx="8" fill="#e7efe8" stroke="#d8d1c5"/>
+            <text x="145" y="315" font-size="17" font-weight="700" fill="#4f7058">DBay Collaboration Store</text>
+            <text x="145" y="342" font-size="14" fill="#1f2529">branch-aware shared state</text>
+            <text x="145" y="366" font-size="13" fill="#5f666b">Goal / Track / Idea / Initiative / Agent state / Feedback / Event / Artifact metadata</text>
+
+            <rect x="645" y="286" width="430" height="112" rx="8" fill="#e7eef2" stroke="#d8d1c5"/>
+            <text x="665" y="315" font-size="17" font-weight="700" fill="#315d72">GitHub / GitLab</text>
+            <text x="665" y="342" font-size="14" fill="#1f2529">repo / branch / commit / PR / review / merge / CI</text>
+            <text x="665" y="366" font-size="13" fill="#5f666b">最终代码事实层</text>
+
+            <rect x="35" y="446" width="340" height="84" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+            <text x="55" y="475" font-size="16" font-weight="700" fill="#9b4c3d">你的 MacBook</text>
+            <text x="55" y="500" font-size="14" fill="#1f2529">Claude Code × 2 / Codex / Local Client</text>
+
+            <rect x="430" y="446" width="340" height="84" rx="8" fill="#f2e5e1" stroke="#d8d1c5"/>
+            <text x="450" y="475" font-size="16" font-weight="700" fill="#9b4c3d">同事的 MacBook</text>
+            <text x="450" y="500" font-size="14" fill="#1f2529">Claude Code / other agents / Local Client</text>
+
+            <rect x="825" y="446" width="340" height="84" rx="8" fill="#edf0f1" stroke="#d8d1c5"/>
+            <text x="845" y="475" font-size="16" font-weight="700" fill="#63717a">新加入者</text>
+            <text x="845" y="500" font-size="14" fill="#1f2529">安装客户端 + MCP 后直接接入</text>
+
+            <line x1="170" y1="239" x2="255" y2="286" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="450" y1="239" x2="380" y2="286" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="730" y1="239" x2="470" y2="286" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="1010" y1="239" x2="900" y2="286" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="555" y1="342" x2="645" y2="342" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="205" y1="446" x2="275" y2="398" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="600" y1="446" x2="490" y2="398" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="995" y1="446" x2="955" y2="398" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="225" y1="446" x2="740" y2="398" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+            <line x1="620" y1="446" x2="825" y2="398" stroke="#69737a" stroke-width="2" marker-end="url(#arrow)"/>
+          </svg>
+        </div>
+        <p class="caption">
+          核心边界：<strong>GitHub 是代码主权</strong>，<strong>DBay 是协作主权</strong>，<strong>Web 协作台是人的控制面</strong>，<strong>Local Client 是 agent 的接入面</strong>。
+        </p>
+      </section>
+
+      <section class="two-col">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>6. 本地客户端</h2>
+            <p>每台笔记本都装，所有 agent 用同一套 MCP 协议接入。</p>
+          </div>
+          <table class="table">
+            <thead>
+              <tr><th>组件</th><th>职责</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="pill red">MCP Server</span></td><td>给 Claude Code、Codex、其他 agent 提供统一工具：领 idea、查 peer work、报状态、发 finding。</td></tr>
+              <tr><td><span class="pill red">Local Daemon</span></td><td>维护 session、heartbeat、离线缓存、设备身份、agent 身份。</td></tr>
+              <tr><td><span class="pill blue">Git Scanner</span></td><td>采集 worktree、branch、commit、PR 绑定关系。</td></tr>
+              <tr><td><span class="pill green">Runner Scanner</span></td><td>采集 benchmark、test、eval 结果并绑定 commit/config。</td></tr>
+              <tr><td><span class="pill slate">CLI</span></td><td>给人和脚本用：join、status、sync、doctor。</td></tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>7. 新同事 / 新 agent 接入</h2>
+            <p>重点是让加入成本足够低。</p>
+          </div>
+          <div class="flow-list">
+            <div class="step"><div class="step-index">1</div><div><strong>安装 Local Client</strong><span>登录组织账号，绑定 GitHub 身份和设备。</span></div></div>
+            <div class="step"><div class="step-index">2</div><div><strong>安装 MCP 配置</strong><span>Claude Code、Codex 或其他 agent 都只认同一组协作工具。</span></div></div>
+            <div class="step"><div class="step-index">3</div><div><strong>加入项目</strong><span>自动 hydrate roadmap、active initiative、open ideas、当前反馈。</span></div></div>
+            <div class="step"><div class="step-index">4</div><div><strong>开始协作</strong><span>先查共享状态，再领取 idea/task，再在 GitHub 上推进代码。</span></div></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>8. 我对系统边界的最终定义</h2>
+          <p>如果这四句话你认可，我们的架构就基本对齐了。</p>
+        </div>
+        <div class="notes">
+          <div class="note">
+            <h3>GitHub = 代码真相</h3>
+            <p>最终代码怎么合、谁 review、CI 是否通过，全部以 GitHub 为准。</p>
+          </div>
+          <div class="note">
+            <h3>DBay = 协作真相</h3>
+            <p>共享状态、idea、initiative、agent WIP、finding、反馈、事件和 branch-local context 由 DBay 承担。</p>
+          </div>
+          <div class="note">
+            <h3>协作台 = 人类控制面</h3>
+            <p>人看目标、看路线、看证据、给反馈、做决策，不需要钻进每个 agent 的上下文里。</p>
+          </div>
+          <div class="note">
+            <h3>Local Client = 边缘接入层</h3>
+            <p>把每台笔记本上的 agent、git、runner、runtime 接入共享系统，支持新同事快速加入。</p>
+          </div>
+          <div class="note">
+            <h3>以 hypothesis 为中心</h3>
+            <p>task 只是执行单元，真正要管理的是路线、假设、证据和决策。</p>
+          </div>
+          <div class="note">
+            <h3>目标是 shared state，不只是 memory</h3>
+            <p>这个系统要催熟的是多 agent、多设备、并发读写下的状态协同架构。</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

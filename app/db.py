@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+DB_PATH = Path(__file__).resolve().parent.parent / "lets.db"
+
+
+@contextmanager
+def connect() -> Iterator[sqlite3.Connection]:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db() -> None:
+    with connect() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS work_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL CHECK (type IN ('idea', 'task')),
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open'
+                    CHECK (status IN ('open', 'claimed', 'in_progress', 'done', 'rejected')),
+                created_by TEXT NOT NULL DEFAULT 'human',
+                claimed_by_agent_id INTEGER,
+                claimed_at TEXT,
+                git_branch TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                agent_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'idle'
+                    CHECK (status IN ('idle', 'active', 'blocked', 'offline')),
+                last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS status_updates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id INTEGER NOT NULL,
+                work_item_id INTEGER,
+                status TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(agent_id) REFERENCES agents(id),
+                FOREIGN KEY(work_item_id) REFERENCES work_items(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS findings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work_item_id INTEGER,
+                agent_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(work_item_id) REFERENCES work_items(id),
+                FOREIGN KEY(agent_id) REFERENCES agents(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS human_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work_item_id INTEGER,
+                body TEXT NOT NULL,
+                feedback_type TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(work_item_id) REFERENCES work_items(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                project_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_topics_project ON topics(project_id);
+            """
+        )
+
+        existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(human_notes)").fetchall()}
+        if "feedback_type" not in existing_cols:
+            conn.execute("ALTER TABLE human_notes ADD COLUMN feedback_type TEXT")

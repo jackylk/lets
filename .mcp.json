@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "lets": {
+      "type": "stdio",
+      "command": "/Users/jacky/code/Lets/.venv/bin/python",
+      "args": [
+        "-m",
+        "app.mcp_server"
+      ],
+      "env": {}
+    }
+  }
+}

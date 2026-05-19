@@ -1,0 +1,2347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Lets — Mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5.1.1/index.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono@5.1.1/index.min.css" rel="stylesheet">
+<style>
+:root {
+  /* Light "cream" palette — warm-tinted neutrals (hue 75) */
+  --bg:               oklch(0.985 0.006 75);
+  --surface:          oklch(0.965 0.008 75);
+  --surface-elev:     oklch(0.995 0.004 75);
+  --surface-hover:    oklch(0.955 0.009 75);
+  --border:           oklch(0.88  0.010 75);
+  --border-soft:      oklch(0.92  0.008 75);
+  --shadow-card:      0 1px 2px oklch(0.50 0.02 75 / 0.05),
+                      0 4px 12px oklch(0.50 0.02 75 / 0.04);
+
+  --text:             oklch(0.22 0.010 240);
+  --text-muted:       oklch(0.46 0.010 240);
+  --text-dim:         oklch(0.62 0.008 240);
+
+  --accent:           oklch(0.62 0.16 55);
+  --accent-soft:      oklch(0.93 0.07 70);
+  --accent-text:      oklch(0.42 0.16 55);
+  --accent-border:    oklch(0.78 0.10 70);
+
+  --agent-claude:     oklch(0.52 0.14 50);
+  --agent-claude-bg:  oklch(0.94 0.05 50);
+  --agent-codex:      oklch(0.46 0.10 155);
+  --agent-codex-bg:   oklch(0.93 0.04 155);
+  --human:            oklch(0.45 0.10 220);
+  --human-bg:         oklch(0.93 0.03 220);
+
+  /* Typed-message accents */
+  --finding:          oklch(0.46 0.10 155);
+  --finding-bg:       oklch(0.93 0.04 155);
+  --decision:         oklch(0.45 0.16 290);
+  --decision-bg:      oklch(0.93 0.06 290);
+  --handoff:          oklch(0.45 0.13 215);
+  --handoff-bg:       oklch(0.93 0.05 215);
+  --review:           oklch(0.45 0.12 285);
+  --review-bg:        oklch(0.93 0.05 285);
+  --artifact:         oklch(0.40 0.12 255);
+  --artifact-bg:      oklch(0.93 0.04 255);
+  --spec:             oklch(0.42 0.06 190);
+  --spec-bg:          oklch(0.93 0.03 190);
+  --proactive:        oklch(0.55 0.16 30);
+  --proactive-bg:     oklch(0.95 0.06 30);
+  --tree:             oklch(0.42 0.10 170);
+  --tree-bg:          oklch(0.94 0.04 170);
+  --nudge:            oklch(0.50 0.020 80);
+  --nudge-bg:         oklch(0.95 0.012 80);
+
+  --status-on:        oklch(0.62 0.14 145);
+  --status-work:      oklch(0.65 0.16 55);
+  --status-idle:      oklch(0.65 0.008 240);
+
+  --font-display:     'Bricolage Grotesque', system-ui, sans-serif;
+  --font-body:        'Geist Variable', 'Geist', system-ui, sans-serif;
+  --font-mono:        'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
+
+  --radius-sm: 6px; --radius: 10px; --radius-lg: 14px;
+
+  --side-w: 296px;
+  --context-w: 360px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'ss01', 'cv11';
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+input, textarea {
+  font: inherit; color: inherit; background: transparent;
+  border: 0; outline: 0; width: 100%; resize: none;
+}
+.mono { font-family: var(--font-mono); font-size: 0.92em; }
+.display { font-family: var(--font-display); font-feature-settings: 'ss01'; }
+
+/* === Layout === */
+.app {
+  display: grid;
+  grid-template-columns: var(--side-w) 1fr var(--context-w);
+  height: 100dvh;
+  background: var(--bg);
+}
+@media (max-width: 1279px) {
+  .app { grid-template-columns: var(--side-w) 1fr; }
+  .app .context { display: none; }
+}
+@media (max-width: 767px) {
+  .app { grid-template-columns: 1fr; }
+  .app .side { display: none; }
+  .app .main { padding-bottom: 64px; }
+  .bottom-tabs { display: flex; }
+}
+
+/* ============ SIDEBAR ============ */
+.side {
+  background: color-mix(in oklch, var(--bg), oklch(0.5 0.02 75) 3%);
+  border-right: 1px solid var(--border-soft);
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+.side-head {
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: center; gap: var(--space-3);
+}
+.proj-mark {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: var(--text); color: var(--bg);
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 14px;
+}
+.proj-info { line-height: 1.25; }
+.proj-name {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 15px; letter-spacing: -0.005em;
+}
+.proj-repo { color: var(--text-dim); font-size: 11px; font-family: var(--font-mono); margin-top: 1px; }
+
+.side-section { padding: var(--space-4) var(--space-3); }
+.side-section + .side-section { padding-top: var(--space-2); }
+.side-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-dim); font-weight: 600;
+  padding: 0 var(--space-3) var(--space-2);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.side-label .count {
+  font-family: var(--font-mono); letter-spacing: 0; text-transform: none; font-weight: 500;
+}
+.side-label .count.alert {
+  background: var(--accent-soft); color: var(--accent-text);
+  padding: 1px 7px; border-radius: 99px; font-size: 10px;
+}
+.side-label-btn {
+  width: 100%; background: none; border: 0;
+  cursor: pointer; font: inherit; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
+  font-size: 11px;
+  padding: 6px var(--space-3); border-radius: var(--radius-sm);
+  transition: background 80ms, color 80ms;
+  margin-bottom: var(--space-1);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.side-label-btn:hover { background: var(--surface-hover); color: var(--text); }
+.side-label-btn.active { background: var(--accent-soft); color: var(--accent-text); }
+
+/* Collapsible sidebar section */
+.side-section.collapsible .side-label-toggle {
+  width: 100%; background: none; border: 0;
+  cursor: pointer; font: inherit;
+  text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;
+  color: var(--text-dim); font-size: 11px;
+  padding: 6px var(--space-3); border-radius: var(--radius-sm);
+  display: flex; align-items: center; gap: var(--space-2);
+  transition: background 80ms, color 80ms;
+}
+.side-section.collapsible .side-label-toggle:hover { background: var(--surface-hover); color: var(--text); }
+.side-section.collapsible .side-label-toggle .caret {
+  display: inline-block; font-size: 9px;
+  transition: transform 120ms;
+  color: var(--text-dim);
+}
+.side-section.collapsible.open .side-label-toggle .caret { transform: rotate(90deg); }
+.side-section.collapsible .side-label-toggle .label { flex: 1; text-align: left; }
+.side-section.collapsible .side-label-toggle .count {
+  font-family: var(--font-mono); letter-spacing: 0;
+  text-transform: none; font-weight: 500;
+  color: var(--text-dim);
+}
+.side-section.collapsible .side-label-toggle .count.alert {
+  background: var(--accent-soft); color: var(--accent-text);
+  padding: 1px 7px; border-radius: 99px; font-size: 10px;
+}
+.side-section.collapsible .side-section-body {
+  display: none;
+  margin-top: var(--space-2);
+}
+.side-section.collapsible.open .side-section-body { display: block; }
+
+/* Spacer 推底部 */
+.side-spacer { flex: 1; min-height: var(--space-3); }
+
+/* 底部"项目设置"链接 */
+.side-footer {
+  border-top: 1px solid var(--border-soft);
+  padding: var(--space-3) var(--space-4);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.side-footer-link {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 6px 8px; border-radius: var(--radius-sm);
+  font-size: 12px; color: var(--text-muted);
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+}
+.side-footer-link:hover { background: var(--surface-hover); color: var(--text); }
+.side-footer-link .ic { color: var(--text-dim); }
+.side-footer-link .nm { flex: 1; }
+.side-footer-link .meta { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.side-footer-link .updated-dot {
+  width: 6px; height: 6px; border-radius: 99px;
+  background: var(--spec);
+}
+
+.side-item {
+  display: grid; grid-template-columns: 16px 1fr auto;
+  align-items: center; gap: var(--space-3);
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  color: var(--text-muted); cursor: pointer;
+  transition: background 80ms ease-out, color 80ms;
+  user-select: none; font-size: 13px;
+}
+.side-item:hover { background: var(--surface-hover); color: var(--text); }
+.side-item.active {
+  background: var(--surface-elev); color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.side-item .hash { color: var(--text-dim); font-family: var(--font-mono); font-size: 12px; text-align: center; }
+.side-item .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-item .badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 99px;
+  background: var(--accent-soft); color: var(--accent-text);
+  font-weight: 600; font-family: var(--font-body);
+}
+
+/* Attention items */
+.attention-list { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--space-3); }
+.attn-item {
+  display: grid; grid-template-columns: 22px 1fr;
+  gap: var(--space-3); padding: 8px 10px;
+  border-radius: var(--radius-sm); cursor: pointer; transition: background 80ms;
+}
+.attn-item:hover { background: var(--surface-hover); }
+.attn-icon {
+  width: 22px; height: 22px; border-radius: 7px;
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  flex-shrink: 0;
+}
+.attn-icon.q { background: var(--accent-soft); color: var(--accent-text); }
+.attn-icon.r { background: var(--review-bg); color: var(--review); }
+.attn-icon.h { background: var(--human-bg); color: var(--human); }
+.attn-icon.s { background: var(--spec-bg); color: var(--spec); }
+.attn-icon.p { background: var(--proactive-bg); color: var(--proactive); }
+.attn-body { min-width: 0; line-height: 1.35; }
+.attn-title {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.attn-meta { font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); margin-top: 2px; }
+
+/* Topic rows */
+.topic-row {
+  display: grid; grid-template-columns: 26px 1fr auto;
+  align-items: center; gap: var(--space-3);
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  cursor: pointer; font-size: 13px;
+  color: var(--text-muted); transition: background 80ms;
+}
+.topic-row:hover { background: var(--surface-hover); color: var(--text); }
+.topic-row.active {
+  background: var(--surface-elev); color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.topic-row .id { font-family: var(--font-mono); color: var(--text-dim); font-size: 11px; text-align: right; }
+.topic-row .ti { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topic-row.active .ti { font-weight: 500; }
+.topic-row .own {
+  font-size: 10px; font-family: var(--font-mono); font-weight: 700;
+  width: 20px; height: 20px; border-radius: 6px;
+  display: grid; place-items: center;
+  background: var(--surface-hover); color: var(--text-dim);
+}
+.topic-row .own.claude { background: var(--agent-claude-bg); color: var(--agent-claude); }
+.topic-row .own.codex { background: var(--agent-codex-bg); color: var(--agent-codex); }
+.topic-row .own.human { background: var(--human-bg); color: var(--human); }
+
+/* Project Spec section in sidebar */
+.spec-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center; gap: var(--space-3);
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  cursor: pointer; font-size: 12.5px;
+  color: var(--text-muted); transition: background 80ms;
+}
+.spec-row:hover { background: var(--surface-hover); color: var(--text); }
+.spec-row .ic {
+  display: grid; place-items: center;
+  color: var(--text-dim);
+}
+.spec-row .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 11.5px; }
+.spec-row .ver {
+  font-size: 9px; font-family: var(--font-mono);
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--surface); color: var(--text-dim);
+  font-weight: 600;
+}
+.spec-row .ver.updated {
+  background: var(--spec-bg); color: var(--spec);
+}
+
+/* Agent rows */
+.agent-row {
+  display: grid; grid-template-columns: 24px 1fr auto;
+  align-items: center; gap: var(--space-3);
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  cursor: pointer; transition: background 80ms;
+}
+.agent-row:hover { background: var(--surface-hover); }
+.agent-avatar {
+  width: 24px; height: 24px; border-radius: 7px;
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+}
+.agent-avatar.claude { background: var(--agent-claude-bg); color: var(--agent-claude); }
+.agent-avatar.codex { background: var(--agent-codex-bg); color: var(--agent-codex); }
+.agent-avatar.human { background: var(--human-bg); color: var(--human); }
+.agent-meta { line-height: 1.2; min-width: 0; }
+.agent-name { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-sub { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* DM rows */
+.dm-row {
+  display: grid; grid-template-columns: 24px 1fr auto;
+  align-items: center; gap: var(--space-3);
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  cursor: pointer; transition: background 80ms;
+}
+.dm-row:hover { background: var(--surface-hover); }
+.dm-meta { line-height: 1.25; min-width: 0; }
+.dm-name { font-size: 13px; color: var(--text); font-weight: 500; }
+.dm-row.unread .dm-name { font-weight: 600; }
+.dm-preview { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.dm-row.unread .dm-preview { color: var(--text-muted); }
+.dm-time { font-size: 10px; color: var(--text-dim); font-family: var(--font-mono); flex-shrink: 0; }
+.dm-row.unread .dm-time { color: var(--accent-text); font-weight: 600; }
+
+.dot { width: 7px; height: 7px; border-radius: 99px; background: var(--status-idle); }
+.dot.online { background: var(--status-on); box-shadow: 0 0 0 3px oklch(0.62 0.14 145 / 0.15); }
+.dot.working { background: var(--status-work); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--status-work); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px transparent; opacity: 0.7; }
+}
+
+/* ============ MAIN ============ */
+.main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.main-head {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-soft);
+  min-height: 60px;
+  background: color-mix(in oklch, var(--bg), white 20%);
+}
+.topic-head-id { font-family: var(--font-mono); color: var(--text-dim); font-size: 13px; }
+.main-title {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 17px; letter-spacing: -0.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+.topic-status-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; padding: 3px 9px; border-radius: 99px;
+  background: var(--accent-soft); color: var(--accent-text);
+  font-weight: 600; font-family: var(--font-mono);
+}
+.topic-status-chip .dot { width: 6px; height: 6px; }
+
+.view-switch {
+  display: inline-flex;
+  background: var(--surface); border: 1px solid var(--border-soft);
+  border-radius: 8px; padding: 2px; margin-left: var(--space-3);
+}
+.view-switch button {
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 12px; color: var(--text-muted);
+}
+.view-switch button.active {
+  background: var(--surface-elev); color: var(--text);
+  box-shadow: 0 1px 2px oklch(0.50 0.02 75 / 0.08);
+}
+.vs-badge {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 99px; margin-left: 2px;
+  background: var(--accent); color: oklch(0.99 0.005 75);
+  font-family: var(--font-body); vertical-align: 1px;
+}
+@media (max-width: 767px) { .view-switch { display: none; } }
+
+.main-actions { margin-left: auto; display: flex; gap: var(--space-1); }
+.icon-btn {
+  width: 32px; height: 32px; border-radius: var(--radius-sm);
+  display: grid; place-items: center;
+  color: var(--text-muted); transition: background 80ms, color 80ms;
+}
+.icon-btn:hover { background: var(--surface-hover); color: var(--text); }
+
+/* Goal Card — Artifact 目标 + 进度（topic 顶部，stream 之上）*/
+.goal-card {
+  margin: var(--space-5) var(--space-5) 0;
+  padding: var(--space-4) var(--space-5);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--surface-elev), var(--accent-soft) 25%) 0%,
+    var(--surface-elev) 100%
+  );
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-5);
+  align-items: start;
+}
+.goal-card .gc-main { min-width: 0; }
+.goal-card .gc-tag-row {
+  display: flex; align-items: baseline; gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+.goal-card .gc-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--accent-text);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.goal-card .gc-tag::before { content: '🎯'; font-size: 14px; }
+.goal-card .gc-goal-meta {
+  font-size: 11px; color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+.goal-card .gc-artifact-name {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 19px; letter-spacing: -0.01em; color: var(--text);
+  margin-bottom: 6px;
+}
+.goal-card .gc-artifact-name .ver-now {
+  font-family: var(--font-mono); font-size: 13px;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  padding: 1px 8px; border-radius: 99px;
+  font-weight: 700;
+  margin-left: var(--space-2);
+  vertical-align: 3px;
+}
+.goal-card .gc-spec {
+  color: var(--text-muted); font-size: 13.5px;
+  line-height: 1.55;
+  margin-bottom: var(--space-3);
+  max-width: 60ch;
+}
+.goal-card .gc-progress-row {
+  display: flex; align-items: center; gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.goal-card .gc-bar {
+  flex: 1; height: 6px; border-radius: 99px;
+  background: var(--surface);
+  overflow: hidden;
+  max-width: 320px;
+}
+.goal-card .gc-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), color-mix(in oklch, var(--accent), var(--decision) 30%));
+  border-radius: 99px;
+}
+.goal-card .gc-progress-text {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-muted);
+}
+.goal-card .gc-progress-text .done-num { color: var(--status-on); font-weight: 700; }
+.goal-card .gc-current {
+  font-size: 12.5px; color: var(--text-muted);
+}
+.goal-card .gc-current .cur-task {
+  color: var(--text); font-weight: 500;
+  padding: 1px 7px;
+  background: var(--accent-soft);
+  border-radius: 4px;
+}
+.goal-card .gc-actions {
+  display: flex; flex-direction: column; gap: 6px;
+  flex-shrink: 0;
+}
+.gc-btn {
+  font-size: 12px; font-weight: 600;
+  padding: 6px 12px; border-radius: 7px;
+  white-space: nowrap;
+}
+.gc-btn.primary { background: var(--text); color: oklch(0.99 0.005 75); }
+.gc-btn.primary:hover { filter: brightness(1.1); }
+.gc-btn.secondary {
+  background: var(--surface); color: var(--text-muted);
+  border: 1px solid var(--border-soft);
+}
+.gc-btn.secondary:hover { background: var(--surface-hover); color: var(--text); }
+.gc-btn.final {
+  background: var(--decision-bg); color: var(--decision);
+  border: 1px solid color-mix(in oklch, var(--decision-bg), var(--decision) 40%);
+}
+.gc-btn.final:hover { background: color-mix(in oklch, var(--decision-bg), var(--decision) 15%); }
+
+@media (max-width: 767px) {
+  .goal-card {
+    margin: var(--space-3) var(--space-3) 0;
+    padding: var(--space-3) var(--space-4);
+    grid-template-columns: 1fr;
+  }
+  .goal-card .gc-actions { flex-direction: row; flex-wrap: wrap; }
+}
+
+/* Detail toggle 在 agent message 末尾 */
+.detail-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: var(--space-3);
+  font-size: 11.5px; color: var(--text-dim);
+  font-family: var(--font-mono);
+  padding: 3px 8px; border-radius: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  transition: all 80ms;
+  cursor: pointer;
+}
+.detail-toggle:hover {
+  background: var(--surface-hover); color: var(--text);
+  border-color: var(--border);
+}
+.detail-toggle.open { color: var(--text); background: var(--surface-hover); }
+.detail-toggle .caret {
+  display: inline-block;
+  transition: transform 120ms;
+}
+.detail-toggle.open .caret { transform: rotate(90deg); }
+.detail-toggle .stats {
+  color: var(--text-dim); font-weight: 500;
+  margin-left: 4px;
+}
+
+.msg-detail {
+  display: none;
+  margin-top: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+}
+.msg-detail.open { display: block; }
+.msg-detail .section + .section { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-soft); }
+.msg-detail .sec-head {
+  display: flex; align-items: baseline; gap: var(--space-2);
+  margin-bottom: 6px;
+  color: var(--text-dim); font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
+  font-family: var(--font-body);
+}
+.msg-detail .sec-head .count { color: var(--text-muted); font-family: var(--font-mono); }
+.msg-detail ul { margin: 0; padding-left: var(--space-4); list-style: none; }
+.msg-detail li {
+  padding: 3px 0; line-height: 1.5;
+  position: relative;
+}
+.msg-detail li::before {
+  content: '·';
+  position: absolute; left: -12px;
+  color: var(--text-dim);
+}
+.msg-detail li .tool-name {
+  color: var(--agent-codex); font-weight: 600;
+}
+.msg-detail li .tool-args {
+  color: var(--text-muted);
+}
+.msg-detail .actions-row {
+  display: flex; gap: var(--space-2); margin-top: var(--space-3);
+  font-family: var(--font-body);
+}
+.terminal-btn {
+  font-size: 11.5px; font-weight: 600;
+  padding: 4px 9px; border-radius: 5px;
+  background: var(--text); color: oklch(0.99 0.005 75);
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.terminal-btn:hover { filter: brightness(1.1); }
+.terminal-btn::before { content: '⌨'; font-family: var(--font-mono); font-size: 13px; }
+.copy-btn {
+  font-size: 11.5px;
+  padding: 4px 9px; border-radius: 5px;
+  background: var(--surface-elev); color: var(--text-muted);
+  border: 1px solid var(--border-soft);
+}
+.copy-btn:hover { background: var(--surface-hover); color: var(--text); }
+.session-id { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; margin-left: auto; align-self: center; }
+
+/* Stream */
+.stream {
+  flex: 1; overflow-y: auto;
+  padding: var(--space-4) var(--space-5) var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-5);
+}
+.day-sep {
+  display: flex; align-items: center; gap: var(--space-3);
+  color: var(--text-dim); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.day-sep::before, .day-sep::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
+
+/* Messages */
+.msg {
+  display: grid; grid-template-columns: 32px 1fr;
+  gap: var(--space-3); max-width: 84ch;
+}
+.msg .av {
+  width: 32px; height: 32px; border-radius: 9px;
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+}
+.msg .av.claude { background: var(--agent-claude-bg); color: var(--agent-claude); }
+.msg .av.codex { background: var(--agent-codex-bg); color: var(--agent-codex); }
+.msg .av.human { background: var(--human-bg); color: var(--human); }
+.msg .av.system { background: var(--surface); color: var(--text-dim); }
+
+.msg-head { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: 2px; flex-wrap: wrap; }
+.msg-name { font-weight: 600; color: var(--text); font-size: 13.5px; }
+.msg-name.human { color: var(--human); }
+.msg-name.claude { color: var(--agent-claude); }
+.msg-name.codex { color: var(--agent-codex); }
+.msg-meta { color: var(--text-dim); font-size: 11px; font-family: var(--font-mono); }
+.msg-body { color: var(--text); font-size: 14px; line-height: 1.6; }
+.msg-body p { margin: 0; }
+.msg-body p + p { margin-top: var(--space-2); }
+.msg-body code {
+  font-family: var(--font-mono); font-size: 0.88em;
+  background: var(--surface); padding: 1px 5px; border-radius: 4px;
+  color: var(--text); border: 1px solid var(--border-soft);
+}
+.msg-body .mention {
+  color: var(--accent-text); background: var(--accent-soft);
+  padding: 1px 6px; border-radius: 4px;
+  font-weight: 600; font-family: var(--font-mono); font-size: 0.92em;
+}
+
+/* Typed variants */
+.msg.is-status .msg-body,
+.msg.is-finding .msg-body,
+.msg.is-handoff .msg-body,
+.msg.is-review .msg-body,
+.msg.is-question .msg-body,
+.msg.is-decision .msg-body,
+.msg.is-artifact .msg-body,
+.msg.is-spec .msg-body,
+.msg.is-proactive .msg-body {
+  background: var(--surface-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-card);
+}
+
+.tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 3px 8px; border-radius: 99px;
+  margin-bottom: var(--space-2);
+  background: var(--surface); color: var(--text-muted);
+  font-family: var(--font-body);
+}
+.tag.work { background: var(--surface-hover); }
+.tag.work::before { content: ''; width: 6px; height: 6px; border-radius: 99px; background: var(--status-work); animation: pulse 1.6s ease-in-out infinite; }
+
+.msg.is-finding .tag { color: var(--finding); background: var(--finding-bg); }
+.msg.is-finding .tag::before { content: '◆'; font-size: 8px; letter-spacing: 0; }
+.msg.is-finding .finding-title {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 15px; letter-spacing: -0.005em;
+  margin-bottom: var(--space-2);
+}
+
+.msg.is-decision .tag { color: var(--decision); background: var(--decision-bg); }
+.msg.is-decision .tag::before { content: '✦'; font-size: 9px; letter-spacing: 0; }
+
+.msg.is-question .tag { color: var(--accent-text); background: var(--accent-soft); }
+.msg.is-question .msg-body {
+  background: color-mix(in oklch, var(--surface-elev), var(--accent-soft) 40%);
+  border-color: var(--accent-border);
+}
+
+.msg.is-handoff .tag { color: var(--handoff); background: var(--handoff-bg); }
+.msg.is-handoff .tag::before { content: '↪'; font-size: 11px; letter-spacing: 0; }
+.msg.is-handoff .msg-body {
+  background: color-mix(in oklch, var(--surface-elev), var(--handoff-bg) 50%);
+  border-color: oklch(0.78 0.07 215);
+}
+
+.msg.is-review .tag { color: var(--review); background: var(--review-bg); }
+.msg.is-review .tag::before { content: '✓'; font-size: 10px; letter-spacing: 0; }
+
+.msg.is-artifact .tag { color: var(--artifact); background: var(--artifact-bg); }
+.msg.is-artifact .tag::before { content: '◇'; font-size: 10px; letter-spacing: 0; }
+.msg.is-artifact .msg-body {
+  background: color-mix(in oklch, var(--surface-elev), var(--artifact-bg) 35%);
+  border-color: oklch(0.78 0.06 255);
+}
+.artifact-preview {
+  margin-top: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+.artifact-name {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-mono); font-size: 12px; color: var(--text);
+  margin-bottom: var(--space-3);
+}
+.artifact-name .ver-chip {
+  background: var(--artifact); color: oklch(0.99 0.005 75);
+  font-size: 10px; font-weight: 700;
+  padding: 1px 6px; border-radius: 99px;
+}
+.slide-strip {
+  display: grid; grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+.slide-thumb {
+  aspect-ratio: 16/9;
+  background: white;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 4px 5px;
+  display: flex; flex-direction: column; gap: 2px;
+  position: relative;
+  font-family: var(--font-mono);
+}
+.slide-thumb .num {
+  position: absolute; bottom: 2px; right: 4px;
+  font-size: 7px; color: var(--text-dim);
+}
+.slide-thumb .hbar { height: 3px; background: var(--text); border-radius: 1px; }
+.slide-thumb .hbar.short { width: 60%; }
+.slide-thumb .lbar { height: 1.5px; background: var(--text-muted); border-radius: 1px; opacity: 0.7; }
+.slide-thumb .lbar.short { width: 70%; }
+.slide-thumb .lbar.shorter { width: 50%; }
+.slide-thumb .chart {
+  flex: 1; background: linear-gradient(135deg, var(--agent-codex-bg) 0%, var(--agent-claude-bg) 100%);
+  border-radius: 2px; opacity: 0.45;
+}
+.slide-thumb .grid2 {
+  flex: 1;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  gap: 2px;
+}
+.slide-thumb .grid2 > div { background: var(--surface-hover); border-radius: 1px; }
+.slide-thumb .grid4 {
+  flex: 1;
+  display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 1fr);
+  gap: 1px;
+}
+.slide-thumb .grid4 > div { background: var(--accent-soft); border-radius: 1px; }
+.slide-thumb.title { background: var(--text); }
+.slide-thumb.title .hbar { background: var(--bg); }
+.slide-thumb.title .lbar { background: var(--bg); opacity: 0.5; }
+
+.msg.is-spec .tag { color: var(--spec); background: var(--spec-bg); }
+.msg.is-spec .tag::before { content: '⟐'; font-size: 10px; letter-spacing: 0; }
+.msg.is-spec .msg-body {
+  background: color-mix(in oklch, var(--surface-elev), var(--spec-bg) 50%);
+  border-color: oklch(0.78 0.04 190);
+}
+.spec-diff {
+  margin-top: var(--space-2);
+  background: white;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  font-family: var(--font-mono); font-size: 12px;
+}
+.spec-diff .file {
+  color: var(--text-dim); font-size: 11px;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: var(--space-2); margin-bottom: var(--space-2);
+}
+.spec-diff .minus { color: oklch(0.45 0.15 25); background: oklch(0.97 0.04 25); padding: 1px 6px; border-radius: 3px; }
+.spec-diff .plus  { color: oklch(0.45 0.13 145); background: oklch(0.97 0.04 145); padding: 1px 6px; border-radius: 3px; }
+.spec-vote {
+  display: flex; gap: var(--space-2); margin-top: var(--space-3); align-items: center;
+}
+.spec-vote .approvers {
+  display: flex; gap: 2px; margin-right: var(--space-2);
+}
+.spec-vote .approvers .agent-avatar { width: 20px; height: 20px; border-radius: 5px; font-size: 9px; }
+.spec-vote .vote-meta { color: var(--text-dim); font-size: 11px; font-family: var(--font-mono); }
+.spec-vote .vote-btn {
+  margin-left: auto;
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 11.5px; font-weight: 600;
+  background: var(--spec); color: oklch(0.99 0.005 75);
+}
+
+.msg.is-proactive .tag { color: var(--proactive); background: var(--proactive-bg); }
+.msg.is-proactive .tag::before { content: '✶'; font-size: 10px; letter-spacing: 0; }
+.msg.is-proactive .msg-body {
+  background: color-mix(in oklch, var(--surface-elev), var(--proactive-bg) 35%);
+  border-color: oklch(0.82 0.08 30);
+}
+
+/* Task tree proposal — agent 提议初始任务分解 */
+.msg.is-tree .tag { color: var(--tree); background: var(--tree-bg); }
+.msg.is-tree .tag::before { content: '⌬'; font-size: 11px; letter-spacing: 0; }
+.msg.is-tree .msg-body {
+  background: color-mix(in oklch, var(--surface-elev), var(--tree-bg) 40%);
+  border-color: oklch(0.78 0.06 170);
+}
+.tree-proposal-list {
+  margin-top: var(--space-3);
+  background: white;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.tree-proposal-list .pt-row {
+  display: grid; grid-template-columns: 16px 1fr;
+  gap: var(--space-2); align-items: center;
+  font-size: 12.5px;
+}
+.tree-proposal-list .pt-row .pt-dot {
+  width: 13px; height: 13px; border-radius: 99px;
+  border: 1.5px solid var(--text-dim);
+}
+.tree-actions {
+  display: flex; gap: var(--space-2); margin-top: var(--space-3); align-items: center;
+}
+.tree-actions .tree-btn {
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 11.5px; font-weight: 600;
+  background: var(--tree); color: oklch(0.99 0.005 75);
+}
+.tree-actions .tree-btn-sec {
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 11.5px; font-weight: 600;
+  background: var(--surface); color: var(--text-muted);
+  border: 1px solid var(--border-soft);
+}
+
+/* Nudge — 轻量偏题提醒 */
+.msg.is-nudge .msg-body {
+  background: var(--nudge-bg);
+  border: 1px dashed oklch(0.78 0.015 80);
+  color: var(--nudge);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.msg.is-nudge .tag {
+  color: var(--nudge);
+  background: transparent;
+  border: 1px solid oklch(0.78 0.015 80);
+}
+.msg.is-nudge .tag::before { content: '⌁'; font-size: 11px; letter-spacing: 0; }
+.nudge-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); flex-wrap: wrap; }
+.nudge-btn {
+  font-size: 11.5px; font-weight: 600;
+  padding: 4px 10px; border-radius: 6px;
+  background: var(--surface-elev); color: var(--text-muted);
+  border: 1px solid var(--border-soft);
+}
+.nudge-btn.primary { background: var(--text); color: oklch(0.99 0.005 75); border-color: transparent; }
+.nudge-btn:hover { background: var(--surface-hover); color: var(--text); }
+.nudge-btn.primary:hover { filter: brightness(1.1); }
+
+.msg.is-system .msg-body {
+  color: var(--text-dim); font-size: 12.5px;
+  padding-top: 6px;
+}
+.msg.is-system .msg-body .pill {
+  display: inline-block; font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-muted); background: var(--surface);
+  padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--border-soft);
+}
+
+.attach-card {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; gap: var(--space-3);
+  margin-top: var(--space-3); padding: var(--space-3) var(--space-4);
+  background: var(--surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius); font-size: 13px; max-width: 540px;
+}
+.attach-card .id { font-family: var(--font-mono); color: var(--text-dim); font-size: 12px; }
+.attach-card .title { color: var(--text); font-weight: 500; }
+
+/* Composer */
+.composer {
+  border-top: 1px solid var(--border-soft);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg);
+}
+.composer-box {
+  background: var(--surface-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  transition: border-color 120ms;
+  box-shadow: var(--shadow-card);
+}
+.composer-box:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-card);
+}
+.composer textarea { width: 100%; min-height: 22px; max-height: 160px; line-height: 1.55; font-size: 14.5px; color: var(--text); }
+.composer textarea::placeholder { color: var(--text-dim); }
+.composer-bar { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.composer-hint { color: var(--text-dim); font-size: 11px; font-family: var(--font-mono); }
+.send {
+  margin-left: auto; padding: 6px 14px; border-radius: 8px;
+  background: var(--accent); color: oklch(0.99 0.005 75);
+  font-weight: 600; font-size: 12.5px;
+  transition: filter 100ms;
+  box-shadow: 0 1px 0 oklch(0.45 0.16 55), 0 1px 2px oklch(0.5 0.02 75 / 0.15);
+}
+.send:hover { filter: brightness(1.06); }
+.send:disabled { background: var(--surface); color: var(--text-dim); cursor: not-allowed; box-shadow: none; }
+
+/* ============ CONTEXT pane ============ */
+.context {
+  border-left: 1px solid var(--border-soft);
+  background: color-mix(in oklch, var(--bg), oklch(0.5 0.02 75) 2%);
+  overflow-y: auto;
+  padding: var(--space-5);
+  display: flex; flex-direction: column; gap: var(--space-5);
+}
+.ctx-block { display: flex; flex-direction: column; gap: var(--space-3); }
+.ctx-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-dim); font-weight: 600;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.ctx-card {
+  background: var(--surface-elev); border: 1px solid var(--border-soft);
+  border-radius: var(--radius); padding: var(--space-4);
+  box-shadow: var(--shadow-card);
+}
+.ctx-card .ti-row { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-2); }
+.ctx-card .id { font-family: var(--font-mono); color: var(--text-dim); font-size: 12px; }
+.ctx-card .title {
+  font-family: var(--font-display); font-weight: 600; font-size: 15px;
+  letter-spacing: -0.005em; color: var(--text);
+}
+.ctx-card .desc { color: var(--text-muted); font-size: 12.5px; line-height: 1.55; margin: 0; }
+.ctx-card .ti-foot { display: flex; gap: var(--space-2); margin-top: var(--space-3); flex-wrap: wrap; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; padding: 3px 8px; border-radius: 99px;
+  background: var(--surface); color: var(--text-muted);
+  font-family: var(--font-mono); border: 1px solid var(--border-soft);
+}
+.chip .label { font-family: var(--font-body); }
+
+/* Task tree section in context */
+.task-tree-box {
+  background: var(--surface-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-card);
+}
+.task-tree-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.task-tree-head .title {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: 13px; color: var(--text);
+}
+.task-tree-head .progress {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text-muted);
+}
+.task-tree-head .progress .done-num {
+  color: var(--status-on); font-weight: 700;
+}
+.task-tree-list {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.task-row {
+  display: grid; grid-template-columns: 16px 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 5px 8px; border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 80ms;
+}
+.task-row:hover { background: var(--surface-hover); }
+.task-row.active {
+  background: var(--accent-soft);
+}
+.task-row .task-status {
+  width: 13px; height: 13px; border-radius: 99px;
+  display: grid; place-items: center;
+  font-size: 0;
+}
+.task-row .task-status.done {
+  background: var(--status-on); color: white;
+  font-size: 9px; font-weight: 700;
+}
+.task-row .task-status.done::before { content: '✓'; font-size: 8px; }
+.task-row .task-status.active {
+  background: var(--accent);
+  position: relative;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.task-row .task-status.active::after {
+  content: ''; width: 5px; height: 5px;
+  background: oklch(0.99 0.005 75); border-radius: 99px;
+}
+.task-row .task-status.pending {
+  background: transparent;
+  border: 1.5px solid oklch(0.78 0.008 240);
+}
+.task-row .task-title { color: var(--text); }
+.task-row.active .task-title { color: var(--accent-text); font-weight: 500; }
+.task-row .task-owner {
+  width: 16px; height: 16px; border-radius: 5px;
+  font-family: var(--font-mono); font-size: 8.5px; font-weight: 700;
+  display: grid; place-items: center;
+}
+.task-row .task-owner.claude { background: var(--agent-claude-bg); color: var(--agent-claude); }
+.task-row .task-owner.codex { background: var(--agent-codex-bg); color: var(--agent-codex); }
+.task-row .task-owner.human { background: var(--human-bg); color: var(--human); }
+
+/* Artifact section in context */
+.artifact-box {
+  background: var(--surface-elev); border: 1px solid var(--border-soft);
+  border-radius: var(--radius); padding: var(--space-3);
+}
+.artifact-head {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-family: var(--font-mono); font-size: 12px;
+}
+.artifact-head .ver-chip {
+  background: var(--artifact); color: oklch(0.99 0.005 75);
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px;
+}
+.artifact-head .final {
+  background: var(--decision-bg); color: var(--decision);
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px;
+}
+.artifact-strip {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+}
+.versions-row {
+  display: flex; gap: 4px; margin-top: var(--space-3);
+  font-family: var(--font-mono); font-size: 10px;
+}
+.versions-row .v {
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--surface); color: var(--text-dim);
+  cursor: pointer;
+}
+.versions-row .v.active {
+  background: var(--artifact); color: oklch(0.99 0.005 75); font-weight: 700;
+}
+
+/* Spec touched in context */
+.spec-touched-list {
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
+.spec-touched-row {
+  display: grid; grid-template-columns: 14px 1fr auto;
+  align-items: center; gap: var(--space-2);
+  font-size: 12px;
+  padding: 6px 8px; border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.spec-touched-row .nm { font-family: var(--font-mono); color: var(--text); font-size: 11.5px; }
+.spec-touched-row .v {
+  font-size: 10px; font-family: var(--font-mono);
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--spec-bg); color: var(--spec); font-weight: 600;
+}
+
+.finding-row {
+  display: grid; grid-template-columns: 22px 1fr;
+  gap: var(--space-3); padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-soft);
+}
+.finding-row:first-child { border-top: 0; padding-top: 0; }
+.finding-row .av {
+  width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
+  display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+}
+.finding-row .av.claude { background: var(--agent-claude-bg); color: var(--agent-claude); }
+.finding-row .av.codex { background: var(--agent-codex-bg); color: var(--agent-codex); }
+.finding-row .ti { font-size: 12.5px; color: var(--text); line-height: 1.4; }
+.finding-row .meta { font-size: 10.5px; color: var(--text-dim); font-family: var(--font-mono); margin-top: 2px; }
+
+.participants { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.participants .agent-avatar { width: 28px; height: 28px; border-radius: 8px; font-size: 11px; }
+
+.git-row { display: flex; align-items: center; gap: var(--space-2); font-size: 12.5px; color: var(--text-muted); }
+.git-row .branch { font-family: var(--font-mono); color: var(--text); }
+
+/* ============ Mobile bottom tabs ============ */
+.bottom-tabs {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: 64px;
+  background: color-mix(in oklch, var(--bg), white 40%);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tab {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; color: var(--text-dim); font-size: 10px;
+}
+.tab .ic { font-size: 16px; line-height: 1; }
+.tab.active { color: var(--text); }
+.tab.active .ic { color: var(--accent); }
+.tab .badge-num {
+  position: absolute; margin-left: 14px; margin-top: -16px;
+  background: var(--accent); color: oklch(0.99 0.005 75);
+  font-size: 9px; font-weight: 700;
+  padding: 1px 5px; border-radius: 99px;
+  font-family: var(--font-body);
+}
+
+/* Mobile top bar */
+@media (max-width: 767px) {
+  .main-head .drawer-btn { display: grid !important; }
+  .composer { padding: var(--space-3) var(--space-4); }
+  .topic-head-id { display: none; }
+}
+.drawer-btn { display: none; width: 32px; height: 32px; }
+
+/* ============ Attention view ============ */
+.attn-view { display: none; padding: var(--space-5) var(--space-5); overflow-y: auto; flex: 1; background: var(--bg); }
+.app.view-attention .main .stream { display: none; }
+.app.view-attention .main .composer { display: none; }
+.app.view-attention .main .attn-view { display: block; }
+.app.view-attention .main .board { display: none; }
+.app.view-attention .main-title-area { display: none; }
+.app.view-attention .main-title-area-attn { display: block; }
+
+.attn-greeting { margin-bottom: var(--space-6); max-width: 600px; }
+.attn-greeting h2 { font-family: var(--font-display); font-weight: 600; font-size: clamp(22px, 3vw, 28px); letter-spacing: -0.01em; margin: 0 0 var(--space-2); }
+.attn-greeting p { color: var(--text-muted); margin: 0; font-size: 14px; }
+
+.attn-group { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-6); max-width: 720px; }
+.attn-group-head { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-1); }
+.attn-group-head h3 { font-family: var(--font-display); font-weight: 600; font-size: 14px; margin: 0; }
+.attn-group-head .count { font-family: var(--font-mono); color: var(--text-dim); font-size: 12px; }
+
+.attn-card {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: start; gap: var(--space-3);
+  background: var(--surface-elev); border: 1px solid var(--border-soft);
+  border-radius: var(--radius); padding: var(--space-4);
+  box-shadow: var(--shadow-card);
+  cursor: pointer; transition: transform 100ms, box-shadow 100ms;
+}
+.attn-card:hover { transform: translateY(-1px); box-shadow: 0 2px 4px oklch(0.50 0.02 75 / 0.06), 0 6px 16px oklch(0.50 0.02 75 / 0.06); }
+.attn-card .av { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; font-family: var(--font-mono); font-size: 11px; font-weight: 700; }
+.attn-card .av.claude { background: var(--agent-claude-bg); color: var(--agent-claude); }
+.attn-card .av.codex { background: var(--agent-codex-bg); color: var(--agent-codex); }
+.attn-card .av.human { background: var(--human-bg); color: var(--human); }
+.attn-card .body { min-width: 0; }
+.attn-card .who { font-size: 12px; color: var(--text-dim); font-family: var(--font-mono); margin-bottom: 4px; }
+.attn-card .who .who-name { color: var(--text); font-weight: 600; font-family: var(--font-body); }
+.attn-card .what { font-family: var(--font-display); font-weight: 500; font-size: 15px; letter-spacing: -0.005em; color: var(--text); line-height: 1.35; margin-bottom: var(--space-2); }
+.attn-card .ctx { font-size: 12.5px; color: var(--text-muted); display: flex; align-items: center; gap: var(--space-2); }
+.attn-card .ctx .topic-id { font-family: var(--font-mono); color: var(--text-dim); }
+.attn-card .quick-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.qa { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 6px; white-space: nowrap; }
+.qa.primary { background: var(--accent); color: oklch(0.99 0.005 75); }
+.qa.primary:hover { filter: brightness(1.06); }
+.qa.secondary { background: var(--surface); color: var(--text-muted); border: 1px solid var(--border-soft); }
+.qa.secondary:hover { background: var(--surface-hover); color: var(--text); }
+
+/* Board view */
+.board { display: none; padding: var(--space-6); overflow-y: auto; flex: 1; }
+.app.view-board .main .stream { display: none; }
+.app.view-board .main .composer { display: none; }
+.app.view-board .main .board { display: block; }
+.board-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-5); max-width: 1200px; }
+.board-card { background: var(--surface-elev); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); box-shadow: var(--shadow-card); }
+.board-card.featured { grid-column: span 2; }
+@media (max-width: 900px) { .board-card.featured { grid-column: span 1; } }
+.board-card h3 { font-family: var(--font-display); font-weight: 600; font-size: 14px; margin: 0; display: flex; align-items: center; justify-content: space-between; color: var(--text); }
+.board-card h3 .count { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); font-weight: 400; }
+.board-item { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; font-size: 13px; border-top: 1px solid var(--border-soft); }
+.board-item:first-of-type { border-top: 0; }
+.board-item .id { font-family: var(--font-mono); color: var(--text-dim); font-size: 11.5px; }
+.board-item .ti { color: var(--text); }
+.board-item .by { font-size: 10.5px; color: var(--text-dim); font-family: var(--font-mono); }
+
+/* Mock banner */
+.mock-banner {
+  position: fixed; top: 12px; right: 12px; z-index: 50;
+  background: var(--surface-elev); border: 1px solid var(--accent-border);
+  color: var(--accent-text); padding: 6px 12px; border-radius: 99px;
+  font-size: 11px; font-family: var(--font-mono);
+  display: flex; align-items: center; gap: 6px;
+  pointer-events: none; box-shadow: var(--shadow-card);
+}
+.mock-banner .ind { width: 6px; height: 6px; border-radius: 99px; background: var(--accent); }
+@media (max-width: 767px) {
+  .mock-banner { top: auto; right: 8px; left: 8px; bottom: calc(72px + env(safe-area-inset-bottom)); justify-content: center; font-size: 10px; padding: 4px 9px; }
+}
+</style>
+</head>
+<body>
+<div class="mock-banner"><span class="ind"></span>Mock — UI 探索</div>
+
+<div class="app" id="app">
+  <!-- =================== SIDEBAR =================== -->
+  <aside class="side">
+    <div class="side-head">
+      <div class="proj-mark">L</div>
+      <div class="proj-info">
+        <div class="proj-name">Lets</div>
+        <div class="proj-repo">和人 + agent 一起做</div>
+      </div>
+    </div>
+
+    <!-- Attention Queue -->
+    <div class="side-section">
+      <button class="side-label-btn" id="attn-entry" type="button">
+        <span>待处理</span>
+        <span class="count alert">4</span>
+      </button>
+      <div class="attention-list">
+        <div class="attn-item">
+          <div class="attn-icon q">?</div>
+          <div class="attn-body">
+            <div class="attn-title">claude 在问：framing 角度要不要再激进些？</div>
+            <div class="attn-meta">研讨 PPT · 2 分钟前</div>
+          </div>
+        </div>
+        <div class="attn-item">
+          <div class="attn-icon s">⟐</div>
+          <div class="attn-body">
+            <div class="attn-title">codex 提议：改 research-talk-style skill 默认字号 10→14</div>
+            <div class="attn-meta">spec change · 7 分钟前</div>
+          </div>
+        </div>
+        <div class="attn-item">
+          <div class="attn-icon p">✶</div>
+          <div class="attn-body">
+            <div class="attn-title">claude·trinity-air 主动指出：去年研讨会反馈是"图太多"</div>
+            <div class="attn-meta">proactive · 12 分钟前</div>
+          </div>
+        </div>
+        <div class="attn-item">
+          <div class="attn-icon h">M</div>
+          <div class="attn-body">
+            <div class="attn-title">Morpheus 在 #广场 提了个新 idea，看一眼</div>
+            <div class="attn-meta">DM · 35 分钟前</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Topics -->
+    <div class="side-section">
+      <div class="side-label">
+        Topics
+        <span class="count">5 active</span>
+      </div>
+      <div class="topic-row active">
+        <span class="id">T-PPT</span>
+        <span class="ti">为 Agent 记忆写一个研讨 PPT</span>
+        <span style="font-size:10px;font-family:var(--font-mono);color:var(--text-dim);padding:1px 6px;background:var(--surface);border-radius:99px;border:1px solid var(--border-soft);">3/7</span>
+      </div>
+      <div class="topic-row">
+        <span class="id">T-EVAL</span>
+        <span class="ti">LoCoMo 新一轮 evaluation</span>
+        <span class="own codex">CX</span>
+      </div>
+      <div class="topic-row">
+        <span class="id">T-MEM</span>
+        <span class="ti">事件记忆 vs 语义记忆 spike</span>
+        <span class="own claude">CC</span>
+      </div>
+      <div class="topic-row">
+        <span class="id">T-VIZ</span>
+        <span class="ti">memory graph 可视化原型</span>
+        <span class="own">··</span>
+      </div>
+      <div class="topic-row">
+        <span class="id">T-DOC</span>
+        <span class="ti">API 文档重写</span>
+        <span class="own">··</span>
+      </div>
+    </div>
+
+    <!-- Channels（折叠）-->
+    <div class="side-section collapsible" data-section="channels">
+      <button class="side-label-toggle" type="button">
+        <span class="caret">▸</span>
+        <span class="label">Channels</span>
+        <span class="count">2</span>
+      </button>
+      <div class="side-section-body">
+        <div class="side-item">
+          <span class="hash">#</span>
+          <span class="label">广场</span>
+        </div>
+        <div class="side-item">
+          <span class="hash">#</span>
+          <span class="label">decisions</span>
+          <span class="badge">2</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 在线（Agents + People 合并，折叠）-->
+    <div class="side-section collapsible" data-section="online">
+      <button class="side-label-toggle" type="button">
+        <span class="caret">▸</span>
+        <span class="label">在线</span>
+        <span class="count">4 / 5</span>
+      </button>
+      <div class="side-section-body">
+        <div class="agent-row">
+          <div class="agent-avatar claude">CC</div>
+          <div class="agent-meta">
+            <div class="agent-name">claude · neo-mbp</div>
+            <div class="agent-sub">改 framing · T-PPT</div>
+          </div>
+          <span class="dot working"></span>
+        </div>
+        <div class="agent-row">
+          <div class="agent-avatar codex">CX</div>
+          <div class="agent-meta">
+            <div class="agent-name">codex · neo-mbp</div>
+            <div class="agent-sub">spec change pending</div>
+          </div>
+          <span class="dot online"></span>
+        </div>
+        <div class="agent-row">
+          <div class="agent-avatar claude">CC</div>
+          <div class="agent-meta">
+            <div class="agent-name">claude · trinity-air</div>
+            <div class="agent-sub">读 echomem memory</div>
+          </div>
+          <span class="dot working"></span>
+        </div>
+        <div class="agent-row">
+          <div class="agent-avatar human">T</div>
+          <div class="agent-meta">
+            <div class="agent-name">Trinity</div>
+            <div class="agent-sub">trinity-air</div>
+          </div>
+          <span class="dot online"></span>
+        </div>
+        <div class="agent-row" style="opacity:.55">
+          <div class="agent-avatar claude">CC</div>
+          <div class="agent-meta">
+            <div class="agent-name">claude · morpheus-pro</div>
+            <div class="agent-sub">offline · 1h</div>
+          </div>
+          <span class="dot"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Direct（折叠）-->
+    <div class="side-section collapsible" data-section="direct">
+      <button class="side-label-toggle" type="button">
+        <span class="caret">▸</span>
+        <span class="label">Direct</span>
+        <span class="count alert">1</span>
+      </button>
+      <div class="side-section-body">
+        <div class="dm-row">
+          <div class="agent-avatar claude">CC</div>
+          <div class="dm-meta">
+            <div class="dm-name">@claude</div>
+            <div class="dm-preview">"草稿 v3 已经放在 …"</div>
+          </div>
+          <span class="dm-time">10:41</span>
+        </div>
+        <div class="dm-row">
+          <div class="agent-avatar codex">CX</div>
+          <div class="dm-meta">
+            <div class="dm-name">@codex</div>
+            <div class="dm-preview">"我把 spec diff 准备好了"</div>
+          </div>
+          <span class="dm-time">10:18</span>
+        </div>
+        <div class="dm-row unread">
+          <div class="agent-avatar human">M</div>
+          <div class="dm-meta">
+            <div class="dm-name">Morpheus</div>
+            <div class="dm-preview">"我刚想到一个 framing…"</div>
+          </div>
+          <span class="dm-time">9:55</span>
+        </div>
+        <div class="dm-row">
+          <div class="agent-avatar human">T</div>
+          <div class="dm-meta">
+            <div class="dm-name">Trinity</div>
+            <div class="dm-preview">"echomem benchmark 数据已经…"</div>
+          </div>
+          <span class="dm-time">昨天</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-spacer"></div>
+
+    <!-- 底部 Footer: 项目设置 -->
+    <div class="side-footer">
+      <div class="side-footer-link">
+        <span class="ic">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </span>
+        <span class="nm">团队约定 · Spec</span>
+        <span class="meta">v23</span>
+        <span class="updated-dot" title="research-talk-style 刚更新"></span>
+      </div>
+      <div class="side-footer-link">
+        <span class="ic">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><path d="M2 21a7 7 0 0 1 14 0"/><circle cx="17" cy="7" r="3"/><path d="M22 14a5 5 0 0 0-7-3"/></svg>
+        </span>
+        <span class="nm">成员</span>
+        <span class="meta">3</span>
+      </div>
+      <div class="side-footer-link">
+        <span class="ic">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 10v6"/></svg>
+        </span>
+        <span class="nm">项目设置</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- =================== MAIN =================== -->
+  <main class="main">
+    <div class="main-head">
+      <button class="icon-btn drawer-btn" title="侧栏" aria-label="侧栏">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+
+      <div class="main-title-area" style="display:flex;align-items:center;gap:var(--space-3);min-width:0">
+        <span class="topic-head-id">T-PPT</span>
+        <h1 class="main-title">为 Agent 记忆写一个研讨 PPT</h1>
+        <span class="topic-status-chip"><span class="dot working"></span>3 agents · active</span>
+      </div>
+
+      <div class="main-title-area-attn" style="display:none">
+        <h1 class="main-title">待处理</h1>
+      </div>
+
+      <div class="view-switch" id="view-switch">
+        <button data-view="attention">📥 待处理 <span class="vs-badge">4</span></button>
+        <button data-view="topic" class="active">Topic</button>
+        <button data-view="board">俯瞰</button>
+      </div>
+
+      <div class="main-actions">
+        <button class="icon-btn" title="搜索">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
+        <button class="icon-btn" title="更多">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============== ATTENTION VIEW ============== -->
+    <section class="attn-view">
+      <div class="attn-greeting">
+        <h2>早上好，Neo。</h2>
+        <p>过去一夜，团队 PPT 已经迭代到 v3，有 4 件事需要你拍板。</p>
+      </div>
+
+      <div class="attn-group">
+        <div class="attn-group-head">
+          <h3>需要决定</h3>
+          <span class="count">2</span>
+        </div>
+        <div class="attn-card">
+          <div class="av claude">CC</div>
+          <div class="body">
+            <div class="who"><span class="who-name">claude · neo-mbp</span> · 10:32</div>
+            <div class="what">framing 角度要不要更激进？我倾向打"事件性记忆 vs 语义记忆"的差异化点，业界都走"短记忆 → 长记忆"，我们换个轴。</div>
+            <div class="ctx"><span class="topic-id">T-PPT</span> · 为 Agent 记忆写一个研讨 PPT</div>
+          </div>
+          <div class="quick-actions">
+            <button class="qa primary">采纳</button>
+            <button class="qa secondary">先不</button>
+          </div>
+        </div>
+        <div class="attn-card">
+          <div class="av codex">CX</div>
+          <div class="body">
+            <div class="who"><span class="who-name">codex · neo-mbp</span> · 10:28 提案</div>
+            <div class="what">改 <code style="font-family:var(--font-mono);font-size:11.5px;background:var(--surface);padding:1px 5px;border-radius:3px">research-talk-style/SKILL.md</code> 默认字号 10→14（影响所有用此 skill 的 PPT）。Trinity 已 approve，等你和 Morpheus。</div>
+            <div class="ctx"><span class="topic-id">spec change</span> · skill v2 → v3</div>
+          </div>
+          <div class="quick-actions">
+            <button class="qa primary">Approve</button>
+            <button class="qa secondary">看 diff</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="attn-group">
+        <div class="attn-group-head">
+          <h3>Agent 主动发现</h3>
+          <span class="count">1</span>
+        </div>
+        <div class="attn-card">
+          <div class="av claude">CC</div>
+          <div class="body">
+            <div class="who"><span class="who-name">claude · trinity-air</span> · 10:20</div>
+            <div class="what">我比对了去年研讨会的反馈（来自 echomem memory），听众普遍说"图太多文字太少"。建议 v3 slide 5 加 1-2 行解释那个矩阵。</div>
+            <div class="ctx"><span class="topic-id">T-PPT</span> · proactive_finding</div>
+          </div>
+          <div class="quick-actions">
+            <button class="qa primary">采纳建议</button>
+            <button class="qa secondary">略过</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="attn-group">
+        <div class="attn-group-head">
+          <h3>同事消息</h3>
+          <span class="count">1</span>
+        </div>
+        <div class="attn-card">
+          <div class="av human">M</div>
+          <div class="body">
+            <div class="who"><span class="who-name">Morpheus</span> · 09:55</div>
+            <div class="what">我刚想到一个 framing —— 我们应该从"agent 何时该忘记"切入，比"agent 何时该记住"更有冲击力。</div>
+            <div class="ctx"><span class="topic-id">DM</span></div>
+          </div>
+          <div class="quick-actions">
+            <button class="qa primary">继续聊</button>
+            <button class="qa secondary">@claude 跟进</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== GOAL CARD (Artifact 目标 + 进度) ============== -->
+    <div class="goal-card" id="goal-card">
+      <div class="gc-main">
+        <div class="gc-tag-row">
+          <div class="gc-tag">目标 Artifact</div>
+          <span class="gc-goal-meta">目标定义 v3 · 由团队 09:23 确认 · 已经 Trinity / Morpheus / Neo approve</span>
+        </div>
+        <div class="gc-artifact-name">ai-memory-talk.pptx<span class="ver-now">artifact v3</span></div>
+        <p class="gc-spec">30 分钟 talk · 技术研究者听众 · 突出"事件性记忆 vs 语义记忆"差异化 · 风格遵循 <code style="font-family:var(--font-mono);font-size:11.5px;background:var(--surface);padding:1px 5px;border-radius:3px">research-talk-style</code></p>
+        <div class="gc-progress-row">
+          <div class="gc-bar"><div class="gc-bar-fill" style="width:71%"></div></div>
+          <span class="gc-progress-text"><span class="done-num">5</span>/7 · 71%</span>
+        </div>
+        <div class="gc-current">
+          当前任务: <span class="cur-task">P5 加文字解释</span> · 等 Neo 拍板 framing 角度
+        </div>
+      </div>
+      <div class="gc-actions">
+        <button class="gc-btn primary">查看 Artifact</button>
+        <button class="gc-btn secondary" title="目标是团队共识产物。点击会在 conversation 里发起 goal_proposal，让团队讨论 + approve 后才生效。">提议修改目标</button>
+        <button class="gc-btn final">Mark as Final</button>
+      </div>
+    </div>
+
+    <!-- ============== TOPIC STREAM ============== -->
+    <div class="stream" id="stream">
+      <div class="day-sep">今天</div>
+
+      <!-- 1. Neo 起头 -->
+      <div class="msg">
+        <div class="av human">N</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Neo</span>
+            <span class="msg-meta">09:14</span>
+          </div>
+          <div class="msg-body">
+            <p>下周三的 AI 研讨会，我答应讲 30min agent 记忆。<span class="mention">@Trinity</span> <span class="mention">@Morpheus</span> 一起搞吧？受众是技术研究者。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Trinity 加入 -->
+      <div class="msg">
+        <div class="av human">T</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Trinity</span>
+            <span class="msg-meta">09:16</span>
+          </div>
+          <div class="msg-body">
+            <p>好。我负责"技术架构对比"那部分 —— 用我们 echomem 项目的数据。<span class="mention">@claude:trinity-air</span> 你帮我把上次 LoCoMo benchmark 的对比矩阵整理一下。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Morpheus -->
+      <div class="msg">
+        <div class="av human">M</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Morpheus</span>
+            <span class="msg-meta">09:18</span>
+          </div>
+          <div class="msg-body">
+            <p>我提个 framing：从 LoCoMo 切入业界现状，对比一圈，然后落到我们做的"事件 vs 语义"差异化。Neo，你来主讲。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Neo @claude 起草 -->
+      <div class="msg">
+        <div class="av human">N</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Neo</span>
+            <span class="msg-meta">09:21</span>
+          </div>
+          <div class="msg-body">
+            <p><span class="mention">@claude</span> 起一份 8 页骨架。30min talk，技术受众，参考 <code>.claude/skills/research-talk-style</code> 的风格。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. claude status -->
+      <div class="msg is-status">
+        <div class="av claude">CC</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name claude">claude</span>
+            <span class="msg-meta">09:21 · neo-mbp</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag work">active</span>
+            <div>读 <code>.claude/skills/research-talk-style/SKILL.md</code> 和 echomem 项目 memory。10 分钟出 v0。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6. artifact v0 -->
+      <div class="msg is-artifact">
+        <div class="av claude">CC</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name claude">claude</span>
+            <span class="msg-meta">09:31 · neo-mbp</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag">artifact · v0</span>
+            <p>8 页骨架，应用了 research-talk-style：Title / Framing / LoCoMo / 业界对比 / 我们的架构 / Eval / Next / Q&A。</p>
+            <div class="artifact-preview">
+              <div class="artifact-name">
+                <span>ai-memory-talk.pptx</span>
+                <span class="ver-chip">v0</span>
+              </div>
+              <div class="slide-strip">
+                <div class="slide-thumb title"><div class="hbar"></div><div class="hbar short"></div><span class="num">1</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="lbar"></div><div class="lbar short"></div><span class="num">2</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="chart"></div><span class="num">3</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="grid2"><div></div><div></div><div></div><div></div></div><span class="num">4</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="lbar"></div><div class="lbar short"></div><div class="lbar shorter"></div><span class="num">5</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="chart"></div><span class="num">6</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="lbar"></div><div class="lbar short"></div><span class="num">7</span></div>
+                <div class="slide-thumb title"><div class="hbar"></div><span class="num">8</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6.5 claude 主动 propose task tree -->
+      <div class="msg is-tree">
+        <div class="av claude">CC</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name claude">claude</span>
+            <span class="msg-meta">09:33 · neo-mbp</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag">目标分解 · 提议</span>
+            <p>看你们方向已经清楚，我整理了 7 个子任务跟踪进度。后面我会盯着大家有没有偏离主线。</p>
+            <div class="tree-proposal-list">
+              <div class="pt-row"><span class="pt-dot"></span><span>Framing 角度定下来（事件 vs 语义）</span></div>
+              <div class="pt-row"><span class="pt-dot"></span><span>P4 业界对比矩阵（4×6）</span></div>
+              <div class="pt-row"><span class="pt-dot"></span><span>Skill 字号修正（10→14）</span></div>
+              <div class="pt-row"><span class="pt-dot"></span><span>P2 framing 改写</span></div>
+              <div class="pt-row"><span class="pt-dot"></span><span>P5 加文字解释</span></div>
+              <div class="pt-row"><span class="pt-dot"></span><span>Demo / Q&amp;A 准备</span></div>
+              <div class="pt-row"><span class="pt-dot"></span><span>排练 30min 时长</span></div>
+            </div>
+            <div class="tree-actions">
+              <button class="tree-btn">采纳</button>
+              <button class="tree-btn-sec">编辑</button>
+              <span style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono);margin-left:auto">7 nodes · 可视化: tree / mind map</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. Trinity 反馈 -->
+      <div class="msg">
+        <div class="av human">T</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Trinity</span>
+            <span class="msg-meta">09:38</span>
+          </div>
+          <div class="msg-body">
+            <p>v0 P4 业界对比那页太薄，单纯一个 2x2 看不出深度。<span class="mention">@claude:trinity-air</span> 你给一版 4x6 矩阵 —— 4 个产品 × 6 个维度。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 8. claude·trinity-air artifact v1 -->
+      <div class="msg is-artifact">
+        <div class="av claude">CC</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name claude">claude</span>
+            <span class="msg-meta">09:46 · trinity-air</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag">artifact · v1</span>
+            <p>P4 改成 4×6 矩阵：业界 4 产品（Letta / Mem0 / Zep / OpenAI Assistants）× 6 维度（持久性 / 检索方式 / 衰减 / 跨 session / 关系建模 / 评测可重复）。其它页保留。</p>
+            <div class="artifact-preview">
+              <div class="artifact-name">
+                <span>ai-memory-talk.pptx</span>
+                <span class="ver-chip">v1</span>
+                <span style="color:var(--text-dim);font-size:11px">· P4 重做</span>
+              </div>
+              <div class="slide-strip">
+                <div class="slide-thumb title"><div class="hbar"></div><div class="hbar short"></div><span class="num">1</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="lbar"></div><div class="lbar short"></div><span class="num">2</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="chart"></div><span class="num">3</span></div>
+                <div class="slide-thumb" style="border-color:var(--artifact)"><div class="hbar short"></div><div class="grid4"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div><span class="num">4</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="lbar"></div><div class="lbar short"></div><div class="lbar shorter"></div><span class="num">5</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="chart"></div><span class="num">6</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="lbar"></div><div class="lbar short"></div><span class="num">7</span></div>
+                <div class="slide-thumb title"><div class="hbar"></div><span class="num">8</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 9. Morpheus framing 推进 -->
+      <div class="msg">
+        <div class="av human">M</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Morpheus</span>
+            <span class="msg-meta">10:05</span>
+          </div>
+          <div class="msg-body">
+            <p>v1 矩阵对了。但 P2 framing 我看了还是太"四平八稳"。业界都在打"短 → 长"轴，我们要打的差异化点是<strong>事件性记忆 vs 语义记忆</strong>。从这个角度切，研究者立马接得上下面的内容。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 10. Trinity spec problem -->
+      <div class="msg">
+        <div class="av human">T</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Trinity</span>
+            <span class="msg-meta">10:12</span>
+          </div>
+          <div class="msg-body">
+            <p>另外发现一个问题 —— 我打印了 v1 P4 给我老板看，他说字号太小，研讨会大屏上根本看不清。<span class="mention">@codex</span> 看下 <code>research-talk-style</code> skill 是不是设置了默认 10pt，能不能改成 14pt？</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 11. codex spec_change -->
+      <div class="msg is-spec">
+        <div class="av codex">CX</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name codex">codex</span>
+            <span class="msg-meta">10:14 · neo-mbp</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag">spec change · proposal</span>
+            <p>Trinity 说对了。当前 skill 的 <code>default_body_font_size = 10</code> 是为屏幕看设计的，研讨会大屏要 14。提议改一行：</p>
+            <div class="spec-diff">
+              <div class="file">.claude/skills/research-talk-style/SKILL.md · line 23</div>
+              <div><span class="minus">-  default_body_font_size: 10</span></div>
+              <div><span class="plus">+  default_body_font_size: 14</span></div>
+            </div>
+            <div class="spec-vote">
+              <div class="approvers">
+                <div class="agent-avatar human" title="Trinity 已 approve">T</div>
+              </div>
+              <span class="vote-meta">1 / 3 approved · 等 Neo, Morpheus</span>
+              <button class="vote-btn">Approve</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 12. Neo @claude change framing -->
+      <div class="msg">
+        <div class="av human">N</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Neo</span>
+            <span class="msg-meta">10:16</span>
+          </div>
+          <div class="msg-body">
+            <p>同意 spec 改动，approve。<span class="mention">@claude</span> 同时按 Morpheus 的方向改 P2 framing —— 从"事件 vs 语义"切入。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 13. system: spec change adopted -->
+      <div class="msg is-system">
+        <div class="av system">·</div>
+        <div>
+          <div class="msg-body">
+            ⟐ <span class="pill">spec change</span> approved 3/3 · <code style="font-family:var(--font-mono);font-size:11px;background:var(--surface);padding:1px 5px;border-radius:3px;border:1px solid var(--border-soft)">research-talk-style</code> v2 → v3 · auto-commit to <span class="pill">master</span> · all 3 agents reloading skill · 10:25
+          </div>
+        </div>
+      </div>
+
+      <!-- 14. claude artifact v2 (after spec change) -->
+      <div class="msg is-artifact">
+        <div class="av claude">CC</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name claude">claude</span>
+            <span class="msg-meta">10:32 · neo-mbp</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag">artifact · v2</span>
+            <p>用 skill v3 重生成（字号 14）。P2 framing 改成"事件性记忆 vs 语义记忆"切入，先讲 agent 何时该忘、何时该记，再下到具体架构。其它页用新字号重排，导致 P3 / P6 各多一行空间，正好放更详细的 caption。</p>
+
+            <button class="detail-toggle" data-detail="detail-v2">
+              <span class="caret">▸</span>
+              查看思考过程
+              <span class="stats">· 4 thinks · 7 tools · 12 tokens</span>
+            </button>
+            <div class="msg-detail" id="detail-v2">
+              <div class="section">
+                <div class="sec-head">思考 <span class="count">(4 步)</span></div>
+                <ul>
+                  <li>用户要求按 Morpheus framing 改 P2，并且 spec change 已经把字号从 10 改到 14</li>
+                  <li>P2 重写后，整页文字密度会变，需要看 P3-P6 layout 是不是要重排</li>
+                  <li>新字号 14 比 10 大 40%，P3/P6 caption 之前是 2 行的，现在可以放 3 行更详细解释</li>
+                  <li>P4 矩阵的字号是子元素，需要单独 batchUpdate 而不是全局 replace</li>
+                </ul>
+              </div>
+              <div class="section">
+                <div class="sec-head">工具调用 <span class="count">(7 次)</span></div>
+                <ul>
+                  <li><span class="tool-name">read_file</span> <span class="tool-args">.claude/skills/research-talk-style/SKILL.md</span></li>
+                  <li><span class="tool-name">read_file</span> <span class="tool-args">~/.dbay/memory/event-vs-semantic-memory.md</span></li>
+                  <li><span class="tool-name">google_slides.batchUpdate</span> <span class="tool-args">pages[1] textBox(2) updateText</span></li>
+                  <li><span class="tool-name">google_slides.batchUpdate</span> <span class="tool-args">pages[2,3,4,5,6,7] updateTextStyle fontSize=14</span></li>
+                  <li><span class="tool-name">google_slides.batchUpdate</span> <span class="tool-args">pages[3,6] insertText caption (extra line)</span></li>
+                  <li><span class="tool-name">google_slides.presentations.get</span> <span class="tool-args">verify changes</span></li>
+                  <li><span class="tool-name">google_slides.pages.getThumbnail</span> <span class="tool-args">×8 pages, PNG 800×450</span></li>
+                </ul>
+              </div>
+              <div class="actions-row">
+                <button class="terminal-btn">在本地终端继续</button>
+                <button class="copy-btn">复制 session ID</button>
+                <span class="session-id">session: cc-2026-05-19T10-21-3a8f</span>
+              </div>
+            </div>
+
+            <div class="artifact-preview">
+              <div class="artifact-name">
+                <span>ai-memory-talk.pptx</span>
+                <span class="ver-chip">v2</span>
+                <span style="color:var(--text-dim);font-size:11px">· framing + 字号</span>
+              </div>
+              <div class="slide-strip">
+                <div class="slide-thumb title"><div class="hbar"></div><div class="hbar short"></div><span class="num">1</span></div>
+                <div class="slide-thumb" style="border-color:var(--artifact)"><div class="hbar"></div><div class="lbar"></div><div class="lbar"></div><div class="lbar short"></div><span class="num">2</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="chart"></div><div class="lbar shorter"></div><span class="num">3</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="grid4"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div><span class="num">4</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="lbar"></div><div class="lbar short"></div><div class="lbar shorter"></div><span class="num">5</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="chart"></div><div class="lbar shorter"></div><span class="num">6</span></div>
+                <div class="slide-thumb"><div class="hbar short"></div><div class="lbar"></div><div class="lbar short"></div><span class="num">7</span></div>
+                <div class="slide-thumb title"><div class="hbar"></div><span class="num">8</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 15. proactive_finding -->
+      <div class="msg is-proactive">
+        <div class="av claude">CC</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name claude">claude</span>
+            <span class="msg-meta">10:38 · trinity-air</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag">主动发现</span>
+            <p>我比对了 v2 跟去年 KDD agent workshop 的反馈记录（这份反馈存在 <code>~/.dbay/memory/</code> 里），听众普遍说"图太多文字太少"。建议 v2 的 P4 矩阵加 1-2 行解释，说清楚<strong>为什么这 6 个维度是关键</strong>。我可以提案一版。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 16. claude question -->
+      <div class="msg is-question">
+        <div class="av claude">CC</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name claude">claude</span>
+            <span class="msg-meta">10:42 · neo-mbp</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag">需要决定</span>
+            <p><span class="mention">@Neo</span> framing 还要不要更激进？trinity-air 的建议（加文字解释）我支持，但还有个更激进的选择：把 P2 直接改成<strong>"agent 何时该忘记"</strong>—— Morpheus 在 DM 里 9:55 提的那个角度。一个动词差异（记 vs 忘），但研究者反应会很不同。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 17. Trinity 跑偏到团建 -->
+      <div class="msg">
+        <div class="av human">T</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Trinity</span>
+            <span class="msg-meta">10:51</span>
+          </div>
+          <div class="msg-body">
+            <p>对了你们周五的团建是去 BBQ 还是密室？我没收到最终通知…</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 18. Morpheus 接着跑偏 -->
+      <div class="msg">
+        <div class="av human">M</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Morpheus</span>
+            <span class="msg-meta">10:52</span>
+          </div>
+          <div class="msg-body">
+            <p>BBQ 吧，密室上次太挤一桌挤 8 个人。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 19. Neo 继续 -->
+      <div class="msg">
+        <div class="av human">N</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name human">Neo</span>
+            <span class="msg-meta">10:55</span>
+          </div>
+          <div class="msg-body">
+            <p>BBQ 好。订哪家？青年路那家上次味道不错，但是…</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 20. nudge -->
+      <div class="msg is-nudge">
+        <div class="av claude">CC</div>
+        <div>
+          <div class="msg-head">
+            <span class="msg-name claude">claude</span>
+            <span class="msg-meta">10:57 · neo-mbp</span>
+          </div>
+          <div class="msg-body">
+            <span class="tag">温和提醒</span>
+            <p style="margin-top:6px">过去 6 分钟你们聊的是<strong>周五团建</strong>，跟当前 active 任务 <code>P2 framing 改写</code> 不直接相关。要不要把团建这段挪出去？</p>
+            <div class="nudge-actions">
+              <button class="nudge-btn primary">独立成新 topic</button>
+              <button class="nudge-btn">回主线</button>
+              <button class="nudge-btn">这次略过</button>
+              <span style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono);margin-left:auto;align-self:center">下次偏题 ≥ 5min 再提示</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============== BOARD VIEW ============== -->
+    <section class="board">
+      <div class="board-grid">
+        <div class="board-card featured">
+          <h3>Active Topics <span class="count">3 in-flight · 5 open</span></h3>
+          <div class="board-item">
+            <span class="id">T-PPT</span>
+            <span class="ti">为 Agent 记忆写一个研讨 PPT</span>
+            <span class="by">3 agents · v2</span>
+          </div>
+          <div class="board-item">
+            <span class="id">T-EVAL</span>
+            <span class="ti">LoCoMo 新一轮 evaluation</span>
+            <span class="by">codex · running</span>
+          </div>
+          <div class="board-item">
+            <span class="id">T-MEM</span>
+            <span class="ti">事件 vs 语义 记忆 spike</span>
+            <span class="by">claude · researching</span>
+          </div>
+          <div class="board-item">
+            <span class="id">T-VIZ</span>
+            <span class="ti">memory graph 可视化原型</span>
+            <span class="by">open</span>
+          </div>
+          <div class="board-item">
+            <span class="id">T-DOC</span>
+            <span class="ti">API 文档重写</span>
+            <span class="by">open</span>
+          </div>
+        </div>
+
+        <div class="board-card">
+          <h3>Pending Spec Changes <span class="count">1</span></h3>
+          <div class="board-item">
+            <span class="id">⟐</span>
+            <span class="ti">research-talk-style skill 字号 10→14</span>
+            <span class="by">1/3 approved</span>
+          </div>
+        </div>
+
+        <div class="board-card">
+          <h3>Recent Artifacts <span class="count">v2 · in-progress</span></h3>
+          <div class="finding-row">
+            <div class="av claude">CC</div>
+            <div>
+              <div class="ti">ai-memory-talk.pptx v2 (P2 framing + 字号)</div>
+              <div class="meta">claude · neo-mbp · 10:32</div>
+            </div>
+          </div>
+          <div class="finding-row">
+            <div class="av claude">CC</div>
+            <div>
+              <div class="ti">ai-memory-talk.pptx v1 (P4 4×6 矩阵)</div>
+              <div class="meta">claude · trinity-air · 09:46</div>
+            </div>
+          </div>
+          <div class="finding-row">
+            <div class="av claude">CC</div>
+            <div>
+              <div class="ti">ai-memory-talk.pptx v0 (8 页骨架)</div>
+              <div class="meta">claude · neo-mbp · 09:31</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="board-card">
+          <h3>Agents <span class="count">3 在线</span></h3>
+          <div class="board-item">
+            <span class="id" style="font-family:var(--font-mono)">CC</span>
+            <span class="ti">claude · neo-mbp</span>
+            <span class="by"><span class="dot working" style="display:inline-block;vertical-align:middle"></span> T-PPT</span>
+          </div>
+          <div class="board-item">
+            <span class="id" style="font-family:var(--font-mono)">CC</span>
+            <span class="ti">claude · trinity-air</span>
+            <span class="by"><span class="dot working" style="display:inline-block;vertical-align:middle"></span> T-PPT</span>
+          </div>
+          <div class="board-item">
+            <span class="id" style="font-family:var(--font-mono)">CX</span>
+            <span class="ti">codex · neo-mbp</span>
+            <span class="by"><span class="dot online" style="display:inline-block;vertical-align:middle"></span> spec pending</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Composer -->
+    <div class="composer">
+      <div class="composer-box">
+        <textarea rows="1" placeholder="给 T-PPT 发消息，或 @claude / @codex / @Trinity 派活…"></textarea>
+        <div class="composer-bar">
+          <span class="composer-hint">/ 命令 · @ 提及 · ⏎ 发送 · ⇧⏎ 换行</span>
+          <button class="send" disabled>发送</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- =================== CONTEXT pane =================== -->
+  <aside class="context">
+    <div class="ctx-block">
+      <div class="ctx-label">当前 Topic</div>
+      <div class="ctx-card">
+        <div class="ti-row">
+          <span class="id">T-PPT</span>
+          <span class="title">为 Agent 记忆写一个研讨 PPT</span>
+        </div>
+        <p class="desc">下周三 AI 研讨会 30min talk · 技术受众 · 主讲 Neo · Trinity 出技术架构 · Morpheus 提 framing。</p>
+        <div class="ti-foot">
+          <span class="chip"><span class="label">exploratory</span></span>
+          <span class="chip">3 agents</span>
+          <span class="chip">talk-prep</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="ctx-label">
+        <span>目标分解</span>
+        <span style="font-family:var(--font-mono);text-transform:none;letter-spacing:0;color:var(--text-dim);font-size:11px">claude · 提议于 09:33</span>
+      </div>
+      <div class="task-tree-box">
+        <div class="task-tree-head">
+          <div class="title">研讨 PPT 终版</div>
+          <div class="progress"><span class="done-num">3</span> / 7 done</div>
+        </div>
+        <div class="task-tree-list">
+          <div class="task-row">
+            <div class="task-status done"></div>
+            <div class="task-title">Framing 角度定下来（事件 vs 语义）</div>
+            <div class="task-owner human">M</div>
+          </div>
+          <div class="task-row">
+            <div class="task-status done"></div>
+            <div class="task-title">P4 业界对比矩阵（4×6）</div>
+            <div class="task-owner claude">CC</div>
+          </div>
+          <div class="task-row">
+            <div class="task-status done"></div>
+            <div class="task-title">Skill 字号修正（10→14）</div>
+            <div class="task-owner codex">CX</div>
+          </div>
+          <div class="task-row active">
+            <div class="task-status active"></div>
+            <div class="task-title">P2 framing 改写</div>
+            <div class="task-owner claude">CC</div>
+          </div>
+          <div class="task-row">
+            <div class="task-status pending"></div>
+            <div class="task-title">P5 加文字解释</div>
+            <div class="task-owner" style="background:var(--surface-hover);color:var(--text-dim)">?</div>
+          </div>
+          <div class="task-row">
+            <div class="task-status pending"></div>
+            <div class="task-title">Demo / Q&amp;A 准备</div>
+            <div class="task-owner human">N</div>
+          </div>
+          <div class="task-row">
+            <div class="task-status pending"></div>
+            <div class="task-title">排练 30min 时长</div>
+            <div class="task-owner" style="background:var(--surface-hover);color:var(--text-dim)">?</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="ctx-label">
+        <span>Artifact</span>
+        <span style="font-family:var(--font-mono);text-transform:none;letter-spacing:0;color:var(--text-dim);font-size:11px">v2 · in-progress</span>
+      </div>
+      <div class="artifact-box">
+        <div class="artifact-head">
+          <span>ai-memory-talk.pptx</span>
+          <span class="ver-chip">v2</span>
+        </div>
+        <div class="artifact-strip">
+          <div class="slide-thumb title"><div class="hbar"></div><div class="hbar short"></div><span class="num">1</span></div>
+          <div class="slide-thumb"><div class="hbar"></div><div class="lbar"></div><div class="lbar"></div><span class="num">2</span></div>
+          <div class="slide-thumb"><div class="hbar short"></div><div class="chart"></div><span class="num">3</span></div>
+          <div class="slide-thumb"><div class="hbar short"></div><div class="grid4"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div><span class="num">4</span></div>
+        </div>
+        <div class="versions-row">
+          <span class="v">v0</span>
+          <span class="v">v1</span>
+          <span class="v active">v2</span>
+          <span style="color:var(--text-dim);margin-left:auto;font-size:10px">+ 5 页未显示</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="ctx-label">本 Topic 涉及 Spec</div>
+      <div class="spec-touched-list">
+        <div class="spec-touched-row">
+          <span style="color:var(--text-dim)">⟐</span>
+          <span class="nm">.claude/skills/research-talk-style</span>
+          <span class="v">v2 → v3 ⟐</span>
+        </div>
+        <div class="spec-touched-row">
+          <span style="color:var(--text-dim)">⟐</span>
+          <span class="nm">.claude/skills/pptx</span>
+          <span class="v">v5 ·</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="ctx-label">Participants · 6</div>
+      <div class="participants">
+        <div class="agent-avatar human" title="Neo">N</div>
+        <div class="agent-avatar human" title="Trinity">T</div>
+        <div class="agent-avatar human" title="Morpheus">M</div>
+        <div class="agent-avatar claude" title="claude · neo-mbp + trinity-air">CC</div>
+        <div class="agent-avatar codex" title="codex · neo-mbp">CX</div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="ctx-label">Git</div>
+      <div class="git-row">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="12" r="3"/><path d="M6 9v6"/><path d="M9 18h6a3 3 0 0 0 3-3"/></svg>
+        <span><span class="branch">master</span> · 2 ahead · spec change pending</span>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- Mobile bottom tabs -->
+<nav class="bottom-tabs">
+  <button class="tab" data-mobile-view="attention">
+    <span class="ic">📥</span>
+    <span>待处理<span class="badge-num">4</span></span>
+  </button>
+  <button class="tab active" data-mobile-view="topic">
+    <span class="ic">💬</span>
+    <span>Topic</span>
+  </button>
+  <button class="tab" data-mobile-view="board">
+    <span class="ic">📊</span>
+    <span>俯瞰</span>
+  </button>
+  <button class="tab" data-mobile-view="agents">
+    <span class="ic">👥</span>
+    <span>Agents</span>
+  </button>
+</nav>
+
+<script>
+  const app = document.getElementById('app');
+  const ta = document.querySelector('.composer textarea');
+  const send = document.querySelector('.send');
+
+  ta.addEventListener('input', () => {
+    send.disabled = ta.value.trim().length === 0;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+  });
+
+  function setView(view) {
+    app.classList.remove('view-attention', 'view-board');
+    if (view === 'attention') app.classList.add('view-attention');
+    if (view === 'board') app.classList.add('view-board');
+
+    const topicTitle = document.querySelector('.main-title-area');
+    const attnTitle = document.querySelector('.main-title-area-attn');
+    if (view === 'attention') {
+      topicTitle.style.display = 'none';
+      attnTitle.style.display = 'block';
+    } else {
+      topicTitle.style.display = 'flex';
+      attnTitle.style.display = 'none';
+    }
+
+    document.querySelectorAll('#view-switch button').forEach(b => {
+      b.classList.toggle('active', b.dataset.view === view);
+    });
+    document.getElementById('attn-entry')?.classList.toggle('active', view === 'attention');
+    document.querySelectorAll('.bottom-tabs .tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.mobileView === view);
+    });
+  }
+
+  document.querySelectorAll('#view-switch button').forEach(btn => {
+    btn.addEventListener('click', () => setView(btn.dataset.view));
+  });
+
+  // Detail toggle on agent messages
+  document.querySelectorAll('.detail-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.dataset.detail;
+      const panel = document.getElementById(targetId);
+      const open = btn.classList.toggle('open');
+      panel?.classList.toggle('open', open);
+    });
+  });
+
+  // Collapsible sidebar sections
+  document.querySelectorAll('.side-section.collapsible .side-label-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const section = btn.closest('.side-section');
+      section?.classList.toggle('open');
+    });
+  });
+  document.getElementById('attn-entry')?.addEventListener('click', () => setView('attention'));
+  document.querySelectorAll('.attention-list .attn-item').forEach(item => {
+    item.addEventListener('click', () => setView('attention'));
+  });
+  document.querySelectorAll('.bottom-tabs .tab').forEach(t => {
+    t.addEventListener('click', () => {
+      const v = t.dataset.mobileView;
+      if (v === 'attention' || v === 'topic' || v === 'board') {
+        setView(v);
+      } else {
+        document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+      }
+    });
+  });
+</script>
+</body>
+</html>
