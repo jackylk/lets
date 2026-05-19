@@ -1509,3 +1509,100 @@ def auth_logout(
     res = Response(status_code=204)
     res.delete_cookie("lets_session", path="/")
     return res
+
+
+# ---------------------------------------------------------------------------
+# REST tokens CRUD (Track F Task 44)
+#
+# Session-gated endpoints for logged-in humans to mint, list, and revoke their
+# own agent tokens. The raw token value is shown ONCE on create and never echoed
+# in list responses.
+# ---------------------------------------------------------------------------
+
+
+class TokenCreate(BaseModel):
+    label: str
+    role: str
+    device_label: str
+
+
+@app.get("/api/tokens")
+def list_my_tokens(
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> list[dict]:
+    from .auth import verify_session, list_tokens
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+    tokens = list_tokens(human_id=principal["human_id"])
+    # Strip internal fields
+    return [
+        {k: v for k, v in t.items() if k not in ("value_hash",)}
+        for t in tokens
+    ]
+
+
+@app.post("/api/tokens", status_code=201)
+def create_my_token(
+    payload: TokenCreate,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    from .auth import verify_session, issue_token
+    from .identity import ensure_agent_instance
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+
+    agent_instance_id = ensure_agent_instance(
+        role=payload.role,
+        human_id=principal["human_id"],
+        device_label=payload.device_label,
+    )
+    raw_value, token_id = issue_token(
+        human_id=principal["human_id"],
+        agent_instance_id=agent_instance_id,
+        label=payload.label,
+    )
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT ai.id, ar.name AS role, ai.device_label
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            WHERE ai.id = ?
+            """,
+            (agent_instance_id,),
+        ).fetchone()
+    return {
+        "id": token_id,
+        "value": raw_value,
+        "label": payload.label,
+        "agent_instance": dict(row),
+    }
+
+
+@app.delete("/api/tokens/{token_id}", status_code=204)
+def revoke_my_token(
+    token_id: int,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> Response:
+    from .auth import verify_session, revoke_token
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+
+    with connect() as conn:
+        owner = conn.execute(
+            "SELECT human_id FROM tokens WHERE id = ?", (token_id,)
+        ).fetchone()
+    if owner is None or owner["human_id"] != principal["human_id"]:
+        raise HTTPException(status_code=404, detail="token not found")
+
+    revoke_token(token_id)
+    return Response(status_code=204)
