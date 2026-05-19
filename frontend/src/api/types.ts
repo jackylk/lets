@@ -72,6 +72,7 @@ export interface TokenRowDTO {
   label: string | null;
   human_id: number;
   agent_instance_id: number | null;
+  agent_instance: { id: number; role: string; device_label: string } | null;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;

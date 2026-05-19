@@ -83,6 +83,7 @@ export const handlers = [
     const row: TokenRow = {
       id, label: body.label, human_id: 1,
       agent_instance_id: 100 + id,
+      agent_instance: { id: 100 + id, role: body.role, device_label: body.device_label },
       created_at: new Date().toISOString(),
       last_used_at: null, revoked_at: null,
     };

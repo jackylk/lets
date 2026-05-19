@@ -8,37 +8,35 @@ describe("<SettingsTokensPage />", () => {
   it("starts empty, creates a token, reveals the raw value once", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SettingsTokensPage />);
-    await waitFor(() => expect(screen.getByText(/No agent tokens yet/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/还没有连接任何电脑/i)).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /\+ New token/i }));
-    await user.type(screen.getByLabelText(/Label/i), "claude on neo-mbp");
-    await user.selectOptions(screen.getByLabelText(/Role/i), "claude");
-    await user.type(screen.getByLabelText(/Device/i), "neo-mbp");
-    await user.click(screen.getByRole("button", { name: /^Create$/ }));
+    await user.click(screen.getByRole("button", { name: /\+ 添加/i }));
+    await user.selectOptions(screen.getByLabelText(/Agent/i), "claude");
+    await user.type(screen.getByLabelText(/电脑名称/i), "neo-mbp");
+    await user.click(screen.getByRole("button", { name: /^添加$/ }));
 
-    // Token reveal modal
     await waitFor(() => {
-      expect(screen.getByText(/copy now — it won't show again/i)).toBeInTheDocument();
+      expect(screen.getByText(/复制连接密钥/i)).toBeInTheDocument();
     });
     expect(screen.getByText(/^lets_/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Done/i }));
-    await waitFor(() => expect(screen.getByText(/claude on neo-mbp/)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /完成/i }));
+    await waitFor(() => expect(screen.getAllByText("Claude Code").length).toBeGreaterThan(0));
+    expect(screen.getByText(/neo-mbp/)).toBeInTheDocument();
   });
 
   it("revokes a token", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SettingsTokensPage />);
-    await user.click(screen.getByRole("button", { name: /\+ New token/i }));
-    await user.type(screen.getByLabelText(/Label/i), "to-revoke");
-    await user.selectOptions(screen.getByLabelText(/Role/i), "codex");
-    await user.type(screen.getByLabelText(/Device/i), "neo-mbp");
-    await user.click(screen.getByRole("button", { name: /^Create$/ }));
-    await user.click(screen.getByRole("button", { name: /Done/i }));
+    await user.click(screen.getByRole("button", { name: /\+ 添加/i }));
+    await user.selectOptions(screen.getByLabelText(/Agent/i), "codex");
+    await user.type(screen.getByLabelText(/电脑名称/i), "neo-mbp");
+    await user.click(screen.getByRole("button", { name: /^添加$/ }));
+    await user.click(screen.getByRole("button", { name: /完成/i }));
 
-    await user.click(screen.getByRole("button", { name: /Revoke/i }));
+    await user.click(screen.getByRole("button", { name: /移除/i }));
     await waitFor(() => {
-      expect(screen.getByText(/revoked/i)).toBeInTheDocument();
+      expect(screen.getByText(/已移除/i)).toBeInTheDocument();
     });
   });
 });
