@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -238,8 +238,25 @@ def ensure_agent(name: str, agent_type: str) -> int:
         return int(cursor.lastrowid)
 
 
-@app.get("/")
-def home() -> FileResponse:
+@app.get("/", response_model=None)
+def home() -> RedirectResponse | FileResponse:
+    """Route root to the Track F SPA when it's been built.
+
+    If ``frontend/dist/index.html`` (or the dir indicated by the
+    ``LETS_FRONTEND_DIST`` env override) exists, redirect to ``/app``.
+    Otherwise fall back to the legacy v1 ``web/index.html`` debug panel
+    so a rollback path remains for one release.
+    """
+    import pathlib as _pl
+
+    dist_env = os.environ.get("LETS_FRONTEND_DIST")
+    if dist_env:
+        dist_root = _pl.Path(dist_env)
+    else:
+        dist_root = _pl.Path(__file__).parent.parent / "frontend" / "dist"
+
+    if dist_root.is_dir() and (dist_root / "index.html").exists():
+        return RedirectResponse(url="/app", status_code=307)
     return FileResponse("web/index.html")
 
 
