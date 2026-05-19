@@ -7,7 +7,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -188,6 +188,16 @@ class EventCreate(BaseModel):
     project_id: int | None = None
     topic_id: int | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaskTreeAdoptInput(BaseModel):
+    proposal_message_id: int
+
+
+class GoalAdoptInput(BaseModel):
+    goal_proposal_message_id: int | None = None
+    artifact_id: int | None = None
+    spec_text: str | None = None
 
 
 class ArtifactCreate(BaseModel):
@@ -704,6 +714,88 @@ def get_topic_task_tree(
     tree = get_tree_by_topic(topic_id)
     if tree is None:
         return {"tree": None, "items": []}
+    return {"tree": tree, "items": list_items(tree["id"])}
+
+
+@app.post("/api/topics/{topic_id}/task-tree", status_code=201)
+def adopt_task_tree(
+    topic_id: int,
+    payload: TaskTreeAdoptInput,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    from .auth import verify_session
+    from .messages import topic_stream
+    from .task_trees import list_items, replace_items, upsert_tree
+
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="session required")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+
+    # Find the proposal message in this topic
+    msgs = topic_stream(topic_id, limit=10000)
+    proposal = next(
+        (m for m in msgs if m["id"] == payload.proposal_message_id),
+        None,
+    )
+    if proposal is None or proposal["type"] != "task_tree_proposal":
+        raise HTTPException(status_code=400, detail="proposal not found in topic")
+
+    meta = proposal["metadata"] or {}
+    items = meta.get("items") or []
+    tree = upsert_tree(
+        topic_id=topic_id,
+        goal_artifact_id=None,
+        goal_spec_text=None,
+        proposal_message_id=payload.proposal_message_id,
+        approved_by_human_id=principal["human_id"],
+    )
+    replace_items(tree["id"], items)
+    return {"tree": tree, "items": list_items(tree["id"])}
+
+
+@app.post("/api/topics/{topic_id}/goal", status_code=201)
+def adopt_goal(
+    topic_id: int,
+    payload: GoalAdoptInput,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    from .auth import verify_session
+    from .messages import topic_stream
+    from .task_trees import list_items, upsert_tree
+
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="session required")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+
+    artifact_id: int | None = payload.artifact_id
+    spec_text: str | None = payload.spec_text
+
+    if payload.goal_proposal_message_id is not None:
+        msgs = topic_stream(topic_id, limit=10000)
+        proposal = next(
+            (m for m in msgs if m["id"] == payload.goal_proposal_message_id),
+            None,
+        )
+        if proposal is None or proposal["type"] != "goal_proposal":
+            raise HTTPException(status_code=400, detail="proposal not found in topic")
+        meta = proposal["metadata"] or {}
+        artifact_id = artifact_id or meta.get("artifact_id")
+        spec_text = spec_text or meta.get("spec_text") or proposal["body"]
+
+    if not spec_text and artifact_id is None:
+        raise HTTPException(status_code=400, detail="goal must have spec_text or artifact_id")
+
+    tree = upsert_tree(
+        topic_id=topic_id,
+        goal_artifact_id=artifact_id,
+        goal_spec_text=spec_text,
+        proposal_message_id=payload.goal_proposal_message_id,
+        approved_by_human_id=principal["human_id"],
+    )
     return {"tree": tree, "items": list_items(tree["id"])}
 
 
