@@ -105,3 +105,38 @@ def test_logout_revokes_session(client, monkeypatch):
 
     me2 = client.get("/auth/me", cookies={"lets_session": token})
     assert me2.status_code == 401
+
+
+def test_session_cookie_can_use_conversation_api(client, monkeypatch):
+    """Browser sessions from GitHub OAuth can use the same REST API as the SPA."""
+    from app.auth import issue_session
+    from app.db import connect
+    from app.identity import ensure_human
+
+    hid = ensure_human("Morpheus")
+    session = issue_session(hid)
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO topics (slug, title) VALUES ('oauth-chat', 'OAuth Chat')"
+        )
+        topic_id = cur.lastrowid
+
+    create = client.post(
+        "/api/messages",
+        cookies={"lets_session": session},
+        json={
+            "topic_id": topic_id,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": hid,
+            "body": "hello from browser session",
+        },
+    )
+    assert create.status_code == 200, create.text
+
+    stream = client.get(
+        f"/api/topics/{topic_id}/messages",
+        cookies={"lets_session": session},
+    )
+    assert stream.status_code == 200
+    assert [m["body"] for m in stream.json()] == ["hello from browser session"]

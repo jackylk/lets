@@ -180,3 +180,33 @@ def get_session_principal(
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
     return principal
+
+
+def get_api_principal(
+    authorization: str | None = Header(default=None),
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    """Authenticate browser/API REST calls by Bearer token or session cookie.
+
+    MCP transport stays stricter via ``BearerAuthMiddleware``. The REST API is
+    shared by agents and the SPA, so it accepts agent Bearer tokens and browser
+    sessions while preserving the existing 401 behavior when neither is valid.
+    """
+    if authorization:
+        parts = authorization.split(" ", 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            principal = verify_token(parts[1].strip())
+            if principal is not None:
+                return {**principal, "auth_type": "token"}
+
+    if lets_session:
+        principal = verify_session(lets_session)
+        if principal is not None:
+            return {
+                "human_id": int(principal["human_id"]),
+                "agent_instance_id": None,
+                "session_id": int(principal["session_id"]),
+                "auth_type": "session",
+            }
+
+    raise HTTPException(status_code=401, detail="missing or invalid credentials")

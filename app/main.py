@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import mcp_server as mcp_server_module
-from .auth import get_current_principal, verify_token
+from .auth import get_api_principal, verify_token
 from .db import connect, init_db
 
 mcp_server_module = importlib.reload(mcp_server_module)
@@ -569,7 +569,7 @@ def list_agents() -> list[dict]:
 
 @app.get("/api/agents/online")
 def list_online_agents(
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     """Returns agent_instances whose token was used in the last 5 minutes."""
     with connect() as conn:
@@ -643,7 +643,7 @@ def list_activity() -> list[dict]:
 @app.post("/api/messages")
 def post_message_endpoint(
     payload: MessageCreate,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .messages import post_message
 
@@ -683,7 +683,7 @@ def get_topic_messages(
     type: list[str] | None = Query(default=None),
     limit: int = 500,
     after_id: int | None = None,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     from .messages import topic_stream
 
@@ -693,7 +693,7 @@ def get_topic_messages(
 @app.post("/api/events")
 def post_event(
     payload: EventCreate,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .events import record_event
 
@@ -722,7 +722,7 @@ def get_events(
     topic_id: int | None = None,
     event_type: str | None = None,
     limit: int = 100,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     from .events import query_events
 
@@ -738,7 +738,7 @@ def get_events(
 @app.get("/api/attention")
 def get_attention_queue(
     human_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .attention import get_attention
     return get_attention(human_id)
@@ -782,7 +782,7 @@ def identity_me(
 @app.post("/api/artifacts")
 def post_artifact(
     payload: ArtifactCreate,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .artifacts.registry import get_adapter
     from .artifacts.models import create_artifact_row, record_version, get_artifact_by_id
@@ -823,7 +823,7 @@ def post_artifact(
 def update_artifact(
     artifact_id: int,
     payload: ArtifactUpdate,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .artifacts.registry import get_adapter
     from .artifacts.models import record_version, get_artifact_by_id
@@ -858,7 +858,7 @@ def update_artifact(
 @app.get("/api/artifacts/{artifact_id}/versions")
 def list_artifact_versions(
     artifact_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
     if not get_artifact_by_id(artifact_id):
@@ -871,7 +871,7 @@ def artifact_diff(
     artifact_id: int,
     from_label: str,
     to_label: str,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .artifacts.registry import get_adapter
     from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
@@ -901,7 +901,7 @@ def artifact_diff(
 def read_artifact(
     artifact_id: int,
     version_label: str | None = None,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .artifacts.registry import get_adapter
     from .artifacts.models import get_artifact_by_id, list_versions_by_artifact
@@ -938,7 +938,7 @@ def read_artifact(
 @app.post("/api/projects")
 def post_project(
     payload: ProjectCreate,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .projects import create_project, get_project_by_id
     try:
@@ -956,7 +956,7 @@ def post_project(
 
 @app.get("/api/projects")
 def get_projects(
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     from .projects import list_projects
     return list_projects()
@@ -965,7 +965,7 @@ def get_projects(
 @app.get("/api/projects/{project_id}")
 def get_project(
     project_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .projects import get_project_by_id
     p = get_project_by_id(project_id)
@@ -978,7 +978,7 @@ def get_project(
 def patch_project(
     project_id: int,
     payload: ProjectPatch,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .projects import get_project_by_id, update_project
     if not get_project_by_id(project_id):
@@ -996,7 +996,7 @@ def patch_project(
 def get_project_spec(
     project_id: int,
     include_content: bool = False,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     """Read-only Spec view: lists CLAUDE.md, .mcp.json, and .claude/** files.
 
@@ -1066,7 +1066,7 @@ class SpecApply(BaseModel):
 def apply_spec_change(
     project_id: int,
     payload: SpecApply,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     import os
     from pathlib import Path
@@ -1106,7 +1106,7 @@ def apply_spec_change(
 def post_topic(
     project_id: int,
     payload: TopicCreate,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .projects import get_project_by_id
     from .topics import create_topic, get_topic_by_id
@@ -1122,7 +1122,7 @@ def post_topic(
 @app.get("/api/projects/{project_id}/topics")
 def get_topics_in_project(
     project_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     from .projects import get_project_by_id
     from .topics import list_topics_by_project
@@ -1134,7 +1134,7 @@ def get_topics_in_project(
 @app.get("/api/topics/{topic_id}")
 def get_topic(
     topic_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .topics import get_topic_by_id
     t = get_topic_by_id(topic_id)
@@ -1146,7 +1146,7 @@ def get_topic(
 @app.get("/api/topics/{topic_id}/stream")
 async def stream_topic(
     topic_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ):
     """Server-Sent Events stream of new messages on a topic.
 
@@ -1189,7 +1189,7 @@ async def stream_topic(
 @app.get("/api/artifacts")
 def list_artifacts_by_topic(
     topic_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     """List artifacts attached to ``topic_id``, ordered by id ASC."""
     from .db import connect
@@ -1204,7 +1204,7 @@ def list_artifacts_by_topic(
 @app.get("/api/topics/{topic_id}/participants")
 def get_topic_participants(
     topic_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     """Return the distinct humans and agents that have posted on a topic."""
     from .db import connect
@@ -1240,7 +1240,7 @@ def get_topic_participants(
 @app.get("/api/projects/{project_id}/git-status")
 def get_project_git_status(
     project_id: int,
-    principal: dict = Depends(get_current_principal),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
     """Return HEAD commit + dirty-file list for a project's repo_path."""
     import subprocess
