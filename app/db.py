@@ -92,6 +92,26 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_topics_project ON topics(project_id);
+
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic_id INTEGER NOT NULL,
+                type TEXT NOT NULL CHECK (type IN (
+                    'chat', 'status', 'finding', 'decision', 'question',
+                    'handoff', 'review', 'artifact_revision', 'spec_change',
+                    'nudge', 'proactive_finding', 'task_tree_proposal', 'system'
+                )),
+                actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
+                actor_id INTEGER,
+                body TEXT NOT NULL,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                ref_event_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(topic_id) REFERENCES topics(id),
+                FOREIGN KEY(ref_event_id) REFERENCES events(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
             """
         )
 
