@@ -293,3 +293,41 @@ v2 / v3 集成（待 dbay-fuse 服务端 ready）：
 ## 13. 总结一句
 
 > **Lets 不是又一个 agent IDE，是 agent 团队协作的"Git for spec + Chat for collaboration + AgentFS for the things git can't"。**
+
+---
+
+## Track C1 addendum: `project_proposal` typed message
+
+当 Web UI 或某个 agent 在 topic 里提议"开一个新 project"或"重构当前 project 结构"时，它发一条 `project_proposal` typed message 到当前 topic。约定的 shape：
+
+```json
+{
+  "topic_id": 42,
+  "type": "project_proposal",
+  "actor_type": "human",
+  "actor_id": 7,
+  "body": "<短句：rationale>",
+  "metadata": {
+    "proposed_project_slug": "q3-review",
+    "proposed_project_name": "Q3 Review",
+    "proposed_repo_path": "/Users/jacky/work/q3-review",
+    "rationale": "<更详细的解释，可选>"
+  }
+}
+```
+
+字段说明：
+- `proposed_project_slug`（必需）—— 满足 `^[a-z0-9-]+$`，由前端用 `slugify(name)` 生成
+- `proposed_project_name`（必需）—— 人类可读名
+- `proposed_repo_path`（可选）—— 本地仓库的绝对路径；如果省略则采用 default project 模式
+- `rationale`（可选）—— 长理由；`body` 是短句版
+
+**采纳一条 proposal 不是自动的**。流程：
+1. 任意成员/agent 发 `project_proposal`
+2. 群里讨论；其他人发 `chat` / `question` / `decision` 回应
+3. 有人发一条 `type=decision, metadata.decision_type="adopt"` 引用这条 proposal（用 `related_message_ids` 列出 proposal 的 message_id）
+4. owner 拿到 adopt 决议后，显式 `POST /api/projects` 创建项目
+
+Track C2 会引入"一步采纳" endpoint（`POST /api/projects/from-proposal/{message_id}`），把第 3 + 4 步合并。在那之前，前端 UI 在 proposal 消息下方显示 "Adopt as new project →" 按钮，跳到新建项目表单（预填 metadata 里的字段），按钮触发的依然是普通 `POST /api/projects`。
+
+**为什么是 typed message 而不是新表**：proposal 本质是讨论的一部分，应该和 chat / question 同流；进决议后才"实例化"成 project 实体。这避免引入"草稿 project"的中间状态。
