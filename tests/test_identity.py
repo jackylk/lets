@@ -86,3 +86,39 @@ def test_agent_instances_unique_per_human_device(temp_db):
             assert False, "should have raised IntegrityError"
         except sqlite3.IntegrityError:
             pass
+
+
+def test_ensure_human_creates(temp_db):
+    from app.identity import ensure_human
+    hid = ensure_human("Neo", email="neo@example.com")
+    assert isinstance(hid, int) and hid > 0
+
+
+def test_ensure_human_idempotent(temp_db):
+    from app.identity import ensure_human
+    a = ensure_human("Neo")
+    b = ensure_human("Neo")
+    assert a == b
+
+
+def test_ensure_agent_instance_creates(temp_db):
+    from app.identity import ensure_human, ensure_agent_instance
+    hid = ensure_human("Neo")
+    iid = ensure_agent_instance(role="claude", human_id=hid, device_label="neo-mbp")
+    assert isinstance(iid, int)
+
+
+def test_ensure_agent_instance_idempotent(temp_db):
+    from app.identity import ensure_human, ensure_agent_instance
+    hid = ensure_human("Neo")
+    a = ensure_agent_instance(role="claude", human_id=hid, device_label="neo-mbp")
+    b = ensure_agent_instance(role="claude", human_id=hid, device_label="neo-mbp")
+    assert a == b
+
+
+def test_ensure_agent_instance_unknown_role_raises(temp_db):
+    from app.identity import ensure_human, ensure_agent_instance
+    hid = ensure_human("Neo")
+    import pytest
+    with pytest.raises(ValueError, match="unknown agent role"):
+        ensure_agent_instance(role="nonexistent", human_id=hid, device_label="x")
