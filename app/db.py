@@ -183,6 +183,8 @@ def init_db() -> None:
                 slug TEXT NOT NULL UNIQUE,
                 title TEXT NOT NULL,
                 project_id INTEGER,
+                mode TEXT NOT NULL DEFAULT 'exploratory'
+                    CHECK (mode IN ('exploratory', 'actionable')),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
