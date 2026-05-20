@@ -289,6 +289,32 @@ LETS_FRONTEND_DIST=$(pwd)/frontend/dist .venv/bin/uvicorn app.main:app --reload
 # Open http://127.0.0.1:8000/app/
 ```
 
+### Full local dogfood while Railway is unavailable
+
+Use the local FastAPI site as the product surface:
+
+```bash
+./scripts/dev-local.sh
+```
+
+Then open the printed dev login URL:
+
+```text
+http://127.0.0.1:8000/auth/dev/login?human=<you>
+```
+
+That sets the same `lets_session` browser cookie shape as GitHub OAuth, but
+only when `LETS_DEV_SESSIONS=1` is enabled by the script. After the local
+website is open, register this computer the Railway-style way:
+
+```bash
+LETS_HOST=http://127.0.0.1:8000 .venv/bin/python -m app.gateway login
+LETS_HOST=http://127.0.0.1:8000 .venv/bin/python -m app.gateway run
+```
+
+`gateway login` opens the local browser authorization page, reuses the browser
+session, then saves the token into `~/.lets/token`.
+
 ## Track F: Web Frontend
 
 The React SPA lives under `frontend/`.

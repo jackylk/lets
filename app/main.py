@@ -1905,6 +1905,37 @@ def auth_me(
     }
 
 
+@app.get("/auth/dev/login")
+def auth_dev_login(human: str = "Neo", next: str = "/app") -> RedirectResponse:
+    """Dev-only browser login for local website testing.
+
+    Enabled only when ``LETS_DEV_SESSIONS=1``. This gives local dogfood the
+    same browser-session shape as GitHub OAuth without requiring a localhost
+    OAuth app while Railway deploys are unavailable.
+    """
+    if os.environ.get("LETS_DEV_SESSIONS") != "1":
+        raise HTTPException(status_code=404, detail="not found")
+    if not next.startswith("/") or next.startswith("//"):
+        next = "/app"
+
+    from .auth import issue_session
+    from .identity import ensure_human
+
+    human_id = ensure_human(human.strip() or "Neo")
+    session_value = issue_session(human_id)
+    res = RedirectResponse(url=next, status_code=307)
+    res.set_cookie(
+        "lets_session",
+        session_value,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+    )
+    return res
+
+
 @app.post("/auth/logout", status_code=204)
 def auth_logout(
     lets_session: str | None = Cookie(default=None, alias="lets_session"),
