@@ -50,3 +50,27 @@ test("Spec change Approve flips to Approved state", async ({ page }) => {
   await approve.click();
   await expect(page.getByText("Approved")).toBeVisible();
 });
+
+test("Adopt task_tree_proposal — button flips to Adopted", async ({ page }) => {
+  await page.goto("/");
+  // Scroll to the task_tree_proposal message
+  const adoptBtn = page.getByRole("button", { name: /Adopt as task tree/i });
+  await expect(adoptBtn).toBeVisible();
+  await adoptBtn.click();
+  await expect(page.getByText(/Adopted/i)).toBeVisible();
+});
+
+test("Nudge 略过 dismisses the nudge inline", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "略过" }).click();
+  await expect(page.getByText(/已处理：略过/)).toBeVisible();
+});
+
+test("Spinoff dialog creates new topic + footer updates", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "独立成新 topic" }).click();
+  // Default title prefilled from drift_summary
+  await page.getByLabel(/新 topic 标题/).fill("周五团建");
+  await page.getByRole("button", { name: "创建" }).click();
+  await expect(page.getByText(/已处理：迁移到 topic/)).toBeVisible();
+});
