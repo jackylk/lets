@@ -1,7 +1,7 @@
 export const MESSAGE_TYPES = [
   "chat", "status", "finding", "decision", "question",
   "handoff", "review", "artifact_revision", "spec_change",
-  "nudge", "proactive_finding", "task_tree_proposal", "system",
+  "nudge", "proactive_finding", "task_tree_proposal", "goal_proposal", "system",
 ] as const;
 export type MessageType = (typeof MESSAGE_TYPES)[number];
 

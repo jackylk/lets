@@ -1,11 +1,12 @@
 import { expectTypeOf, test } from "vitest";
 import type { MessageType, ActorType, MessageDTO, PostMessageInput } from "./types";
 
-test("MessageType lists all 13 backend types", () => {
+test("MessageType lists all 14 backend types", () => {
   expectTypeOf<MessageType>().toEqualTypeOf<
     | "chat" | "status" | "finding" | "decision" | "question"
     | "handoff" | "review" | "artifact_revision" | "spec_change"
-    | "nudge" | "proactive_finding" | "task_tree_proposal" | "system"
+    | "nudge" | "proactive_finding" | "task_tree_proposal"
+    | "goal_proposal" | "system"
   >();
 });
 test("ActorType lists 3 actors", () => {

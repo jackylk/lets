@@ -11,6 +11,7 @@ import { SpecChangeMessage } from "./SpecChangeMessage";
 import { NudgeMessage } from "./NudgeMessage";
 import { ProactiveFindingMessage } from "./ProactiveFindingMessage";
 import { TaskTreeProposalMessage } from "./TaskTreeProposalMessage";
+import { GoalProposalMessage } from "./GoalProposalMessage";
 import { SystemMessage } from "./SystemMessage";
 
 export interface ActorResolver {
@@ -41,6 +42,7 @@ export function Message({ message, resolveActor }: Props) {
     case "nudge":              return <NudgeMessage message={message} actor={actor} />;
     case "proactive_finding":  return <ProactiveFindingMessage message={message} actor={actor} />;
     case "task_tree_proposal": return <TaskTreeProposalMessage message={message} actor={actor} />;
+    case "goal_proposal":      return <GoalProposalMessage message={message} actor={actor} />;
     case "system":             return <SystemMessage message={message} actor={actor} />;
   }
 }
