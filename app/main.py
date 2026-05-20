@@ -341,6 +341,13 @@ def install_gateway_py() -> FileResponse:
     )
 
 
+@app.get("/install")
+def install_alias(request: Request) -> PlainTextResponse:
+    """Short alias so the curl-bash one-liner can be `curl … /install | bash`,
+    matching the Bun/Deno/uv convention."""
+    return install_gateway_sh(request)
+
+
 @app.get("/install/gateway.sh")
 def install_gateway_sh(request: Request) -> PlainTextResponse:
     """One-line installer for the local Lets gateway.
