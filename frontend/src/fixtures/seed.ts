@@ -1,10 +1,22 @@
 import type { MessageDTO, TopicDTO } from "../api/types";
+import type { TaskItemDTO, TaskTreeDTO } from "../api/taskTreeTypes";
 
 export interface SeedState {
   topics: TopicDTO[];
   messages: MessageDTO[];
   humans: { id: number; name: string }[];
   agentInstances: { id: number; role: string; device_label: string; human_id: number }[];
+  taskTrees: TaskTreeDTO[];
+  taskItems: TaskItemDTO[];
+  driftNudges: Array<{
+    id: number;
+    topic_id: number;
+    nudge_message_id: number;
+    drift_summary: string;
+    resolved_by: "moved_to_topic" | "returned" | "dismissed" | null;
+    resolved_at: string | null;
+    resolved_to_topic_id: number | null;
+  }>;
 }
 
 function mk(
@@ -94,5 +106,56 @@ export function makeSeed(): SeedState {
       "Trinity 加入了 topic",
       {}, "2026-05-19T11:10:00Z"),
   ];
-  return { topics, messages, humans, agentInstances };
+  const taskTrees: TaskTreeDTO[] = [{
+    id: 1, topic_id: 1,
+    goal_artifact_id: null,
+    goal_spec_text: "30 分钟 talk · 技术受众 · 突出「事件性记忆 vs 语义记忆」",
+    version: 1,
+    approved_at: "2026-05-19T09:33:00Z",
+    approved_by_human_id: 1,
+    proposal_message_id: 6,
+    created_at: "2026-05-19T09:33:00Z",
+    updated_at: "2026-05-19T09:33:00Z",
+  }];
+  const taskItems: TaskItemDTO[] = [
+    { id: 1, task_tree_id: 1, parent_item_id: null,
+      title: "Framing 角度定下来", owner_human_id: 3, owner_agent_instance_id: null,
+      status: "done", position: 0,
+      created_at: "2026-05-19T09:33:00Z", updated_at: "2026-05-19T09:33:00Z" },
+    { id: 2, task_tree_id: 1, parent_item_id: null,
+      title: "P4 业界对比矩阵 4×6", owner_human_id: null, owner_agent_instance_id: 11,
+      status: "done", position: 1,
+      created_at: "2026-05-19T09:33:00Z", updated_at: "2026-05-19T09:33:00Z" },
+    { id: 3, task_tree_id: 1, parent_item_id: null,
+      title: "Skill 字号修正", owner_human_id: null, owner_agent_instance_id: 13,
+      status: "done", position: 2,
+      created_at: "2026-05-19T09:33:00Z", updated_at: "2026-05-19T09:33:00Z" },
+    { id: 4, task_tree_id: 1, parent_item_id: null,
+      title: "P2 framing 改写", owner_human_id: null, owner_agent_instance_id: 11,
+      status: "active", position: 3,
+      created_at: "2026-05-19T09:33:00Z", updated_at: "2026-05-19T09:33:00Z" },
+    { id: 5, task_tree_id: 1, parent_item_id: null,
+      title: "P5 加文字解释", owner_human_id: null, owner_agent_instance_id: null,
+      status: "pending", position: 4,
+      created_at: "2026-05-19T09:33:00Z", updated_at: "2026-05-19T09:33:00Z" },
+    { id: 6, task_tree_id: 1, parent_item_id: 5,
+      title: "P5 子任务: 找去年反馈数据", owner_human_id: null, owner_agent_instance_id: null,
+      status: "pending", position: 0,
+      created_at: "2026-05-19T09:33:00Z", updated_at: "2026-05-19T09:33:00Z" },
+    { id: 7, task_tree_id: 1, parent_item_id: null,
+      title: "Demo / Q&A 准备", owner_human_id: 1, owner_agent_instance_id: null,
+      status: "pending", position: 5,
+      created_at: "2026-05-19T09:33:00Z", updated_at: "2026-05-19T09:33:00Z" },
+    { id: 8, task_tree_id: 1, parent_item_id: null,
+      title: "排练 30min", owner_human_id: null, owner_agent_instance_id: null,
+      status: "pending", position: 6,
+      created_at: "2026-05-19T09:33:00Z", updated_at: "2026-05-19T09:33:00Z" },
+  ];
+  const driftNudges: SeedState["driftNudges"] = [{
+    id: 1, topic_id: 1, nudge_message_id: 12,
+    drift_summary: "讨论 framing 25 分钟",
+    resolved_by: null, resolved_at: null, resolved_to_topic_id: null,
+  }];
+
+  return { topics, messages, humans, agentInstances, taskTrees, taskItems, driftNudges };
 }
