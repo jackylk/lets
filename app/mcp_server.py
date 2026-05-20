@@ -592,6 +592,41 @@ def update_artifact(
     }
 
 
+@mcp.tool()
+def propose_goal(
+    topic_id: int,
+    spec_text: str,
+    artifact_id: int | None = None,
+) -> dict:
+    """Propose the final goal for a topic (artifact + spec). Posts a
+    goal_proposal typed message; humans must adopt to make it active."""
+    import json
+    from .db import connect
+    from .messages import post_message
+
+    metadata = {
+        "artifact_id": artifact_id,
+        "spec_text": spec_text,
+        "proposed_at": "now",
+    }
+    msg_id = post_message(
+        topic_id=topic_id,
+        type="goal_proposal",
+        actor_type="agent",
+        actor_id=None,
+        body=spec_text,
+        metadata=metadata,
+    )
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM messages WHERE id = ?", (msg_id,)
+        ).fetchone()
+    msg = dict(row)
+    if isinstance(msg.get("metadata"), str):
+        msg["metadata"] = json.loads(msg["metadata"])
+    return msg
+
+
 def main() -> None:
     """Stand-alone stdio entry, kept for backward compatibility."""
     init_db()
