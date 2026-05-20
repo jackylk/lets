@@ -1,25 +1,29 @@
-"""Lets agent runner — the missing piece for "control my local CC from the web".
+"""Lets gateway — the relay between your local CC/Codex and the Lets web app.
 
-Run this on your local machine. It authenticates to a Lets instance via
-a Bearer token bound to a specific agent_instance (claude or codex), then
+CC and Codex are the agents. This process is just the gateway that ferries
+messages between them and Lets — it doesn't think, it doesn't hold
+conversation memory, it just routes.
+
+Run one gateway per agent_instance on your local machine. It authenticates
+to a Lets instance via a Bearer token (bound to one specific agent_instance),
 polls every topic you're a participant in, and when it sees a message
-that is addressed to your human, it spawns the matching local CLI agent
-to handle it and posts the agent's reply back to the topic.
+addressed to your human, spawns the matching local CLI agent to handle it
+and posts the agent's reply back to the topic.
 
 Usage:
-    python -m app.agent_runner --token lets_xxx
-    python -m app.agent_runner --token lets_xxx --cmd "claude --print"
-    python -m app.agent_runner --token lets_xxx --cmd "codex exec"
+    python -m app.gateway --token lets_xxx
+    python -m app.gateway --token lets_xxx --cmd "claude --print"
+    python -m app.gateway --token lets_xxx --cmd "codex exec"
 
-The token determines the agent identity (role + device_label).
-Without --cmd it auto-picks based on the token's role:
+The token determines the gateway's identity (role + device_label).
+Without --cmd it auto-picks the CLI based on the token's role:
     claude → "claude --print"
     codex  → "codex exec"
 
-Once running you'll see the agent show up in the Lets web UI's
-"在线 Agent" sidebar within ~30s, and any chat/question posted in the
-web that includes the agent's human_id in addressed_to will trigger a
-real local CLI invocation.
+Once running, the bound agent_instance shows up in the Lets web UI's
+"Agent" sidebar with a green dot within ~30s, and any chat/question
+posted in the web that includes the agent's human_id in addressed_to
+will trigger a real local CLI invocation.
 """
 from __future__ import annotations
 
@@ -248,7 +252,7 @@ def _invoke_local_cli(cmd: list[str], prompt: str, timeout: int) -> tuple[bool, 
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="lets-agent")
+    parser = argparse.ArgumentParser(prog="lets-gateway")
     parser.add_argument(
         "--token",
         default=os.environ.get("LETS_TOKEN"),

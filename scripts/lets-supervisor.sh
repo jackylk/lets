@@ -1,10 +1,10 @@
 #!/bin/bash
-# Run two agent_runner instances side-by-side: one bound to your local
+# Run two Lets gateway processes side-by-side: one bound to your local
 # Claude Code (claude --print) and one bound to local Codex (codex exec).
 #
 # Reads tokens from ~/.mcp.lets/<human>/{cc,codex}.mcp.json (produced by
-# scripts/connect_local_agents.sh). Logs each runner to /tmp/lets-agent-*.log.
-# Press Ctrl-C to stop both cleanly.
+# scripts/connect_local_agents.sh). Logs each gateway to
+# /tmp/lets-gateway-*.log. Press Ctrl-C to stop both cleanly.
 set -euo pipefail
 
 HUMAN="${1:-${USER:-jacky}}"
@@ -26,23 +26,23 @@ CC_TOK=$(read_tok "$TOKDIR/cc.mcp.json")
 CX_TOK=$(read_tok "$TOKDIR/codex.mcp.json")
 
 LETS_TOKEN="$CC_TOK" PYTHONUNBUFFERED=1 \
-  .venv/bin/python -m app.agent_runner > /tmp/lets-agent-cc.log 2>&1 &
+  .venv/bin/python -m app.gateway > /tmp/lets-gateway-cc.log 2>&1 &
 CC_PID=$!
 
 LETS_TOKEN="$CX_TOK" PYTHONUNBUFFERED=1 \
-  .venv/bin/python -m app.agent_runner > /tmp/lets-agent-codex.log 2>&1 &
+  .venv/bin/python -m app.gateway > /tmp/lets-gateway-codex.log 2>&1 &
 CX_PID=$!
 
 cleanup() {
   echo
-  echo "stopping agent runners…"
+  echo "stopping gateways…"
   kill "$CC_PID" "$CX_PID" 2>/dev/null || true
   wait "$CC_PID" "$CX_PID" 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT
 
-echo "✓ CC runner PID=$CC_PID  log=/tmp/lets-agent-cc.log"
-echo "✓ Codex runner PID=$CX_PID  log=/tmp/lets-agent-codex.log"
+echo "✓ CC gateway PID=$CC_PID  log=/tmp/lets-gateway-cc.log"
+echo "✓ Codex gateway PID=$CX_PID  log=/tmp/lets-gateway-codex.log"
 echo "(streaming both logs; Ctrl-C to stop)"
 echo "---"
-tail -F /tmp/lets-agent-cc.log /tmp/lets-agent-codex.log
+tail -F /tmp/lets-gateway-cc.log /tmp/lets-gateway-codex.log
