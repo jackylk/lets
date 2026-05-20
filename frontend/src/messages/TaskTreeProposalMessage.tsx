@@ -1,13 +1,30 @@
+import { useState } from "react";
 import type { MessageDTO, TaskTreeProposalMeta } from "../api/types";
 import { BaseMessage } from "./BaseMessage";
 import { cn } from "../lib/cn";
+import { useAdoptTaskTreeProposal } from "../api/taskTreeQueries";
 
 interface Actor { kind: "human" | "claude" | "codex" | "system"; initial: string; displayName: string }
 
-export function TaskTreeProposalMessage({ message, actor }: { message: MessageDTO; actor: Actor }) {
+export function TaskTreeProposalMessage({
+  message,
+  actor,
+}: {
+  message: MessageDTO;
+  actor: Actor;
+}) {
   const meta = message.metadata as Partial<TaskTreeProposalMeta>;
   const items = meta.items ?? [];
   const doneCount = items.filter((i) => i.status === "done").length;
+  const adopt = useAdoptTaskTreeProposal(message.topic_id);
+  const [adopted, setAdopted] = useState(false);
+
+  function handleAdopt() {
+    adopt.mutate(
+      { proposal_message_id: message.id },
+      { onSuccess: () => setAdopted(true) },
+    );
+  }
 
   return (
     <BaseMessage
@@ -19,7 +36,9 @@ export function TaskTreeProposalMessage({ message, actor }: { message: MessageDT
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2 text-[13px]">
             <span className="font-semibold">{meta.title ?? "task tree"}</span>
-            <span className="font-mono text-text-dim text-[11px]">{doneCount} / {items.length} done</span>
+            <span className="font-mono text-text-dim text-[11px]">
+              {doneCount} / {items.length} done
+            </span>
           </div>
           <ul className="flex flex-col gap-1">
             {items.map((it, i) => (
@@ -29,14 +48,42 @@ export function TaskTreeProposalMessage({ message, actor }: { message: MessageDT
                     "w-2 h-2 rounded-full",
                     it.status === "done" && "bg-status-on",
                     it.status === "active" && "bg-status-work",
-                    (!it.status || it.status === "pending") && "border border-border bg-surface",
+                    (!it.status || it.status === "pending") &&
+                      "border border-border bg-surface",
                   )}
                 />
-                <span className={it.status === "done" ? "text-text-dim line-through" : ""}>{it.title}</span>
-                {it.owner_name && <span className="ml-auto text-[11px] font-mono text-text-dim">{it.owner_name}</span>}
+                <span
+                  className={
+                    it.status === "done" ? "text-text-dim line-through" : ""
+                  }
+                >
+                  {it.title}
+                </span>
+                {it.owner_name && (
+                  <span className="ml-auto text-[11px] font-mono text-text-dim">
+                    {it.owner_name}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
+          <div className="flex items-center gap-2 mt-2">
+            <div className="flex-1" />
+            {adopted ? (
+              <span className="text-[12px] text-status-on font-medium">
+                Adopted ✓
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleAdopt}
+                disabled={adopt.isPending}
+                className="px-2 py-1 rounded bg-tree text-bg text-[12px] font-medium disabled:opacity-40"
+              >
+                Adopt as task tree
+              </button>
+            )}
+          </div>
         </div>
       }
     />
