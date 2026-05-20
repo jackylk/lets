@@ -38,6 +38,7 @@ import time
 import urllib.parse
 import urllib.error
 import urllib.request
+import webbrowser
 from dataclasses import dataclass
 from typing import Any
 
@@ -292,6 +293,11 @@ def _login(argv: list[str]) -> int:
         default=600,
         help="Seconds to wait for browser authorization",
     )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Print the authorization URL but do not open a browser",
+    )
     args = parser.parse_args(argv)
 
     params = urllib.parse.urlencode({
@@ -303,7 +309,13 @@ def _login(argv: list[str]) -> int:
     device_code = start["device_code"]
     interval = int(start.get("interval") or 3)
 
-    print("Open this URL in your browser to authorize this computer:")
+    if not args.no_open:
+        opened = webbrowser.open(verification_url)
+        if opened:
+            print("Opened your browser to authorize this computer.")
+        else:
+            print("Could not open a browser automatically.")
+    print("Open this URL in your browser if it did not open automatically:")
     print(verification_url)
     print()
     print(f"Code: {start['user_code']}")
