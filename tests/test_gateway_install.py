@@ -12,7 +12,8 @@ def test_gateway_install_script_uses_public_base_url(client):
     assert 'BASE_URL="${LETS_HOST:-https://lets.up.railway.app}"' in body
     assert 'curl -fsSL "$BASE_URL/install/gateway.py"' in body
     assert "run-gateway.sh" in body
-    assert "电脑和 Agent" in body
+    assert "gateway.py login" in body
+    assert "Open the printed URL" in body
 
 
 def test_gateway_source_download(client):

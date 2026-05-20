@@ -31,9 +31,11 @@ import argparse
 import json
 import os
 import shlex
+import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -67,6 +69,16 @@ def _http(host: str, token: str, method: str, path: str, body: dict | None = Non
     req.add_header("Authorization", f"Bearer {token}")
     if data is not None:
         req.add_header("Content-Type", "application/json")
+    try:
+        with _urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"{method} {path} → {e.code}: {e.read().decode('utf-8')}") from e
+
+
+def _http_public(host: str, method: str, path: str) -> Any:
+    req = urllib.request.Request(f"{host.rstrip('/')}{path}", method=method)
     try:
         with _urlopen(req, timeout=20) as resp:
             raw = resp.read().decode("utf-8")
@@ -251,7 +263,91 @@ def _invoke_local_cli(cmd: list[str], prompt: str, timeout: int) -> tuple[bool, 
         return False, f"local CLI not found: {e}"
 
 
+def _token_paths() -> tuple[str, str]:
+    home = os.environ.get("LETS_HOME", os.path.expanduser("~/.lets"))
+    return os.path.join(home, "token"), os.path.join(home, "token.json")
+
+
+def _login(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets-gateway login")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("LETS_HOST", "https://lets.up.railway.app"),
+        help="Lets backend base URL",
+    )
+    parser.add_argument(
+        "--role",
+        choices=["claude", "codex"],
+        default=os.environ.get("LETS_AGENT_ROLE", "claude"),
+        help="Local agent role to register",
+    )
+    parser.add_argument(
+        "--device-label",
+        default=os.environ.get("LETS_DEVICE_LABEL", socket.gethostname()),
+        help="Human-readable device label",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=600,
+        help="Seconds to wait for browser authorization",
+    )
+    args = parser.parse_args(argv)
+
+    params = urllib.parse.urlencode({
+        "role": args.role,
+        "device_label": args.device_label,
+    })
+    start = _http_public(args.host, "GET", f"/auth/device-flow/start?{params}")
+    verification_url = start["verification_url"]
+    device_code = start["device_code"]
+    interval = int(start.get("interval") or 3)
+
+    print("Open this URL in your browser to authorize this computer:")
+    print(verification_url)
+    print()
+    print(f"Code: {start['user_code']}")
+    print("Waiting for authorization...")
+
+    deadline = time.time() + args.timeout
+    while time.time() < deadline:
+        poll_params = urllib.parse.urlencode({"device_code": device_code})
+        data = _http_public(args.host, "GET", f"/auth/device-flow/poll?{poll_params}")
+        if data.get("status") == "authorized":
+            token = data["token"]
+            token_path, token_json_path = _token_paths()
+            os.makedirs(os.path.dirname(token_path), exist_ok=True)
+            with open(token_path, "w", encoding="utf-8") as f:
+                f.write(token)
+            os.chmod(token_path, 0o600)
+            with open(token_json_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "host": args.host.rstrip("/"),
+                        "token": token,
+                        "agent_instance": data.get("agent_instance"),
+                    },
+                    f,
+                    indent=2,
+                )
+                f.write("\n")
+            os.chmod(token_json_path, 0o600)
+            print(f"Saved token to {token_path}")
+            print("Run: lets-gateway run")
+            return 0
+        time.sleep(interval)
+
+    print("Timed out waiting for authorization.", file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "login":
+        return _login(argv[1:])
+    if argv and argv[0] == "run":
+        argv = argv[1:]
+
     parser = argparse.ArgumentParser(prog="lets-gateway")
     parser.add_argument(
         "--token",
@@ -285,6 +381,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print the would-be CLI invocation but don't actually run it. "
              "Useful for testing the routing logic without burning CLI time.",
+    )
+    token_path, token_json_path = _token_paths()
+    parser.set_defaults(
+        token=(
+            os.environ.get("LETS_TOKEN")
+            or (
+                open(token_path, encoding="utf-8").read().strip()
+                if os.path.exists(token_path)
+                else None
+            )
+        )
     )
     args = parser.parse_args(argv)
 

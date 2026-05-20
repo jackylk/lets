@@ -129,6 +129,29 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_tokens_value_hash ON tokens(value_hash);
             CREATE INDEX IF NOT EXISTS idx_tokens_human ON tokens(human_id);
 
+            CREATE TABLE IF NOT EXISTS device_auth_flows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_code TEXT NOT NULL UNIQUE,
+                user_code TEXT NOT NULL UNIQUE,
+                role TEXT NOT NULL,
+                device_label TEXT NOT NULL,
+                human_id INTEGER,
+                agent_instance_id INTEGER,
+                token_id INTEGER,
+                token_value TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at TEXT NOT NULL,
+                authorized_at TEXT,
+                consumed_at TEXT,
+                FOREIGN KEY (human_id) REFERENCES humans(id),
+                FOREIGN KEY (agent_instance_id) REFERENCES agent_instances(id),
+                FOREIGN KEY (token_id) REFERENCES tokens(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_device_auth_flows_device_code
+                ON device_auth_flows(device_code);
+            CREATE INDEX IF NOT EXISTS idx_device_auth_flows_user_code
+                ON device_auth_flows(user_code);
+
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_type TEXT NOT NULL,
@@ -399,6 +422,35 @@ def init_db() -> None:
             conn.execute(
                 "ALTER TABLE task_items ADD COLUMN deliverable_artifact_id INTEGER REFERENCES artifacts(id)"
             )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS device_auth_flows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_code TEXT NOT NULL UNIQUE,
+                user_code TEXT NOT NULL UNIQUE,
+                role TEXT NOT NULL,
+                device_label TEXT NOT NULL,
+                human_id INTEGER,
+                agent_instance_id INTEGER,
+                token_id INTEGER,
+                token_value TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at TEXT NOT NULL,
+                authorized_at TEXT,
+                consumed_at TEXT,
+                FOREIGN KEY (human_id) REFERENCES humans(id),
+                FOREIGN KEY (agent_instance_id) REFERENCES agent_instances(id),
+                FOREIGN KEY (token_id) REFERENCES tokens(id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_device_auth_flows_device_code ON device_auth_flows(device_code)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_device_auth_flows_user_code ON device_auth_flows(user_code)"
+        )
 
         # Seed the default project (idempotent via INSERT OR IGNORE on slug UNIQUE)
         conn.execute(

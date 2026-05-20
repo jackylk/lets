@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -388,21 +388,16 @@ if [ -z "$TOKEN" ]; then
   cat >&2 <<'MSG'
 Missing gateway token.
 
-For now:
-  1. Open Lets → 个人设置 → 电脑和 Agent
-  2. Click "+ 添加", choose Claude Code or Codex, copy the connection key
-  3. Save it with:
-       mkdir -p ~/.lets
-       printf '%s' 'lets_xxx' > ~/.lets/token
-  4. Run:
-       bash ~/.lets/run-gateway.sh
+Run this first:
+  ~/.lets/venv/bin/python ~/.lets/gateway.py login
 
-The upcoming `lets-gateway login` device flow will remove this manual copy step.
+Then:
+  bash ~/.lets/run-gateway.sh
 MSG
   exit 2
 fi
 
-exec "$LETS_HOME/venv/bin/python" "$LETS_HOME/gateway.py" --host "$HOST" --token "$TOKEN" "$@"
+exec "$LETS_HOME/venv/bin/python" "$LETS_HOME/gateway.py" run --host "$HOST" --token "$TOKEN" "$@"
 SH
 
 perl -0pi -e "s#__BASE_URL__#$BASE_URL#g" "$LETS_HOME/run-gateway.sh"
@@ -416,8 +411,8 @@ Files:
   $LETS_HOME/run-gateway.sh
 
 Next:
-  1. Create a connection key in Lets → 个人设置 → 电脑和 Agent
-  2. Save it to $LETS_HOME/token
+  1. Run: $LETS_HOME/venv/bin/python $LETS_HOME/gateway.py login
+  2. Open the printed URL in your logged-in browser
   3. Run: bash $LETS_HOME/run-gateway.sh
 MSG
 """
@@ -1921,6 +1916,170 @@ def auth_logout(
     res = Response(status_code=204)
     res.delete_cookie("lets_session", path="/")
     return res
+
+
+# ---------------------------------------------------------------------------
+# Device flow for local gateway login
+#
+# Minimal GitHub-device-flow style handshake:
+# - gateway starts flow and prints verification_url
+# - user opens URL in an already logged-in browser session
+# - backend creates the agent_instance + token and lets gateway poll it once
+# ---------------------------------------------------------------------------
+
+
+def _new_user_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(_secrets.choice(alphabet) for _ in range(4)) + "-" + "".join(
+        _secrets.choice(alphabet) for _ in range(4)
+    )
+
+
+@app.get("/auth/device-flow/start")
+def device_flow_start(
+    request: Request,
+    role: str = Query(default="claude"),
+    device_label: str = Query(default="local"),
+) -> dict:
+    if role not in ("claude", "codex"):
+        raise HTTPException(status_code=400, detail="role must be claude or codex")
+    device_label = device_label.strip()[:80] or "local"
+    device_code = _secrets.token_urlsafe(32)
+    user_code = _new_user_code()
+    with connect() as conn:
+        while conn.execute(
+            "SELECT 1 FROM device_auth_flows WHERE user_code = ?", (user_code,)
+        ).fetchone():
+            user_code = _new_user_code()
+        conn.execute(
+            """
+            INSERT INTO device_auth_flows
+                (device_code, user_code, role, device_label, expires_at)
+            VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))
+            """,
+            (device_code, user_code, role, device_label),
+        )
+    base_url = _public_base_url(request)
+    return {
+        "device_code": device_code,
+        "user_code": user_code,
+        "verification_url": f"{base_url}/auth/device-flow/authorize?user_code={user_code}",
+        "expires_in": 600,
+        "interval": 3,
+    }
+
+
+@app.get("/auth/device-flow/authorize")
+def device_flow_authorize(
+    user_code: str,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> HTMLResponse:
+    from .auth import issue_token, verify_session
+    from .identity import ensure_agent_instance
+
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="login in the browser first")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+
+    normalized = user_code.strip().upper()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM device_auth_flows
+            WHERE user_code = ? AND consumed_at IS NULL
+            """,
+            (normalized,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="device flow not found")
+        if row["authorized_at"] is not None:
+            return HTMLResponse("<h1>Lets gateway already authorized</h1>")
+        expired = conn.execute(
+            "SELECT CURRENT_TIMESTAMP > ? AS expired", (row["expires_at"],)
+        ).fetchone()["expired"]
+        if expired:
+            raise HTTPException(status_code=410, detail="device flow expired")
+
+    human_id = int(principal["human_id"])
+    role = str(row["role"])
+    device_label = str(row["device_label"])
+    agent_instance_id = ensure_agent_instance(
+        role=role,
+        human_id=human_id,
+        device_label=device_label,
+    )
+    token_value, token_id = issue_token(
+        human_id=human_id,
+        agent_instance_id=agent_instance_id,
+        label=f"{role} on {device_label}",
+    )
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE device_auth_flows
+            SET human_id = ?, agent_instance_id = ?, token_id = ?,
+                token_value = ?, authorized_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (human_id, agent_instance_id, token_id, token_value, row["id"]),
+        )
+
+    return HTMLResponse(
+        """
+        <!doctype html>
+        <meta charset="utf-8">
+        <title>Lets gateway authorized</title>
+        <body style="font-family: system-ui; padding: 32px">
+          <h1>Lets gateway authorized</h1>
+          <p>You can close this tab and return to your terminal.</p>
+        </body>
+        """
+    )
+
+
+@app.get("/auth/device-flow/poll")
+def device_flow_poll(device_code: str) -> dict:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM device_auth_flows WHERE device_code = ?",
+            (device_code,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="device flow not found")
+        expired = conn.execute(
+            "SELECT CURRENT_TIMESTAMP > ? AS expired", (row["expires_at"],)
+        ).fetchone()["expired"]
+        if expired and row["authorized_at"] is None:
+            raise HTTPException(status_code=410, detail="device flow expired")
+        if row["authorized_at"] is None:
+            return {"status": "pending"}
+        if row["consumed_at"] is not None or row["token_value"] is None:
+            raise HTTPException(status_code=410, detail="device token already consumed")
+        token_value = row["token_value"]
+        conn.execute(
+            """
+            UPDATE device_auth_flows
+            SET consumed_at = CURRENT_TIMESTAMP, token_value = NULL
+            WHERE id = ?
+            """,
+            (row["id"],),
+        )
+        agent = conn.execute(
+            """
+            SELECT ai.id, ar.name AS role, ai.device_label
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            WHERE ai.id = ?
+            """,
+            (row["agent_instance_id"],),
+        ).fetchone()
+    return {
+        "status": "authorized",
+        "token": token_value,
+        "agent_instance": dict(agent) if agent else None,
+    }
 
 
 # ---------------------------------------------------------------------------
