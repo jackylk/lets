@@ -34,3 +34,27 @@ def test_propose_task_tree_via_mcp(client):
     assert result["type"] == "task_tree_proposal"
     assert result["metadata"]["title"] == "PPT Tree"
     assert len(result["metadata"]["items"]) == 3
+
+
+def test_update_task_status_via_mcp(client):
+    from app.db import connect
+    from app.identity import ensure_human
+    from app.mcp_server import update_task_status
+    from app.task_trees import upsert_tree, add_item
+    hid = ensure_human("MCPStatHuman")
+    with connect() as conn:
+        cur = conn.execute("INSERT INTO topics (slug, title) VALUES ('mcp-uts', 'x')")
+        tid = cur.lastrowid
+    tree = upsert_tree(
+        topic_id=tid, goal_artifact_id=None, goal_spec_text=None,
+        proposal_message_id=None, approved_by_human_id=hid,
+    )
+    item = add_item(tree["id"], "section")
+    result = update_task_status(item_id=item["id"], status="active")
+    assert result["status"] == "active"
+    # Also check a status typed message was posted for visibility
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE topic_id = ? AND type = 'status'", (tid,)
+        ).fetchall()
+    assert len(rows) >= 1

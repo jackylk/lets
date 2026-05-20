@@ -665,6 +665,43 @@ def propose_task_tree(
     return msg
 
 
+@mcp.tool()
+def update_task_status(item_id: int, status: str) -> dict:
+    """Update a task_item's status (pending|active|done). Posts a status
+    typed message into the parent topic so the stream reflects the change."""
+    import json
+    from .db import connect
+    from .messages import post_message
+    from .task_trees import update_item
+
+    if status not in ("pending", "active", "done"):
+        raise ValueError(f"invalid status: {status}")
+    updated = update_item(item_id, status=status)
+
+    # Find the topic for the item's tree
+    with connect() as conn:
+        topic_row = conn.execute(
+            """SELECT tt.topic_id
+               FROM task_items ti
+               JOIN task_trees tt ON tt.id = ti.task_tree_id
+               WHERE ti.id = ?""",
+            (item_id,),
+        ).fetchone()
+    if topic_row is None:
+        return updated
+
+    body = f"task {item_id} ({updated['title']}) → {status}"
+    post_message(
+        topic_id=int(topic_row["topic_id"]),
+        type="status",
+        actor_type="agent",
+        actor_id=None,
+        body=body,
+        metadata={"task_item_id": item_id, "new_status": status},
+    )
+    return updated
+
+
 def main() -> None:
     """Stand-alone stdio entry, kept for backward compatibility."""
     init_db()
