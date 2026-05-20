@@ -98,7 +98,7 @@ export function makeSeed(): SeedState {
       { from_actor_id: 11, to_actor_id: 13 }, "2026-05-19T10:40:00Z"),
     mk(12, 1, "nudge", "system", null,
       "这条线程已经讨论 framing 25 分钟，要不要先决定再继续？",
-      { reason: "framing-loop" }, "2026-05-19T10:50:00Z"),
+      { reason: "framing-loop", drift_summary: "讨论 framing 25 分钟", drift_nudge_id: 1 }, "2026-05-19T10:50:00Z"),
     mk(13, 1, "review", "agent", 13,
       "我看了 P5 的草稿，建议把「事件性」放最前面",
       { ref_message_id: 11 }, "2026-05-19T11:05:00Z"),
