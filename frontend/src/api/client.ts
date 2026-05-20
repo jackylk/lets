@@ -15,7 +15,7 @@ function identityHeaders(identity: Identity): Record<string, string> {
 }
 
 export interface RequestOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   identity: Identity;
   query?: Record<string, string | string[] | undefined>;

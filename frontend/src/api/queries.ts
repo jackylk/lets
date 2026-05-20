@@ -5,6 +5,7 @@ import type {
   IdentityDTO, MessageDTO, TopicDTO, PostMessageInput,
   TokenRowDTO, CreateTokenInput, CreateTokenResponseDTO,
 } from "./types";
+import type { DriftContextDTO } from "./taskTreeTypes";
 
 export { useSession as useSessionMe } from "../auth/useSession";
 
@@ -23,15 +24,6 @@ export function useTopics() {
     queryKey: ["topics"],
     queryFn: () => apiRequest<TopicDTO[]>("/api/topics", { identity }),
   });
-}
-
-export interface DriftContextDTO {
-  topic_mode: "exploratory" | "actionable";
-  active_task: { id: number; title: string } | null;
-  last_nudge_at: string | null;
-  last_nudge_message_id: number | null;
-  last_nudge_resolved_by: "moved_to_topic" | "returned" | "dismissed" | null;
-  messages_since_last_nudge: number;
 }
 
 export interface TopicMessagesResponse {
