@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { ContextPane, ContextBlock } from "../layout/ContextPane";
 import { TopicInfoCard } from "./TopicInfoCard";
-import { GoalDetailPanel } from "./GoalDetailPanel";
-import { TaskTreePanel } from "./TaskTreePanel";
+import { GoalAutoPanel } from "./GoalAutoPanel";
+import { ActivityTimelinePanel } from "./ActivityTimelinePanel";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { SpecTouchedPanel } from "./SpecTouchedPanel";
 import { ParticipantsPanel } from "./ParticipantsPanel";
@@ -86,19 +86,19 @@ export function TopicContext({ topicId, projectId }: Props) {
       </ContextBlock>
 
       <ContextBlock label="目标">
-        <GoalDetailPanel topicId={topicId} />
+        <GoalAutoPanel topicId={topicId} />
       </ContextBlock>
 
-      <ContextBlock label="目标分解">
-        <TaskTreePanel topicId={topicId} />
+      <ContextBlock label="任务分解">
+        <ActivityTimelinePanel topicId={topicId} />
       </ContextBlock>
 
       <ContextBlock
-        label="Artifacts"
-        right={artifactsList.length > 0 ? `${artifactsList.length} in topic` : undefined}
+        label="交付物"
+        right={artifactsList.length > 0 ? `${artifactsList.length} 个` : undefined}
       >
         {artifactsList.length === 0 ? (
-          <div className="text-text-dim text-sm italic">no artifacts yet</div>
+          <div className="text-text-dim text-sm italic">尚无交付物</div>
         ) : (
           <ArtifactPanel artifacts={artifactsList} />
         )}

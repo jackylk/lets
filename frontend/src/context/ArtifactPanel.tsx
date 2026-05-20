@@ -1,10 +1,14 @@
+import { useState } from "react";
 import type { ArtifactDTO } from "../api/types";
+import { ArtifactViewer } from "./ArtifactViewer";
 
 interface Props {
   artifacts: ArtifactDTO[];
 }
 
 export function ArtifactPanel({ artifacts }: Props) {
+  const [open, setOpen] = useState<ArtifactDTO | null>(null);
+
   return (
     <div className="flex flex-col gap-2">
       {artifacts.map((a) => {
@@ -12,9 +16,12 @@ export function ArtifactPanel({ artifacts }: Props) {
         const current = versions.find((v) => v.id === a.current_version_id);
         const currentLabel = current?.version_label ?? "—";
         return (
-          <div
+          <button
             key={a.id}
-            className="border border-border-soft rounded-lg bg-surface-elev p-3 flex flex-col gap-2"
+            type="button"
+            onClick={() => setOpen(a)}
+            aria-label={`open ${a.slug}`}
+            className="text-left border border-border-soft rounded-lg bg-surface-elev p-3 flex flex-col gap-2 hover:bg-surface-hover hover:border-border transition-colors cursor-pointer"
           >
             <div className="flex items-center gap-2 text-[13px]">
               <span className="font-mono truncate flex-1">{a.slug}</span>
@@ -41,13 +48,12 @@ export function ArtifactPanel({ artifacts }: Props) {
                   </span>
                 ))
               )}
+              <span className="ml-auto text-text-dim">点击查看 →</span>
             </div>
-            <div className="text-[10.5px] font-mono text-text-dim truncate">
-              {a.backend} · {a.backend_ref}
-            </div>
-          </div>
+          </button>
         );
       })}
+      {open && <ArtifactViewer artifact={open} onClose={() => setOpen(null)} />}
     </div>
   );
 }
