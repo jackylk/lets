@@ -91,12 +91,16 @@ def replace_items(tree_id: int, items: list[dict]) -> list[dict]:
             cur = conn.execute(
                 """INSERT INTO task_items
                        (task_tree_id, title, owner_human_id, owner_agent_instance_id,
+                        summary, linked_message_id, deliverable_artifact_id,
                         position)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     tree_id, item["title"],
                     item.get("owner_human_id"),
                     item.get("owner_agent_instance_id"),
+                    item.get("summary"),
+                    item.get("linked_message_id"),
+                    item.get("deliverable_artifact_id"),
                     pos,
                 ),
             )
@@ -117,6 +121,9 @@ def add_item(
     parent_item_id: int | None = None,
     owner_human_id: int | None = None,
     owner_agent_instance_id: int | None = None,
+    summary: str | None = None,
+    linked_message_id: int | None = None,
+    deliverable_artifact_id: int | None = None,
 ) -> dict:
     """Append a new task_item under ``tree_id`` (optionally under a parent)."""
     with connect() as conn:
@@ -131,9 +138,11 @@ def add_item(
         cur = conn.execute(
             """INSERT INTO task_items
                    (task_tree_id, parent_item_id, title,
+                    summary, linked_message_id, deliverable_artifact_id,
                     owner_human_id, owner_agent_instance_id, position)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (tree_id, parent_item_id, title,
+             summary, linked_message_id, deliverable_artifact_id,
              owner_human_id, owner_agent_instance_id, next_pos),
         )
         new_row = conn.execute(
@@ -142,9 +151,23 @@ def add_item(
     return dict(new_row)
 
 
-def update_item(item_id: int, *, status: str | None = None, title: str | None = None) -> dict:
-    """Update status and/or title of a task_item."""
-    if status is None and title is None:
+def update_item(
+    item_id: int,
+    *,
+    status: str | None = None,
+    title: str | None = None,
+    summary: str | None = None,
+    linked_message_id: int | None = None,
+    deliverable_artifact_id: int | None = None,
+) -> dict:
+    """Update editable task_item fields."""
+    if (
+        status is None
+        and title is None
+        and summary is None
+        and linked_message_id is None
+        and deliverable_artifact_id is None
+    ):
         with connect() as conn:
             row = conn.execute(
                 "SELECT * FROM task_items WHERE id = ?", (item_id,)
@@ -163,6 +186,15 @@ def update_item(item_id: int, *, status: str | None = None, title: str | None = 
     if title is not None:
         fields.append("title = ?")
         params.append(title)
+    if summary is not None:
+        fields.append("summary = ?")
+        params.append(summary)
+    if linked_message_id is not None:
+        fields.append("linked_message_id = ?")
+        params.append(linked_message_id)
+    if deliverable_artifact_id is not None:
+        fields.append("deliverable_artifact_id = ?")
+        params.append(deliverable_artifact_id)
     fields.append("updated_at = CURRENT_TIMESTAMP")
     params.append(item_id)
     with connect() as conn:

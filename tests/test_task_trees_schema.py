@@ -32,6 +32,7 @@ def test_task_items_table_exists(client):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(task_items)").fetchall()}
     expected = {
         "id", "task_tree_id", "parent_item_id", "title",
+        "summary", "linked_message_id", "deliverable_artifact_id",
         "owner_human_id", "owner_agent_instance_id",
         "status", "position", "created_at", "updated_at",
     }

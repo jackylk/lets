@@ -268,6 +268,9 @@ def init_db() -> None:
                 task_tree_id INTEGER NOT NULL,
                 parent_item_id INTEGER,
                 title TEXT NOT NULL,
+                summary TEXT,
+                linked_message_id INTEGER,
+                deliverable_artifact_id INTEGER,
                 owner_human_id INTEGER,
                 owner_agent_instance_id INTEGER,
                 status TEXT NOT NULL DEFAULT 'pending'
@@ -277,6 +280,8 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (task_tree_id) REFERENCES task_trees(id),
                 FOREIGN KEY (parent_item_id) REFERENCES task_items(id),
+                FOREIGN KEY (linked_message_id) REFERENCES messages(id),
+                FOREIGN KEY (deliverable_artifact_id) REFERENCES artifacts(id),
                 FOREIGN KEY (owner_human_id) REFERENCES humans(id),
                 FOREIGN KEY (owner_agent_instance_id) REFERENCES agent_instances(id),
                 CHECK (NOT (owner_human_id IS NOT NULL AND owner_agent_instance_id IS NOT NULL))
@@ -378,6 +383,22 @@ def init_db() -> None:
         }
         if "addressed_to" not in msg_cols_for_addr:
             conn.execute("ALTER TABLE messages ADD COLUMN addressed_to TEXT")
+
+        # Add exploration metadata to task_items if missing. Existing installs
+        # may have the original checklist-shaped table.
+        task_item_cols = {
+            r["name"] for r in conn.execute("PRAGMA table_info(task_items)").fetchall()
+        }
+        if "summary" not in task_item_cols:
+            conn.execute("ALTER TABLE task_items ADD COLUMN summary TEXT")
+        if "linked_message_id" not in task_item_cols:
+            conn.execute(
+                "ALTER TABLE task_items ADD COLUMN linked_message_id INTEGER REFERENCES messages(id)"
+            )
+        if "deliverable_artifact_id" not in task_item_cols:
+            conn.execute(
+                "ALTER TABLE task_items ADD COLUMN deliverable_artifact_id INTEGER REFERENCES artifacts(id)"
+            )
 
         # Seed the default project (idempotent via INSERT OR IGNORE on slug UNIQUE)
         conn.execute(

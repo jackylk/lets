@@ -185,11 +185,16 @@ def test_add_task_item(client):
     res = client.post(
         "/api/task-items",
         cookies={"lets_session": sess},
-        json={"task_tree_id": tree["id"], "title": "new item"},
+        json={
+            "task_tree_id": tree["id"],
+            "title": "new item",
+            "summary": "compare two directions",
+        },
     )
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["title"] == "new item"
+    assert body["summary"] == "compare two directions"
     assert body["status"] == "pending"
     assert body["position"] == 0
 
@@ -213,10 +218,11 @@ def test_patch_task_item_status(client):
     res = client.patch(
         f"/api/task-items/{item['id']}",
         cookies={"lets_session": sess},
-        json={"status": "done"},
+        json={"status": "done", "summary": "shipped"},
     )
     assert res.status_code == 200
     assert res.json()["status"] == "done"
+    assert res.json()["summary"] == "shipped"
 
 
 def test_patch_task_item_invalid_status(client):

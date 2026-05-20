@@ -3,6 +3,7 @@ import { ContextPane, ContextBlock } from "../layout/ContextPane";
 import { TopicInfoCard } from "./TopicInfoCard";
 import { GoalAutoPanel } from "./GoalAutoPanel";
 import { ActivityTimelinePanel } from "./ActivityTimelinePanel";
+import { TaskTreePanel } from "./TaskTreePanel";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { SpecTouchedPanel } from "./SpecTouchedPanel";
 import { ParticipantsPanel } from "./ParticipantsPanel";
@@ -89,7 +90,11 @@ export function TopicContext({ topicId, projectId }: Props) {
         <GoalAutoPanel topicId={topicId} />
       </ContextBlock>
 
-      <ContextBlock label="任务分解">
+      <ContextBlock label="方案探索">
+        <TaskTreePanel topicId={topicId} />
+      </ContextBlock>
+
+      <ContextBlock label="活动">
         <ActivityTimelinePanel topicId={topicId} />
       </ContextBlock>
 

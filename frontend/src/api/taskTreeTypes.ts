@@ -16,6 +16,9 @@ export interface TaskItemDTO {
   task_tree_id: number;
   parent_item_id: number | null;
   title: string;
+  summary: string | null;
+  linked_message_id: number | null;
+  deliverable_artifact_id: number | null;
   owner_human_id: number | null;
   owner_agent_instance_id: number | null;
   status: "pending" | "active" | "done";
@@ -42,6 +45,9 @@ export interface AddTaskItemInput {
   task_tree_id: number;
   title: string;
   parent_item_id?: number | null;
+  summary?: string | null;
+  linked_message_id?: number | null;
+  deliverable_artifact_id?: number | null;
   owner_human_id?: number | null;
   owner_agent_instance_id?: number | null;
 }
@@ -49,6 +55,9 @@ export interface AddTaskItemInput {
 export interface PatchTaskItemInput {
   status?: "pending" | "active" | "done";
   title?: string;
+  summary?: string | null;
+  linked_message_id?: number | null;
+  deliverable_artifact_id?: number | null;
 }
 
 export interface AdoptTaskTreeInput {
