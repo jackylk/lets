@@ -7,8 +7,8 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -312,6 +312,116 @@ def get_context() -> dict:
             "description": "Shared workboard for local coding agents.",
         }
     }
+
+
+def _public_base_url(request: Request) -> str:
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or request.url.netloc
+    )
+    return f"{proto}://{host}".rstrip("/")
+
+
+@app.get("/install/gateway.py")
+def install_gateway_py() -> FileResponse:
+    """Serve the standalone gateway source for one-line installer clients."""
+    from pathlib import Path
+
+    gateway_path = Path(__file__).with_name("gateway.py")
+    return FileResponse(
+        gateway_path,
+        media_type="text/x-python; charset=utf-8",
+        filename="gateway.py",
+    )
+
+
+@app.get("/install/gateway.sh")
+def install_gateway_sh(request: Request) -> PlainTextResponse:
+    """One-line installer for the local Lets gateway.
+
+    This is the fast onboarding path before a packaged PyPI distribution exists.
+    """
+    base_url = _public_base_url(request)
+    script = f"""#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL="${{LETS_HOST:-{base_url}}}"
+LETS_HOME="${{LETS_HOME:-$HOME/.lets}}"
+PYTHON="${{PYTHON:-python3}}"
+
+mkdir -p "$LETS_HOME"
+
+if ! "$PYTHON" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
+PY
+then
+  echo "Lets gateway requires Python 3.10+." >&2
+  exit 1
+fi
+
+if [ ! -x "$LETS_HOME/venv/bin/python" ]; then
+  "$PYTHON" -m venv "$LETS_HOME/venv"
+fi
+
+"$LETS_HOME/venv/bin/python" -m pip install --upgrade pip >/dev/null
+"$LETS_HOME/venv/bin/python" -m pip install --upgrade httpx >/dev/null
+
+curl -fsSL "$BASE_URL/install/gateway.py" -o "$LETS_HOME/gateway.py"
+chmod 600 "$LETS_HOME/gateway.py"
+
+cat > "$LETS_HOME/run-gateway.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+LETS_HOME="${{LETS_HOME:-$HOME/.lets}}"
+HOST="${{LETS_HOST:-__BASE_URL__}}"
+TOKEN="${{LETS_TOKEN:-}}"
+
+if [ -z "$TOKEN" ] && [ -f "$LETS_HOME/token" ]; then
+  TOKEN="$(tr -d '[:space:]' < "$LETS_HOME/token")"
+fi
+
+if [ -z "$TOKEN" ]; then
+  cat >&2 <<'MSG'
+Missing gateway token.
+
+For now:
+  1. Open Lets → 个人设置 → 电脑和 Agent
+  2. Click "+ 添加", choose Claude Code or Codex, copy the connection key
+  3. Save it with:
+       mkdir -p ~/.lets
+       printf '%s' 'lets_xxx' > ~/.lets/token
+  4. Run:
+       bash ~/.lets/run-gateway.sh
+
+The upcoming `lets-gateway login` device flow will remove this manual copy step.
+MSG
+  exit 2
+fi
+
+exec "$LETS_HOME/venv/bin/python" "$LETS_HOME/gateway.py" --host "$HOST" --token "$TOKEN" "$@"
+SH
+
+perl -0pi -e "s#__BASE_URL__#$BASE_URL#g" "$LETS_HOME/run-gateway.sh"
+chmod +x "$LETS_HOME/run-gateway.sh"
+
+cat <<MSG
+Lets gateway installed.
+
+Files:
+  $LETS_HOME/gateway.py
+  $LETS_HOME/run-gateway.sh
+
+Next:
+  1. Create a connection key in Lets → 个人设置 → 电脑和 Agent
+  2. Save it to $LETS_HOME/token
+  3. Run: bash $LETS_HOME/run-gateway.sh
+MSG
+"""
+    return PlainTextResponse(script, media_type="text/x-shellscript; charset=utf-8")
 
 
 @app.post("/api/work-items")
