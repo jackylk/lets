@@ -21,8 +21,8 @@ describe("<Sidebar />", () => {
     renderWithProviders(
       <Sidebar projectName="Lets" projectRepo="x/y" topics={[]} activeTopicId={null} />,
     );
-    expect(screen.getByRole("button", { name: /topics/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /online/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /话题/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /在线/ })).toBeInTheDocument();
   });
 
   it("renders the attention entry button", () => {

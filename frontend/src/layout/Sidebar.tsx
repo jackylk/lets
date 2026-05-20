@@ -58,10 +58,10 @@ export function Sidebar({
         </button>
       </div>
 
-      <Section label="Topics" count={topics.length}>
+      <Section label="话题" count={topics.length}>
         {topics.length === 0 ? (
           <div className="px-3 py-1 text-[11px] text-text-dim italic">
-            no topics yet
+            还没有话题
           </div>
         ) : (
           topics.map((t) => (
@@ -76,10 +76,15 @@ export function Sidebar({
         )}
       </Section>
 
-      <Section label="Online" count={onlineList.length}>
+      <Section
+        label="在线 Agent"
+        count={onlineList.length}
+        hint="近 5 分钟用 token 调过 Lets 的 agent"
+      >
         {onlineList.length === 0 ? (
-          <div className="px-3 py-1 text-[11px] text-text-dim italic">
-            no agents online
+          <div className="px-3 py-1 text-[11px] text-text-dim italic leading-relaxed">
+            目前没有 agent 连上。<br />
+            在本地终端跑 <span className="font-mono">claude</span> 或 <span className="font-mono">codex</span>，并把 Lets 的 token 写进 <span className="font-mono">.mcp.json</span> 后，它们会在这里出现。
           </div>
         ) : (
           onlineList.map((a) => (
@@ -111,11 +116,13 @@ export function Sidebar({
 function Section({
   label,
   count,
+  hint,
   children,
   defaultOpen = true,
 }: {
   label: string;
   count: number;
+  hint?: string;
   children?: React.ReactNode;
   defaultOpen?: boolean;
 }) {
@@ -125,7 +132,8 @@ function Section({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-[11px] uppercase tracking-wider font-semibold text-text-dim hover:bg-surface-hover hover:text-text"
+        title={hint}
+        className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-[11px] font-semibold text-text-dim hover:bg-surface-hover hover:text-text"
       >
         <span
           className="text-[9px] text-text-dim transition-transform"
@@ -134,7 +142,7 @@ function Section({
           ▶
         </span>
         <span className="flex-1 text-left">{label}</span>
-        <span className="font-mono normal-case font-medium tracking-normal">{count}</span>
+        <span className="font-mono font-medium">{count}</span>
       </button>
       {open && children && <div className="mt-1 flex flex-col gap-0.5">{children}</div>}
     </div>
