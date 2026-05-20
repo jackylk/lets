@@ -41,6 +41,7 @@ export interface PostMessageInput {
   body: string;
   metadata?: Record<string, unknown>;
   ref_event_id?: number | null;
+  addressed_to?: string | null;
 }
 
 export interface ArtifactVersionDTO {
@@ -124,6 +125,16 @@ export interface OnlineAgentDTO {
   device_label: string;
   human_name: string;
   last_seen_at: string;
+}
+
+export interface AgentInstanceRowDTO {
+  agent_instance_id: number;
+  role: string;
+  device_label: string;
+  human_id: number;
+  human_name: string;
+  last_seen_at: string | null;
+  is_online: number;  // 0 or 1 from SQLite
 }
 
 export interface AttentionMessageDTO extends MessageDTO {

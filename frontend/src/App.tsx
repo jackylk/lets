@@ -11,6 +11,10 @@ import { SettingsTokensPage } from "./settings/SettingsTokensPage";
 import {
   useProjects, useProject, useProjectTopics, useAttention, useSessionMe,
 } from "./api/queries";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "./api/client";
+import { useIdentity } from "./identity/useIdentity";
+import type { TopicDTO } from "./api/types";
 
 type DesktopView =
   | { kind: "topic"; id: number }
@@ -65,6 +69,20 @@ function Workspace() {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(max-width: 767px)").matches;
 
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  const createTopic = useMutation({
+    mutationFn: (input: { slug: string; title: string }) =>
+      apiRequest<TopicDTO>(`/api/projects/${projectId}/topics`, {
+        method: "POST", body: input, identity,
+      }),
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "topics"] });
+      setView({ kind: "topic", id: created.id });
+      setTopicId(created.id);
+    },
+  });
+
   const sidebar = (
     <Sidebar
       projectName={project.data?.name ?? "Lets"}
@@ -81,6 +99,13 @@ function Workspace() {
       onClickAttention={() => setView({ kind: "attention" })}
       onSelectTopic={(id) => setView({ kind: "topic", id })}
       onClickSettings={() => setView({ kind: "settings-tokens" })}
+      onCreateTopic={
+        projectId === null
+          ? undefined
+          : async (input) => {
+              await createTopic.mutateAsync(input);
+            }
+      }
     />
   );
 

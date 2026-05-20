@@ -18,8 +18,30 @@ describe("<Composer />", () => {
     expect(button).toBeEnabled();
 
     await user.keyboard("{Enter}");
-    expect(onSend).toHaveBeenCalledWith("hello");
+    expect(onSend).toHaveBeenCalledWith({ body: "hello", addressedTo: null });
     expect((textarea as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("extracts @mentions and feeds resolved human_ids into addressedTo", async () => {
+    const onSend = vi.fn();
+    const resolver = {
+      resolveHumanIds: vi.fn((mentions: string[]) => {
+        const map: Record<string, number> = { cc: 1, codex: 1, jacky: 1, trinity: 2 };
+        return mentions.map((m) => map[m]).filter((n): n is number => typeof n === "number");
+      }),
+    };
+    const user = userEvent.setup();
+    renderWithProviders(<Composer onSend={onSend} resolver={resolver} />);
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "@cc 你能帮我看看吗？ @trinity");
+    await user.keyboard("{Enter}");
+
+    expect(resolver.resolveHumanIds).toHaveBeenCalledWith(["cc", "trinity"]);
+    expect(onSend).toHaveBeenCalledWith({
+      body: "@cc 你能帮我看看吗？ @trinity",
+      addressedTo: "1,2",
+    });
   });
 
   it("Shift+Enter inserts newline without sending", async () => {

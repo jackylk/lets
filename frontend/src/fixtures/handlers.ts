@@ -242,6 +242,19 @@ export const handlers = [
     return HttpResponse.json([]);
   }),
   http.get("/api/agents/online", () => HttpResponse.json([])),
+  http.get("/api/agent-instances", () => HttpResponse.json([])),
+  http.post("/api/projects/:id/topics", async ({ params, request }) => {
+    const body = (await request.json()) as { slug: string; title: string };
+    const topic = {
+      id: seed.topics.length + 100,
+      slug: body.slug, title: body.title,
+      project_id: Number(params.id),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    seed.topics.push(topic);
+    return HttpResponse.json(topic, { status: 200 });
+  }),
   http.get("/api/attention", () =>
     HttpResponse.json({ needs_decision: [], mentioned_questions: [], suggestions: [] }),
   ),
@@ -281,7 +294,15 @@ export const handlers = [
       tree.updated_at = new Date().toISOString();
     }
     seed.taskItems = seed.taskItems.filter((i) => i.task_tree_id !== tree!.id);
-    const meta = (proposal.metadata ?? {}) as { items?: Array<{title:string;parent_index?:number}> };
+    const meta = (proposal.metadata ?? {}) as {
+      items?: Array<{
+        title: string;
+        parent_index?: number;
+        summary?: string | null;
+        linked_message_id?: number | null;
+        deliverable_artifact_id?: number | null;
+      }>;
+    };
     const propItems = meta.items ?? [];
     const newIds: number[] = [];
     for (let i = 0; i < propItems.length; i++) {
@@ -290,6 +311,9 @@ export const handlers = [
       seed.taskItems.push({
         id, task_tree_id: tree.id, parent_item_id: null,
         title: propItems[i]!.title,
+        summary: propItems[i]!.summary ?? null,
+        linked_message_id: propItems[i]!.linked_message_id ?? null,
+        deliverable_artifact_id: propItems[i]!.deliverable_artifact_id ?? null,
         owner_human_id: null, owner_agent_instance_id: null,
         status: "pending", position: i,
         created_at: new Date().toISOString(),
@@ -346,6 +370,7 @@ export const handlers = [
   http.post("/api/task-items", async ({ request }) => {
     const body = (await request.json()) as {
       task_tree_id: number; title: string; parent_item_id?: number | null;
+      summary?: string | null; linked_message_id?: number | null; deliverable_artifact_id?: number | null;
       owner_human_id?: number | null; owner_agent_instance_id?: number | null;
     };
     const siblings = seed.taskItems.filter(
@@ -356,6 +381,9 @@ export const handlers = [
       task_tree_id: body.task_tree_id,
       parent_item_id: body.parent_item_id ?? null,
       title: body.title,
+      summary: body.summary ?? null,
+      linked_message_id: body.linked_message_id ?? null,
+      deliverable_artifact_id: body.deliverable_artifact_id ?? null,
       owner_human_id: body.owner_human_id ?? null,
       owner_agent_instance_id: body.owner_agent_instance_id ?? null,
       status: "pending" as const,
@@ -369,11 +397,20 @@ export const handlers = [
 
   http.patch("/api/task-items/:id", async ({ params, request }) => {
     const id = Number(params.id);
-    const body = (await request.json()) as { status?: "pending"|"active"|"done"; title?: string };
+    const body = (await request.json()) as {
+      status?: "pending"|"active"|"done";
+      title?: string;
+      summary?: string | null;
+      linked_message_id?: number | null;
+      deliverable_artifact_id?: number | null;
+    };
     const item = seed.taskItems.find((i) => i.id === id);
     if (!item) return new HttpResponse(null, { status: 404 });
     if (body.status) item.status = body.status;
     if (body.title) item.title = body.title;
+    if (body.summary !== undefined) item.summary = body.summary;
+    if (body.linked_message_id !== undefined) item.linked_message_id = body.linked_message_id;
+    if (body.deliverable_artifact_id !== undefined) item.deliverable_artifact_id = body.deliverable_artifact_id;
     item.updated_at = new Date().toISOString();
     return HttpResponse.json(item);
   }),

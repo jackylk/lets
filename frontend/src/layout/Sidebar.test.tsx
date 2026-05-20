@@ -17,12 +17,14 @@ describe("<Sidebar />", () => {
     expect(screen.getByText(/echomem\/lets/)).toBeInTheDocument();
   });
 
-  it("shows section labels for topics and online", () => {
+  it("shows section labels for topics and agents", () => {
     renderWithProviders(
       <Sidebar projectName="Lets" projectRepo="x/y" topics={[]} activeTopicId={null} />,
     );
-    expect(screen.getByRole("button", { name: /话题/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /在线/ })).toBeInTheDocument();
+    // The 话题 section header toggle + "+" new-topic button both match /话题/;
+    // use getAllByRole + at least 1 assertion.
+    expect(screen.getAllByRole("button", { name: /话题/ }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Agent/ })).toBeInTheDocument();
   });
 
   it("renders the attention entry button", () => {

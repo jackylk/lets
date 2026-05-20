@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import {
   useTopicMessages, usePostMessage, useIdentityMe,
-  useTopic, useTopicParticipants,
+  useTopic, useTopicParticipants, useAllAgents,
 } from "../api/queries";
 import { useTopicStream } from "../api/sse";
 import { TopicHeader } from "./TopicHeader";
 import { Stream } from "./Stream";
-import { Composer } from "./Composer";
+import { Composer, type MentionResolver } from "./Composer";
 import type { MessageDTO, TaskTreeProposalMeta } from "../api/types";
 
 interface Props {
@@ -58,14 +58,44 @@ export function TopicView({ topicId }: Props) {
     };
   }, [participants.data]);
 
-  function send(body: string) {
+  // Build a mention resolver: @cc / @codex / @<role> / @<device> / @<human> → human_id list.
+  const agents = useAllAgents();
+  const resolver: MentionResolver = useMemo(() => {
+    const lookup: Record<string, number> = {};
+    // Humans in the topic
+    for (const h of participants.data?.humans ?? []) {
+      lookup[h.name.toLowerCase()] = h.id;
+    }
+    // Agents in the topic — @cc / @codex / @<role> / @<device> all map to
+    // the agent's human (the runner triggers on human_id match)
+    for (const a of agents.data ?? []) {
+      lookup[a.role.toLowerCase()] = a.human_id;
+      lookup[a.device_label.toLowerCase()] = a.human_id;
+      // Short aliases the user is likely to type
+      if (a.role === "claude") lookup["cc"] = a.human_id;
+      if (a.role === "codex") lookup["cx"] = a.human_id;
+    }
+    return {
+      resolveHumanIds(mentions) {
+        const out = new Set<number>();
+        for (const m of mentions) {
+          const id = lookup[m];
+          if (id != null) out.add(id);
+        }
+        return [...out];
+      },
+    };
+  }, [participants.data, agents.data]);
+
+  function send(msg: { body: string; addressedTo: string | null }) {
     if (!me.data) return;
     postMessage.mutate({
       topic_id: topicId,
       type: "chat",
       actor_type: "human",
       actor_id: me.data.human.id,
-      body,
+      body: msg.body,
+      addressed_to: msg.addressedTo,
     });
   }
 
@@ -79,7 +109,7 @@ export function TopicView({ topicId }: Props) {
         {initial.isError && <div className="text-text-dim">加载失败</div>}
         <Stream messages={merged} directory={directory} />
       </div>
-      <Composer onSend={send} disabled={postMessage.isPending} />
+      <Composer onSend={send} resolver={resolver} disabled={postMessage.isPending} />
     </div>
   );
 }

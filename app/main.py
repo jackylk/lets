@@ -204,6 +204,9 @@ class TaskItemCreate(BaseModel):
     task_tree_id: int
     title: str
     parent_item_id: int | None = None
+    summary: str | None = None
+    linked_message_id: int | None = None
+    deliverable_artifact_id: int | None = None
     owner_human_id: int | None = None
     owner_agent_instance_id: int | None = None
 
@@ -211,6 +214,9 @@ class TaskItemCreate(BaseModel):
 class TaskItemPatch(BaseModel):
     status: str | None = None
     title: str | None = None
+    summary: str | None = None
+    linked_message_id: int | None = None
+    deliverable_artifact_id: int | None = None
 
 
 class ArtifactCreate(BaseModel):
@@ -600,6 +606,40 @@ def list_agents() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+@app.get("/api/agent-instances")
+def list_all_agent_instances(
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    """List every agent_instance plus an `is_online` flag (token used in
+    the last 5 minutes). Sorted online first, then by last_seen_at desc.
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                ai.id as agent_instance_id,
+                ar.name as role,
+                ai.device_label,
+                h.id as human_id,
+                h.name as human_name,
+                MAX(t.last_used_at) as last_seen_at,
+                CASE
+                    WHEN MAX(t.last_used_at) IS NOT NULL
+                     AND MAX(t.last_used_at) >= datetime('now', '-5 minutes')
+                    THEN 1 ELSE 0
+                END as is_online
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN humans h ON h.id = ai.human_id
+            LEFT JOIN tokens t ON t.agent_instance_id = ai.id
+                              AND t.revoked_at IS NULL
+            GROUP BY ai.id, ar.name, ai.device_label, h.id, h.name
+            ORDER BY is_online DESC, last_seen_at DESC, ai.id ASC
+            """
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/agents/online")
 def list_online_agents(
     principal: dict = Depends(get_api_principal),
@@ -828,6 +868,9 @@ def post_task_item(
         tree_id=payload.task_tree_id,
         title=payload.title,
         parent_item_id=payload.parent_item_id,
+        summary=payload.summary,
+        linked_message_id=payload.linked_message_id,
+        deliverable_artifact_id=payload.deliverable_artifact_id,
         owner_human_id=payload.owner_human_id,
         owner_agent_instance_id=payload.owner_agent_instance_id,
     )
@@ -841,7 +884,14 @@ def patch_task_item(
 ) -> dict:
     from .task_trees import update_item
     try:
-        return update_item(item_id, status=payload.status, title=payload.title)
+        return update_item(
+            item_id,
+            status=payload.status,
+            title=payload.title,
+            summary=payload.summary,
+            linked_message_id=payload.linked_message_id,
+            deliverable_artifact_id=payload.deliverable_artifact_id,
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail="task_item not found")
     except ValueError as exc:

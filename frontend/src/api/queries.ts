@@ -5,6 +5,7 @@ import type {
   IdentityDTO, MessageDTO, TopicDTO, PostMessageInput,
   TokenRowDTO, CreateTokenInput, CreateTokenResponseDTO,
   ProjectDTO, ParticipantsDTO, GitStatusDTO, OnlineAgentDTO,
+  AgentInstanceRowDTO,
   AttentionDTO, ArtifactDTO,
 } from "./types";
 import type { DriftContextDTO } from "./taskTreeTypes";
@@ -88,6 +89,16 @@ export function useAgentsOnline() {
     queryKey: ["agents", "online"],
     queryFn: () => apiRequest<OnlineAgentDTO[]>("/api/agents/online", { identity }),
     refetchInterval: 30_000,
+  });
+}
+
+export function useAllAgents() {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["agent-instances"],
+    queryFn: () =>
+      apiRequest<AgentInstanceRowDTO[]>("/api/agent-instances", { identity }),
+    refetchInterval: 15_000,
   });
 }
 
