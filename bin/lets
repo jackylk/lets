@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# `lets` — the short alias to the Lets gateway CLI.
+#
+# This is a wrapper that runs `python -m app.gateway` from the repo's
+# venv, so you can type:
+#   lets login            (instead of: python -m app.gateway login)
+#   lets gateway          (start the local daemon)
+#   lets install          (write launchd plist for autostart on macOS)
+#   lets uninstall
+#   lets status
+#   lets logout
+#
+# Put this directory on your PATH:
+#   echo 'export PATH="$HOME/code/Lets/bin:$PATH"' >> ~/.zshrc
+set -euo pipefail
+
+# Resolve repo root from this script's location, following symlinks
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+  TARGET=$(readlink "$SCRIPT_PATH")
+  if [[ "$TARGET" = /* ]]; then
+    SCRIPT_PATH="$TARGET"
+  else
+    SCRIPT_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$TARGET"
+  fi
+done
+REPO_ROOT="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+
+if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+  exec "$REPO_ROOT/.venv/bin/python" -m app.gateway "$@"
+elif command -v python3 >/dev/null 2>&1; then
+  cd "$REPO_ROOT"
+  exec python3 -m app.gateway "$@"
+else
+  echo "lets: no python interpreter found (need .venv or python3 on PATH)" >&2
+  exit 127
+fi

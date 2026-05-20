@@ -31,6 +31,7 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import socket
 import subprocess
 import sys
@@ -40,6 +41,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -353,11 +355,191 @@ def _login(argv: list[str]) -> int:
     return 1
 
 
+def _load_token_meta() -> dict | None:
+    _, token_json_path = _token_paths()
+    if not os.path.exists(token_json_path):
+        return None
+    try:
+        with open(token_json_path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _status(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets status")
+    parser.parse_args(argv)
+    token_path, _ = _token_paths()
+    if not os.path.exists(token_path):
+        print("not logged in. Run: lets login")
+        return 1
+    meta = _load_token_meta()
+    if meta is None:
+        print(f"logged in (token at {token_path}, no metadata file)")
+        return 0
+    ai = meta.get("agent_instance") or {}
+    print(f"logged in to {meta.get('host', '?')}")
+    if ai:
+        print(
+            f"  as {ai.get('role', '?')}:{ai.get('device_label', '?')} "
+            f"(human={ai.get('human_name', '?')}, "
+            f"agent_instance_id={ai.get('id', '?')})"
+        )
+    print(f"  token: {token_path}")
+    plist = _launchd_plist_path()
+    if os.path.exists(plist):
+        print(f"  autostart: enabled ({plist})")
+    else:
+        print("  autostart: not installed (Run: lets install)")
+    return 0
+
+
+def _logout(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets logout")
+    parser.parse_args(argv)
+    token_path, token_json_path = _token_paths()
+    removed = False
+    for p in (token_path, token_json_path):
+        if os.path.exists(p):
+            os.remove(p)
+            print(f"removed {p}")
+            removed = True
+    if not removed:
+        print("not logged in (nothing to remove)")
+    return 0
+
+
+def _launchd_label() -> str:
+    return "com.lets.gateway"
+
+
+def _launchd_plist_path() -> str:
+    return os.path.expanduser(
+        f"~/Library/LaunchAgents/{_launchd_label()}.plist"
+    )
+
+
+def _install(argv: list[str]) -> int:
+    """Write a launchd plist so the gateway auto-starts on login (macOS)."""
+    parser = argparse.ArgumentParser(prog="lets install")
+    parser.add_argument(
+        "--host", default=None,
+        help="Override --host for the daemon (default: from saved token.json)",
+    )
+    args = parser.parse_args(argv)
+
+    if sys.platform != "darwin":
+        print(
+            "lets install currently supports macOS (launchd) only. "
+            "On Linux, add a systemd user unit by hand for now.",
+            file=sys.stderr,
+        )
+        return 2
+
+    token_path, _ = _token_paths()
+    if not os.path.exists(token_path):
+        print("not logged in. Run: lets login  first.", file=sys.stderr)
+        return 1
+
+    meta = _load_token_meta() or {}
+    host = args.host or meta.get("host") or "http://127.0.0.1:8000"
+
+    python_exec = sys.executable
+    module = "app.gateway"
+    repo_root = str(Path(__file__).resolve().parent.parent)
+    home = os.path.expanduser(os.environ.get("LETS_HOME", "~/.lets"))
+    log_dir = os.path.join(home, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{_launchd_label()}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{python_exec}</string>
+    <string>-m</string>
+    <string>{module}</string>
+    <string>gateway</string>
+    <string>--host</string>
+    <string>{host}</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>{repo_root}</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key>
+  <string>{log_dir}/gateway.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>{log_dir}/gateway.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin')}</string>
+  </dict>
+</dict>
+</plist>
+"""
+    plist_path = _launchd_plist_path()
+    os.makedirs(os.path.dirname(plist_path), exist_ok=True)
+    with open(plist_path, "w", encoding="utf-8") as f:
+        f.write(plist)
+    print(f"wrote {plist_path}")
+
+    # Reload: unload + load (ignore errors on first install)
+    subprocess.run(
+        ["launchctl", "unload", "-w", plist_path],
+        capture_output=True, check=False,
+    )
+    res = subprocess.run(
+        ["launchctl", "load", "-w", plist_path],
+        capture_output=True, check=False, text=True,
+    )
+    if res.returncode != 0:
+        print(f"launchctl load failed: {res.stderr.strip()}", file=sys.stderr)
+        return res.returncode
+    print(f"launchctl loaded {_launchd_label()} — gateway will run at login.")
+    print(f"  out: {log_dir}/gateway.out.log")
+    print(f"  err: {log_dir}/gateway.err.log")
+    print("To check status now: launchctl list | grep lets")
+    return 0
+
+
+def _uninstall(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets uninstall")
+    parser.parse_args(argv)
+    plist_path = _launchd_plist_path()
+    if not os.path.exists(plist_path):
+        print("not installed (no plist at " + plist_path + ")")
+        return 0
+    subprocess.run(
+        ["launchctl", "unload", "-w", plist_path],
+        capture_output=True, check=False,
+    )
+    os.remove(plist_path)
+    print(f"removed {plist_path} and unloaded {_launchd_label()}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] == "login":
+    # Subcommand dispatch — kept additive so existing entry-points (bare
+    # invocation, `run` subcommand) still work.
+    if argv and argv[0] in ("login",):
         return _login(argv[1:])
-    if argv and argv[0] == "run":
+    if argv and argv[0] in ("status",):
+        return _status(argv[1:])
+    if argv and argv[0] in ("logout",):
+        return _logout(argv[1:])
+    if argv and argv[0] in ("install",):
+        return _install(argv[1:])
+    if argv and argv[0] in ("uninstall",):
+        return _uninstall(argv[1:])
+    # "gateway" + "run" both mean "start the daemon" (and so does bare invocation)
+    if argv and argv[0] in ("gateway", "run"):
         argv = argv[1:]
 
     parser = argparse.ArgumentParser(prog="lets-gateway")
