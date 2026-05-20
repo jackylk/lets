@@ -6,7 +6,7 @@ import { LoginPage } from "./LoginPage";
 describe("<LoginPage />", () => {
   it("renders Login with GitHub button pointing to /auth/github/start", async () => {
     renderWithProviders(<LoginPage />);
-    const link = await screen.findByRole("link", { name: /Login with GitHub/i });
+    const link = await screen.findByRole("link", { name: /Sign in with GitHub/i });
     expect(link).toHaveAttribute("href", "/auth/github/start");
   });
 

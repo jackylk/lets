@@ -8,10 +8,6 @@ interface ContextResponse {
   };
 }
 
-function isLocalDogfoodHost(host: string) {
-  return host === "127.0.0.1:8000" || host === "localhost:8000";
-}
-
 export function LoginPage({ initialContext }: { initialContext?: ContextResponse } = {}) {
   const context = useQuery({
     queryKey: ["public-context"],
@@ -23,11 +19,13 @@ export function LoginPage({ initialContext }: { initialContext?: ContextResponse
     retry: false,
   });
   const auth = initialContext?.auth ?? context.data?.auth;
-  const devLogin =
-    auth?.dev_login_enabled === true ||
-    isLocalDogfoodHost(window.location.host);
+  // Trust the server flag exclusively. Dev login is only available when the
+  // backend was started with LETS_DEV_SESSIONS=1 — host-based detection
+  // would override real OAuth setups even when the operator explicitly
+  // disabled the dev path.
+  const devLogin = auth?.dev_login_enabled === true;
   const loginHref = devLogin ? "/auth/dev/login?human=Neo&next=/app" : "/auth/github/start";
-  const label = devLogin ? "Continue as Neo" : "Login with GitHub";
+  const label = devLogin ? "Continue as Neo" : "Sign in with GitHub";
 
   return (
     <div className="min-h-screen grid place-items-center bg-bg">
