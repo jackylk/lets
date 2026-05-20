@@ -20,14 +20,7 @@ export function TopicContext() {
       </ContextBlock>
 
       <ContextBlock label="目标">
-        <GoalDetailPanel
-          artifactName="ai-memory-talk.pptx"
-          artifactVersion="v3"
-          spec="30 分钟 talk · 技术受众 · 突出「事件性记忆 vs 语义记忆」差异化"
-          approvers={["Trinity", "Morpheus", "Neo"]}
-          onMarkFinal={() => {}}
-          onProposeChange={() => {}}
-        />
+        <GoalDetailPanel topicId={1} />
       </ContextBlock>
 
       <ContextBlock label="目标分解">

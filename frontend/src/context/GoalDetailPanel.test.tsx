@@ -1,27 +1,20 @@
-import { describe, it, expect, vi } from "vitest";
-import { screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { describe, it, expect } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
 import { renderWithProviders } from "../../test/render";
 import { GoalDetailPanel } from "./GoalDetailPanel";
 
 describe("<GoalDetailPanel />", () => {
-  it("renders artifact name, spec, approvers, and final button", async () => {
-    const onMarkFinal = vi.fn();
-    const user = userEvent.setup();
-    renderWithProviders(
-      <GoalDetailPanel
-        artifactName="ai-memory-talk.pptx"
-        artifactVersion="v3"
-        spec="30 分钟 talk · 技术受众 · 突出「事件性记忆 vs 语义记忆」"
-        approvers={["Trinity", "Morpheus", "Neo"]}
-        onMarkFinal={onMarkFinal}
-        onProposeChange={() => {}}
-      />,
-    );
-    expect(screen.getByText("ai-memory-talk.pptx")).toBeInTheDocument();
-    expect(screen.getByText(/30 分钟/)).toBeInTheDocument();
-    expect(screen.getByText("Trinity")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Mark as Final/ }));
-    expect(onMarkFinal).toHaveBeenCalledTimes(1);
+  it("renders the seeded goal spec for topic 1", async () => {
+    renderWithProviders(<GoalDetailPanel topicId={1} />);
+    await waitFor(() => {
+      expect(screen.getByText(/30 分钟 talk/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders empty state when no tree exists (topic 9999)", async () => {
+    renderWithProviders(<GoalDetailPanel topicId={9999} />);
+    await waitFor(() => {
+      expect(screen.getByText(/尚未设定目标/)).toBeInTheDocument();
+    });
   });
 });
