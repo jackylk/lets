@@ -702,6 +702,31 @@ def update_task_status(item_id: int, status: str) -> dict:
     return updated
 
 
+@mcp.tool()
+def post_nudge(
+    topic_id: int,
+    reason: str,
+    drift_summary: str,
+    triggered_by_agent_instance_id: int | None = None,
+    window_start_message_id: int | None = None,
+    window_end_message_id: int | None = None,
+) -> dict:
+    """Post a nudge typed message + record a drift_nudges row in one txn.
+
+    Agents should only call this after consulting the drift_context
+    in the topic_stream response and confirming the previous nudge
+    wasn't 'dismissed'. See .claude/skills/lets-goal-guardian/SKILL.md."""
+    from .drift import post_nudge as _post_nudge
+    return _post_nudge(
+        topic_id=topic_id,
+        triggered_by_agent_instance_id=triggered_by_agent_instance_id,
+        reason=reason,
+        drift_summary=drift_summary,
+        window_start_message_id=window_start_message_id,
+        window_end_message_id=window_end_message_id,
+    )
+
+
 def main() -> None:
     """Stand-alone stdio entry, kept for backward compatibility."""
     init_db()

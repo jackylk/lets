@@ -58,3 +58,31 @@ def test_update_task_status_via_mcp(client):
             "SELECT * FROM messages WHERE topic_id = ? AND type = 'status'", (tid,)
         ).fetchall()
     assert len(rows) >= 1
+
+
+def test_post_nudge_via_mcp(client):
+    from app.db import connect
+    from app.mcp_server import post_nudge as mcp_post_nudge
+    with connect() as conn:
+        cur = conn.execute("INSERT INTO topics (slug, title) VALUES ('mcp-pn', 'x')")
+        tid = cur.lastrowid
+    result = mcp_post_nudge(
+        topic_id=tid,
+        reason="off-topic for 5 minutes",
+        drift_summary="discussion about friday team dinner",
+    )
+    assert "nudge_message_id" in result
+    assert "drift_nudge_id" in result
+    # Both rows exist
+    with connect() as conn:
+        msg = conn.execute(
+            "SELECT type, body FROM messages WHERE id = ?",
+            (result["nudge_message_id"],),
+        ).fetchone()
+        dnudge = conn.execute(
+            "SELECT topic_id, drift_summary FROM drift_nudges WHERE id = ?",
+            (result["drift_nudge_id"],),
+        ).fetchone()
+    assert msg["type"] == "nudge"
+    assert dnudge["topic_id"] == tid
+    assert "friday" in dnudge["drift_summary"]
