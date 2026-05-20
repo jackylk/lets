@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ContextPane, ContextBlock } from "../layout/ContextPane";
 import { TopicInfoCard } from "./TopicInfoCard";
 import { GoalDetailPanel } from "./GoalDetailPanel";
@@ -6,59 +7,135 @@ import { ArtifactPanel } from "./ArtifactPanel";
 import { SpecTouchedPanel } from "./SpecTouchedPanel";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { GitRow } from "./GitRow";
+import {
+  useTopic, useTopicMessages, useTopicParticipants,
+  useArtifactsByTopic, useProjectGitStatus,
+} from "../api/queries";
+import type { SpecChangeMeta } from "../api/types";
 
-export function TopicContext() {
+interface Props {
+  topicId: number;
+  projectId: number | null;
+}
+
+export function TopicContext({ topicId, projectId }: Props) {
+  const topic = useTopic(topicId);
+  const messages = useTopicMessages(topicId);
+  const participants = useTopicParticipants(topicId);
+  const artifacts = useArtifactsByTopic(topicId);
+  const gitStatus = useProjectGitStatus(projectId);
+
+  // Derive "spec touched" from spec_change messages in this topic.
+  const specItems = useMemo(() => {
+    const msgs = messages.data?.messages ?? [];
+    const byPath = new Map<
+      string,
+      { path: string; latestMessageId: number; meta: SpecChangeMeta }
+    >();
+    for (const m of msgs) {
+      if (m.type !== "spec_change") continue;
+      const meta = m.metadata as unknown as SpecChangeMeta;
+      if (!meta?.file) continue;
+      const prev = byPath.get(meta.file);
+      if (!prev || m.id > prev.latestMessageId) {
+        byPath.set(meta.file, { path: meta.file, latestMessageId: m.id, meta });
+      }
+    }
+    return [...byPath.values()].map((row) => ({
+      path: row.path,
+      version: row.meta.after !== undefined ? "pending" : "applied",
+      pending: row.meta.after !== undefined,
+    }));
+  }, [messages.data]);
+
+  const participantsList = useMemo(() => {
+    const p = participants.data;
+    if (!p) return [];
+    type Kind = "human" | "claude" | "codex" | "system";
+    const out: Array<{ kind: Kind; initial: string; name: string }> = [];
+    for (const h of p.humans) {
+      out.push({ kind: "human", initial: h.name.slice(0, 1).toUpperCase(), name: h.name });
+    }
+    for (const a of p.agents) {
+      const kind: Kind =
+        a.role === "claude" ? "claude" : a.role === "codex" ? "codex" : "system";
+      out.push({
+        kind,
+        initial: a.role === "codex" ? "CX" : "CC",
+        name: `${a.role} · ${a.device_label}`,
+      });
+    }
+    return out;
+  }, [participants.data]);
+
+  const artifactsList = artifacts.data ?? [];
+
   return (
     <ContextPane>
       <ContextBlock label="当前 Topic">
-        <TopicInfoCard
-          topicSlug="T-PPT"
-          title="为 Agent 记忆写一个研讨 PPT"
-          description="下周三 AI 研讨会 30min talk · 技术受众 · 主讲 Neo"
-          chips={["exploratory", "3 agents", "talk-prep"]}
-        />
+        {topic.data ? (
+          <TopicInfoCard
+            topicSlug={topic.data.slug}
+            title={topic.data.title}
+            description={`project_id=${topic.data.project_id ?? "—"}`}
+            chips={[`#${topic.data.id}`, "live"]}
+          />
+        ) : (
+          <div className="text-text-dim text-sm">…</div>
+        )}
       </ContextBlock>
 
       <ContextBlock label="目标">
-        <GoalDetailPanel topicId={1} />
+        <GoalDetailPanel topicId={topicId} />
       </ContextBlock>
 
       <ContextBlock label="目标分解">
-        <TaskTreePanel topicId={1} />
+        <TaskTreePanel topicId={topicId} />
       </ContextBlock>
 
-      <ContextBlock label="Artifact" right="v2 · in-progress">
-        <ArtifactPanel
-          artifactName="ai-memory-talk.pptx"
-          currentVersion="v2"
-          versions={["v0", "v1", "v2"]}
-          totalSlides={9}
-        />
+      <ContextBlock
+        label="Artifacts"
+        right={artifactsList.length > 0 ? `${artifactsList.length} in topic` : undefined}
+      >
+        {artifactsList.length === 0 ? (
+          <div className="text-text-dim text-sm italic">no artifacts yet</div>
+        ) : (
+          <ArtifactPanel artifacts={artifactsList} />
+        )}
       </ContextBlock>
 
       <ContextBlock label="本 Topic 涉及 Spec">
-        <SpecTouchedPanel
-          items={[
-            { path: ".claude/skills/research-talk-style", version: "v2 → v3", pending: true },
-            { path: ".claude/skills/pptx", version: "v5", pending: false },
-          ]}
-        />
+        {specItems.length === 0 ? (
+          <div className="text-text-dim text-sm italic">no spec_change posted</div>
+        ) : (
+          <SpecTouchedPanel items={specItems} />
+        )}
       </ContextBlock>
 
-      <ContextBlock label="Participants · 6">
-        <ParticipantsPanel
-          participants={[
-            { kind: "human", initial: "N", name: "Neo" },
-            { kind: "human", initial: "T", name: "Trinity" },
-            { kind: "human", initial: "M", name: "Morpheus" },
-            { kind: "claude", initial: "CC", name: "claude · neo-mbp" },
-            { kind: "codex", initial: "CX", name: "codex · neo-mbp" },
-          ]}
-        />
+      <ContextBlock
+        label="Participants"
+        right={participantsList.length > 0 ? `${participantsList.length}` : undefined}
+      >
+        {participantsList.length === 0 ? (
+          <div className="text-text-dim text-sm italic">no participants yet</div>
+        ) : (
+          <ParticipantsPanel participants={participantsList} />
+        )}
       </ContextBlock>
 
       <ContextBlock label="Git">
-        <GitRow branch="master" ahead={2} pendingSpec />
+        {gitStatus.data ? (
+          <GitRow
+            subject={gitStatus.data.head.subject}
+            shortSha={gitStatus.data.head.short_sha}
+            author={gitStatus.data.head.author}
+            dirtyCount={gitStatus.data.dirty.length}
+          />
+        ) : (
+          <div className="text-text-dim text-sm italic">
+            {projectId === null ? "no project" : "no repo_path configured"}
+          </div>
+        )}
       </ContextBlock>
     </ContextPane>
   );

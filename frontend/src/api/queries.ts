@@ -4,10 +4,102 @@ import { apiRequest } from "./client";
 import type {
   IdentityDTO, MessageDTO, TopicDTO, PostMessageInput,
   TokenRowDTO, CreateTokenInput, CreateTokenResponseDTO,
+  ProjectDTO, ParticipantsDTO, GitStatusDTO, OnlineAgentDTO,
+  AttentionDTO, ArtifactDTO,
 } from "./types";
 import type { DriftContextDTO } from "./taskTreeTypes";
 
 export { useSession as useSessionMe } from "../auth/useSession";
+
+// ---------------------------------------------------------------------------
+// v1.5 chrome queries — projects, topics, participants, git, attention,
+// artifacts-by-topic, online agents. All read-only.
+// ---------------------------------------------------------------------------
+
+export function useProjects() {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["projects"],
+    queryFn: () => apiRequest<ProjectDTO[]>("/api/projects", { identity }),
+  });
+}
+
+export function useProject(projectId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["projects", projectId],
+    queryFn: () => apiRequest<ProjectDTO>(`/api/projects/${projectId}`, { identity }),
+    enabled: projectId !== null,
+  });
+}
+
+export function useProjectTopics(projectId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["projects", projectId, "topics"],
+    queryFn: () => apiRequest<TopicDTO[]>(`/api/projects/${projectId}/topics`, { identity }),
+    enabled: projectId !== null,
+  });
+}
+
+export function useTopic(topicId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["topics", topicId, "info"],
+    queryFn: () => apiRequest<TopicDTO>(`/api/topics/${topicId}`, { identity }),
+    enabled: topicId !== null,
+  });
+}
+
+export function useTopicParticipants(topicId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["topics", topicId, "participants"],
+    queryFn: () =>
+      apiRequest<ParticipantsDTO>(`/api/topics/${topicId}/participants`, { identity }),
+    enabled: topicId !== null,
+  });
+}
+
+export function useArtifactsByTopic(topicId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["artifacts", "by-topic", topicId],
+    queryFn: () =>
+      apiRequest<ArtifactDTO[]>(`/api/artifacts?topic_id=${topicId}`, { identity }),
+    enabled: topicId !== null,
+  });
+}
+
+export function useProjectGitStatus(projectId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["projects", projectId, "git-status"],
+    queryFn: () =>
+      apiRequest<GitStatusDTO>(`/api/projects/${projectId}/git-status`, { identity }),
+    enabled: projectId !== null,
+    retry: false,  // 404 when project has no repo_path; not worth retrying
+  });
+}
+
+export function useAgentsOnline() {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["agents", "online"],
+    queryFn: () => apiRequest<OnlineAgentDTO[]>("/api/agents/online", { identity }),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useAttention(humanId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["attention", humanId],
+    queryFn: () => apiRequest<AttentionDTO>(`/api/attention?human_id=${humanId}`, { identity }),
+    enabled: humanId !== null,
+    refetchInterval: 30_000,
+  });
+}
 
 export function useIdentityMe() {
   const identity = useIdentity();

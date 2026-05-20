@@ -6,7 +6,7 @@ import { TopicView } from "./TopicView";
 
 describe("<TopicView />", () => {
   it("renders 14 typed messages for topic 1", async () => {
-    renderWithProviders(<TopicView topicId={1} topicTitle="t" />);
+    renderWithProviders(<TopicView topicId={1} />);
     await waitFor(() => {
       expect(screen.getAllByTestId("message-row").length).toBe(14);
     });
@@ -14,7 +14,7 @@ describe("<TopicView />", () => {
 
   it("posts a new chat message via composer", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<TopicView topicId={1} topicTitle="t" />);
+    renderWithProviders(<TopicView topicId={1} />);
     await waitFor(() => screen.getAllByTestId("message-row"));
     const textarea = screen.getByRole("textbox");
     await user.type(textarea, "hello composer");

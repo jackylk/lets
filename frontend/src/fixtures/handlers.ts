@@ -157,6 +157,95 @@ export const handlers = [
     });
   }),
 
+  // ---- v1.5 chrome (projects, single topic, participants, artifacts, git, attention)
+  http.get("/api/projects", () =>
+    HttpResponse.json([
+      {
+        id: 1, slug: "lets-mock", name: "Lets",
+        description: "Track F mock workspace",
+        owner_human_id: 1, repo_path: null,
+        created_at: "2026-05-19T09:00:00Z",
+        updated_at: "2026-05-19T09:00:00Z",
+      },
+    ]),
+  ),
+  http.get("/api/projects/:id", ({ params }) =>
+    HttpResponse.json({
+      id: Number(params.id), slug: "lets-mock", name: "Lets",
+      description: "Track F mock workspace",
+      owner_human_id: 1, repo_path: null,
+      created_at: "2026-05-19T09:00:00Z",
+      updated_at: "2026-05-19T09:00:00Z",
+    }),
+  ),
+  http.get("/api/projects/:id/topics", () => HttpResponse.json(seed.topics)),
+  http.get("/api/projects/:id/git-status", () =>
+    new HttpResponse(JSON.stringify({ detail: "project has no repo_path" }), {
+      status: 404,
+    }),
+  ),
+  http.get("/api/topics/:id", ({ params }) => {
+    const topic = seed.topics.find((t) => t.id === Number(params.id));
+    if (!topic)
+      return new HttpResponse(JSON.stringify({ detail: "topic not found" }), {
+        status: 404,
+      });
+    return HttpResponse.json(topic);
+  }),
+  http.get("/api/topics/:id/participants", ({ params }) => {
+    const topicId = Number(params.id);
+    const msgs = seed.messages.filter((m) => m.topic_id === topicId);
+    const humanIds = new Set<number>();
+    const agentIds = new Set<number>();
+    for (const m of msgs) {
+      if (m.actor_id === null) continue;
+      if (m.actor_type === "human") humanIds.add(m.actor_id);
+      else if (m.actor_type === "agent") agentIds.add(m.actor_id);
+    }
+    return HttpResponse.json({
+      humans: seed.humans
+        .filter((h) => humanIds.has(h.id))
+        .map((h) => ({ id: h.id, name: h.name, email: null })),
+      agents: seed.agentInstances
+        .filter((a) => agentIds.has(a.id))
+        .map((a) => ({
+          id: a.id, role: a.role, device_label: a.device_label,
+          human_name: seed.humans.find((h) => h.id === a.human_id)?.name ?? "",
+        })),
+    });
+  }),
+  http.get("/api/artifacts", ({ request }) => {
+    const url = new URL(request.url);
+    const topicId = Number(url.searchParams.get("topic_id"));
+    // Return a single mock artifact for the default topic so the panel
+    // renders something in fixture demos.
+    if (topicId === 1) {
+      return HttpResponse.json([
+        {
+          id: 1, slug: "ai-memory-talk.pptx", type: "doc",
+          backend: "git", backend_ref: "ai-memory-talk.pptx",
+          title: "AI memory talk", topic_id: 1,
+          current_version_id: 3,
+          created_at: "2026-05-19T09:31:00Z",
+          updated_at: "2026-05-19T10:00:00Z",
+          versions: ["v0", "v1", "v2"].map((label, i) => ({
+            id: i + 1, artifact_id: 1, version_label: label,
+            backend_revision_id: `mock${i.toString().padStart(8, "0")}`,
+            created_by_human_id: null, created_by_agent_instance_id: null,
+            summary: `version ${label}`,
+            preview_uri: null,
+            created_at: `2026-05-19T09:${30 + i * 5}:00Z`,
+          })),
+        },
+      ]);
+    }
+    return HttpResponse.json([]);
+  }),
+  http.get("/api/agents/online", () => HttpResponse.json([])),
+  http.get("/api/attention", () =>
+    HttpResponse.json({ needs_decision: [], mentioned_questions: [], suggestions: [] }),
+  ),
+
   http.get("/api/topics/:id/task-tree", ({ params }) => {
     const topicId = Number(params.id);
     const tree = seed.taskTrees.find((t) => t.topic_id === topicId) ?? null;

@@ -1,31 +1,45 @@
 import { useState } from "react";
+import { useAgentsOnline } from "../api/queries";
+import type { TopicDTO } from "../api/types";
+import { cn } from "../lib/cn";
 
 interface SidebarProps {
   projectName: string;
   projectRepo: string;
+  topics: TopicDTO[];
+  activeTopicId: number | null;
   attentionCount?: number;
   onClickAttention?: () => void;
-  onClickTopic?: () => void;
+  onSelectTopic?: (id: number) => void;
   onClickSettings?: () => void;
 }
 
 export function Sidebar({
   projectName,
   projectRepo,
+  topics,
+  activeTopicId,
   attentionCount = 0,
   onClickAttention,
-  onClickTopic,
+  onSelectTopic,
   onClickSettings,
 }: SidebarProps) {
+  const online = useAgentsOnline();
+  const onlineList = online.data ?? [];
+
   return (
     <div className="flex flex-col h-full">
       <div className="px-5 pt-5 pb-4 border-b border-border-soft flex items-center gap-3">
         <div className="w-7 h-7 rounded-lg bg-text text-bg grid place-items-center font-bold text-sm font-[var(--font-display)]">
-          {projectName[0]}
+          {projectName[0] ?? "L"}
         </div>
-        <div className="leading-tight">
-          <div className="font-[var(--font-display)] font-semibold text-[15px]">{projectName}</div>
-          <div className="text-text-dim text-[11px] font-mono mt-px">{projectRepo}</div>
+        <div className="leading-tight min-w-0">
+          <div className="font-[var(--font-display)] font-semibold text-[15px] truncate">
+            {projectName}
+          </div>
+          <div className="text-text-dim text-[11px] font-mono mt-px truncate">
+            {projectRepo}
+          </div>
         </div>
       </div>
 
@@ -44,20 +58,44 @@ export function Sidebar({
         </button>
       </div>
 
-      <Section label="Channels" count={1}>
-        <ChannelRow
-          tag="T-PPT"
-          title="为 Agent 记忆写一个研讨 PPT"
-          onClick={onClickTopic}
-        />
+      <Section label="Topics" count={topics.length}>
+        {topics.length === 0 ? (
+          <div className="px-3 py-1 text-[11px] text-text-dim italic">
+            no topics yet
+          </div>
+        ) : (
+          topics.map((t) => (
+            <ChannelRow
+              key={t.id}
+              tag={t.slug.slice(0, 6).toUpperCase()}
+              title={t.title}
+              active={activeTopicId === t.id}
+              onClick={() => onSelectTopic?.(t.id)}
+            />
+          ))
+        )}
       </Section>
-      <Section label="Online" count={3}>
-        <ChannelRow tag="CC" title="claude · neo-mbp" />
-        <ChannelRow tag="CC" title="claude · trinity-air" />
-        <ChannelRow tag="CX" title="codex · neo-mbp" />
-      </Section>
-      <Section label="Direct Messages" count={1}>
-        <ChannelRow tag="M" title="Morpheus" />
+
+      <Section label="Online" count={onlineList.length}>
+        {onlineList.length === 0 ? (
+          <div className="px-3 py-1 text-[11px] text-text-dim italic">
+            no agents online
+          </div>
+        ) : (
+          onlineList.map((a) => (
+            <ChannelRow
+              key={a.agent_instance_id}
+              tag={
+                a.role === "claude"
+                  ? "CC"
+                  : a.role === "codex"
+                    ? "CX"
+                    : a.role.slice(0, 2).toUpperCase()
+              }
+              title={`${a.role} · ${a.device_label}`}
+            />
+          ))
+        )}
       </Section>
 
       <div className="flex-1 min-h-3" />
@@ -106,19 +144,26 @@ function Section({
 function ChannelRow({
   tag,
   title,
+  active,
   onClick,
 }: {
   tag: string;
   title: string;
+  active?: boolean;
   onClick?: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-3 py-1 rounded text-[12px] text-text-muted hover:bg-surface-hover hover:text-text text-left"
+      className={cn(
+        "w-full flex items-center gap-2 px-3 py-1 rounded text-[12px] text-left",
+        active
+          ? "bg-surface-hover text-text"
+          : "text-text-muted hover:bg-surface-hover hover:text-text",
+      )}
     >
-      <span className="font-mono text-[11px] text-text-dim w-8 flex-shrink-0">{tag}</span>
+      <span className="font-mono text-[11px] text-text-dim w-12 flex-shrink-0">{tag}</span>
       <span className="truncate">{title}</span>
     </button>
   );

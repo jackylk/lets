@@ -1423,14 +1423,34 @@ def list_artifacts_by_topic(
     topic_id: int,
     principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
-    """List artifacts attached to ``topic_id``, ordered by id ASC."""
+    """List artifacts attached to ``topic_id``, ordered by id ASC.
+
+    Each artifact row includes a ``versions`` array (chronological) so
+    the web UI can render the version chain without N+1 round-trips.
+    """
     from .db import connect
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM artifacts WHERE topic_id = ? ORDER BY id ASC",
             (topic_id,),
         ).fetchall()
-    return [dict(r) for r in rows]
+        artifacts = [dict(r) for r in rows]
+        if not artifacts:
+            return []
+        ids = [a["id"] for a in artifacts]
+        placeholders = ",".join("?" * len(ids))
+        vrows = conn.execute(
+            f"SELECT * FROM artifact_versions WHERE artifact_id IN ({placeholders}) "
+            f"ORDER BY artifact_id, id ASC",
+            ids,
+        ).fetchall()
+    by_artifact: dict[int, list[dict]] = {a["id"]: [] for a in artifacts}
+    for r in vrows:
+        d = dict(r)
+        by_artifact[int(d["artifact_id"])].append(d)
+    for a in artifacts:
+        a["versions"] = by_artifact.get(a["id"], [])
+    return artifacts
 
 
 @app.get("/api/topics/{topic_id}/participants")

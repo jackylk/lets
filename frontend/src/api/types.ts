@@ -90,3 +90,50 @@ export interface CreateTokenResponseDTO {
   label: string;
   agent_instance: { id: number; role: string; device_label: string };
 }
+
+export interface ProjectDTO {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  owner_human_id: number | null;
+  repo_path: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ParticipantsDTO {
+  humans: Array<{ id: number; name: string; email: string | null }>;
+  agents: Array<{ id: number; device_label: string; role: string; human_name: string }>;
+}
+
+export interface GitStatusDTO {
+  head: {
+    sha: string;
+    short_sha: string;
+    subject: string;
+    author: string;
+    date: string;
+  };
+  dirty: string[];
+}
+
+export interface OnlineAgentDTO {
+  agent_instance_id: number;
+  role: string;
+  device_label: string;
+  human_name: string;
+  last_seen_at: string;
+}
+
+export interface AttentionMessageDTO extends MessageDTO {
+  topic_slug: string;
+  topic_title: string;
+  project_id: number | null;
+}
+
+export interface AttentionDTO {
+  needs_decision: AttentionMessageDTO[];
+  mentioned_questions: AttentionMessageDTO[];
+  suggestions: AttentionMessageDTO[];
+}
