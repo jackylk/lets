@@ -345,7 +345,18 @@ def install_gateway_py() -> FileResponse:
 def install_gateway_sh(request: Request) -> PlainTextResponse:
     """One-line installer for the local Lets gateway.
 
-    This is the fast onboarding path before a packaged PyPI distribution exists.
+    Designed so a brand-new user can run the curl-bash one-liner and then
+    immediately type ``lets login`` — no $PATH editing, no rc-file
+    sourcing. The script:
+
+    * Materializes ~/.lets/ with a private venv + gateway.py.
+    * Generates ~/.lets/bin/lets that runs the gateway via the venv.
+    * Tries to symlink /usr/local/bin/lets (works on most macs that have
+      Homebrew, which makes that dir user-owned) for zero PATH friction.
+    * Falls back to appending ``export PATH="$HOME/.lets/bin:$PATH"`` to
+      ~/.zshrc / ~/.bashrc / fish config so the next shell session has it.
+
+    The script is idempotent — running it twice doesn't break anything.
     """
     base_url = _public_base_url(request)
     script = f"""#!/usr/bin/env bash
@@ -355,7 +366,7 @@ BASE_URL="${{LETS_HOST:-{base_url}}}"
 LETS_HOME="${{LETS_HOME:-$HOME/.lets}}"
 PYTHON="${{PYTHON:-python3}}"
 
-mkdir -p "$LETS_HOME"
+mkdir -p "$LETS_HOME" "$LETS_HOME/bin"
 
 if ! "$PYTHON" - <<'PY' >/dev/null 2>&1
 import sys
@@ -376,49 +387,96 @@ fi
 curl -fsSL "$BASE_URL/install/gateway.py" -o "$LETS_HOME/gateway.py"
 chmod 600 "$LETS_HOME/gateway.py"
 
-cat > "$LETS_HOME/run-gateway.sh" <<'SH'
+# ---- write a `lets` shim that calls the venv'd gateway ----
+cat > "$LETS_HOME/bin/lets" <<'SH'
 #!/usr/bin/env bash
-set -euo pipefail
-
 LETS_HOME="${{LETS_HOME:-$HOME/.lets}}"
-HOST="${{LETS_HOST:-__BASE_URL__}}"
-TOKEN="${{LETS_TOKEN:-}}"
-
-if [ -z "$TOKEN" ] && [ -f "$LETS_HOME/token" ]; then
-  TOKEN="$(tr -d '[:space:]' < "$LETS_HOME/token")"
-fi
-
-if [ -z "$TOKEN" ]; then
-  cat >&2 <<'MSG'
-Missing gateway token.
-
-Run this first:
-  ~/.lets/venv/bin/python ~/.lets/gateway.py login
-
-Then:
-  bash ~/.lets/run-gateway.sh
-MSG
-  exit 2
-fi
-
-exec "$LETS_HOME/venv/bin/python" "$LETS_HOME/gateway.py" run --host "$HOST" --token "$TOKEN" "$@"
+export LETS_HOST="${{LETS_HOST:-__BASE_URL__}}"
+exec "$LETS_HOME/venv/bin/python" "$LETS_HOME/gateway.py" "$@"
 SH
+perl -0pi -e "s#__BASE_URL__#$BASE_URL#g" "$LETS_HOME/bin/lets"
+chmod +x "$LETS_HOME/bin/lets"
 
-perl -0pi -e "s#__BASE_URL__#$BASE_URL#g" "$LETS_HOME/run-gateway.sh"
-chmod +x "$LETS_HOME/run-gateway.sh"
+# ---- make `lets` reachable without manual PATH editing ----
+LINK_INSTALLED=""
+for prefix in /usr/local/bin /opt/homebrew/bin; do
+  if [ -d "$prefix" ] && [ -w "$prefix" ]; then
+    ln -sf "$LETS_HOME/bin/lets" "$prefix/lets"
+    LINK_INSTALLED="$prefix/lets"
+    break
+  fi
+done
+
+# Fallback: append to shell rc files so future shells see ~/.lets/bin
+RC_EDITED=""
+if [ -z "$LINK_INSTALLED" ]; then
+  EXPORT_LINE='export PATH="$HOME/.lets/bin:$PATH"  # lets'
+  for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
+    if [ -f "$rc" ] && ! grep -Fq '$HOME/.lets/bin' "$rc"; then
+      printf '\\n%s\\n' "$EXPORT_LINE" >> "$rc"
+      RC_EDITED="${{RC_EDITED}}$rc "
+    fi
+  done
+  # fish
+  if [ -d "$HOME/.config/fish" ]; then
+    FISH_RC="$HOME/.config/fish/config.fish"
+    if ! grep -Fq '$HOME/.lets/bin' "$FISH_RC" 2>/dev/null; then
+      printf '\\nset -gx PATH $HOME/.lets/bin $PATH  # lets\\n' >> "$FISH_RC"
+      RC_EDITED="${{RC_EDITED}}$FISH_RC "
+    fi
+  fi
+fi
 
 cat <<MSG
-Lets gateway installed.
+
+✓ lets installed.
 
 Files:
   $LETS_HOME/gateway.py
-  $LETS_HOME/run-gateway.sh
+  $LETS_HOME/bin/lets
+MSG
+
+if [ -n "$LINK_INSTALLED" ]; then
+  echo "  $LINK_INSTALLED  →  $LETS_HOME/bin/lets"
+fi
+if [ -n "$RC_EDITED" ]; then
+  echo
+  echo "Added \\$HOME/.lets/bin to your shell PATH in: $RC_EDITED"
+  echo "(takes effect in new terminals)"
+fi
+
+# ---- Auto-login unless skipped, so the one-line install IS the onboarding ----
+if [ "${{LETS_SKIP_LOGIN:-0}}" = "0" ]; then
+  cat <<MSG
+
+Logging this device in to $BASE_URL ...
+(opens your default browser; if you're already logged in to Lets in
+ that browser, this auto-confirms in a couple of seconds)
+
+MSG
+  "$LETS_HOME/bin/lets" login \\
+    --host "$BASE_URL" \\
+    --role "${{LETS_AGENT_ROLE:-claude}}" || \\
+    {{ echo "lets login failed — try again with: lets login" >&2; exit 1; }}
+
+  cat <<MSG
+
+✓ Logged in. Token saved to $LETS_HOME/token
 
 Next:
-  1. Run: $LETS_HOME/venv/bin/python $LETS_HOME/gateway.py login
-  2. Open the printed URL in your logged-in browser
-  3. Run: bash $LETS_HOME/run-gateway.sh
+  lets gateway        # start the daemon now (this terminal)
+  lets install        # OR: register a launchd job so it auto-starts on login
+                      #     and survives reboot
+
 MSG
+else
+  cat <<MSG
+
+To finish onboarding:
+  lets login          # device-flow OAuth via your browser
+  lets gateway        # start the daemon
+MSG
+fi
 """
     return PlainTextResponse(script, media_type="text/x-shellscript; charset=utf-8")
 
