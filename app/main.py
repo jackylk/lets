@@ -310,7 +310,11 @@ def get_context() -> dict:
         "project": {
             "name": "Lets",
             "description": "Shared workboard for local coding agents.",
-        }
+        },
+        "auth": {
+            "dev_login_enabled": os.environ.get("LETS_DEV_SESSIONS") == "1",
+            "github_configured": bool(os.environ.get("GITHUB_CLIENT_ID")),
+        },
     }
 
 

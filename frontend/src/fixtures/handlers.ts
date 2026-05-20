@@ -9,6 +9,13 @@ let seed: SeedState = makeSeed();
 export function resetFixtures() { seed = makeSeed(); }
 
 export const handlers = [
+  http.get("/api/context", () =>
+    HttpResponse.json({
+      project: { name: "Lets", description: "Track F mock workspace" },
+      auth: { dev_login_enabled: false, github_configured: true },
+    }),
+  ),
+
   http.get("/api/identity/me", ({ request }) => {
     const human = request.headers.get("X-Lets-Human") ?? "Neo";
     const role = request.headers.get("X-Lets-Agent-Role");
