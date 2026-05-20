@@ -627,6 +627,44 @@ def propose_goal(
     return msg
 
 
+@mcp.tool()
+def propose_task_tree(
+    topic_id: int,
+    title: str,
+    items: list[dict],
+) -> dict:
+    """Propose a hierarchical task breakdown for a topic.
+
+    items is a list of {title, parent_index?, owner_human_id?,
+    owner_agent_instance_id?}. parent_index is 0-based into the items
+    list itself, used to express parent-child relations at adoption time.
+
+    Posts a task_tree_proposal typed message; humans must adopt via
+    POST /api/topics/{id}/task-tree to make it active."""
+    import json
+    from .db import connect
+    from .messages import post_message
+
+    body = f"提议把这个 topic 拆成 {len(items)} 个任务"
+    metadata = {"title": title, "items": items}
+    msg_id = post_message(
+        topic_id=topic_id,
+        type="task_tree_proposal",
+        actor_type="agent",
+        actor_id=None,
+        body=body,
+        metadata=metadata,
+    )
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM messages WHERE id = ?", (msg_id,)
+        ).fetchone()
+    msg = dict(row)
+    if isinstance(msg.get("metadata"), str):
+        msg["metadata"] = json.loads(msg["metadata"])
+    return msg
+
+
 def main() -> None:
     """Stand-alone stdio entry, kept for backward compatibility."""
     init_db()
