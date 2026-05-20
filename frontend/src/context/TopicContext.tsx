@@ -30,19 +30,8 @@ export function TopicContext() {
         />
       </ContextBlock>
 
-      <ContextBlock label="目标分解" right="claude · 09:33">
-        <TaskTreePanel
-          title="研讨 PPT 终版"
-          items={[
-            { title: "Framing 角度定下来", owner_name: "Morpheus", status: "done" },
-            { title: "P4 业界对比矩阵 4×6", owner_name: "claude", status: "done" },
-            { title: "Skill 字号修正", owner_name: "codex", status: "done" },
-            { title: "P2 framing 改写", owner_name: "claude", status: "active" },
-            { title: "P5 加文字解释", status: "pending" },
-            { title: "Demo / Q&A 准备", owner_name: "Neo", status: "pending" },
-            { title: "排练 30min", status: "pending" },
-          ]}
-        />
+      <ContextBlock label="目标分解">
+        <TaskTreePanel topicId={1} />
       </ContextBlock>
 
       <ContextBlock label="Artifact" right="v2 · in-progress">
