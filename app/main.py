@@ -14,7 +14,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import mcp_server as mcp_server_module
 from .auth import get_api_principal, set_mcp_principal, verify_token
-from .db import connect, init_db
+from .db import connect, init_db, IntegrityError
 
 mcp_server_module = importlib.reload(mcp_server_module)
 
@@ -254,8 +254,9 @@ class ProjectPatch(BaseModel):
 
 
 class TopicCreate(BaseModel):
-    slug: str = Field(min_length=1)
-    title: str = Field(min_length=1)
+    slug: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=200)
+    mode: str = Field(default="exploratory")
 
 
 def ensure_agent(name: str, agent_type: str) -> int:
@@ -1026,6 +1027,8 @@ async def post_message_endpoint(
     from .messages import post_message
     from .sse import broadcaster
 
+    _require_topic_member(payload.topic_id, int(principal["human_id"]))
+
     # Body-required-unless-annotation: keep the old guarantee for all
     # "real" message types so legacy callers don't regress, but allow
     # empty body for annotations (vote-only annotations carry no text).
@@ -1090,6 +1093,8 @@ def get_topic_messages(
     from .drift import compute_drift_context
     from .messages import topic_stream
 
+    _require_topic_member(topic_id, int(principal["human_id"]))
+
     return {
         "messages": topic_stream(
             topic_id, type_filter=type, limit=limit, after_id=after_id,
@@ -1104,6 +1109,7 @@ def get_topic_task_tree(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .task_trees import get_tree_by_topic, list_items
+    _require_topic_member(topic_id, int(principal["human_id"]))
     tree = get_tree_by_topic(topic_id)
     if tree is None:
         return {"tree": None, "items": []}
@@ -1125,6 +1131,8 @@ def adopt_task_tree(
     principal = verify_session(lets_session)
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
+
+    _require_topic_member(topic_id, int(principal["human_id"]))
 
     # Find the proposal message in this topic
     msgs = topic_stream(topic_id, limit=10000)
@@ -1163,6 +1171,8 @@ def adopt_goal(
     principal = verify_session(lets_session)
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
+
+    _require_topic_member(topic_id, int(principal["human_id"]))
 
     artifact_id: int | None = payload.artifact_id
     spec_text: str | None = payload.spec_text
@@ -1961,33 +1971,63 @@ def apply_spec_change(
     return {"ok": True, "file": rel, "bytes": target.stat().st_size}
 
 
-@app.post("/api/projects/{project_id}/topics")
-def post_topic(
-    project_id: int,
+@app.get("/api/workspaces/{workspace_id}/topics")
+def list_topics_in_workspace(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    from .workspaces import require_workspace_member
+    require_workspace_member(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, slug, title, workspace_id, mode, created_at, updated_at
+            FROM topics
+            WHERE workspace_id = ?
+            ORDER BY updated_at DESC
+            """,
+            (workspace_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/workspaces/{workspace_id}/topics")
+def create_topic_in_workspace(
+    workspace_id: int,
     payload: TopicCreate,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
-    from .projects import get_project_by_id
-    from .topics import create_topic, get_topic_by_id
-    if not get_project_by_id(project_id):
-        raise HTTPException(status_code=404, detail="project not found")
-    try:
-        tid = create_topic(slug=payload.slug, title=payload.title, project_id=project_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return get_topic_by_id(tid)
+    from .workspaces import require_workspace_member
+    require_workspace_member(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        try:
+            row = conn.execute(
+                """
+                INSERT INTO topics (slug, title, workspace_id, mode)
+                VALUES (?, ?, ?, ?)
+                RETURNING id, slug, title, workspace_id, mode,
+                          created_at, updated_at
+                """,
+                (payload.slug, payload.title, workspace_id, payload.mode),
+            ).fetchone()
+        except IntegrityError as e:
+            if "topics_slug_key" in str(e).lower() or "unique" in str(e).lower():
+                raise HTTPException(status_code=409, detail=f"slug in use: {payload.slug}")
+            raise
+    return dict(row)
 
 
-@app.get("/api/projects/{project_id}/topics")
-def get_topics_in_project(
-    project_id: int,
-    principal: dict = Depends(get_api_principal),
-) -> list[dict]:
-    from .projects import get_project_by_id
-    from .topics import list_topics_by_project
-    if not get_project_by_id(project_id):
-        raise HTTPException(status_code=404, detail="project not found")
-    return list_topics_by_project(project_id)
+def _require_topic_member(topic_id: int, human_id: int) -> int:
+    """Return workspace_id; raise 403 if caller not a member."""
+    from .workspaces import require_workspace_member
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT workspace_id FROM topics WHERE id = ?", (topic_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    require_workspace_member(int(row["workspace_id"]), human_id)
+    return int(row["workspace_id"])
 
 
 @app.get("/api/topics/{topic_id}")
@@ -1996,6 +2036,7 @@ def get_topic(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .topics import get_topic_by_id
+    _require_topic_member(topic_id, int(principal["human_id"]))
     t = get_topic_by_id(topic_id)
     if not t:
         raise HTTPException(status_code=404, detail="topic not found")
@@ -2019,6 +2060,7 @@ def get_topic_spec(
     from .topics import get_topic_by_id
     from .spec import render_spec_markdown
 
+    _require_topic_member(topic_id, int(principal["human_id"]))
     if not get_topic_by_id(topic_id):
         raise HTTPException(status_code=404, detail="topic not found")
     msgs = topic_stream(topic_id, limit=limit, order="asc")
@@ -2045,6 +2087,8 @@ async def stream_topic(
     pass ``Last-Event-ID`` or use ``?after_id=`` on the messages endpoint
     to catch up on missed traffic after a reconnect.
     """
+    _require_topic_member(topic_id, int(principal["human_id"]))
+
     from fastapi.responses import StreamingResponse
     from .sse import broadcaster
     import asyncio
@@ -2085,6 +2129,7 @@ def list_artifacts_by_topic(
     Each artifact row includes a ``versions`` array (chronological) so
     the web UI can render the version chain without N+1 round-trips.
     """
+    _require_topic_member(topic_id, int(principal["human_id"]))
     from .db import connect
     with connect() as conn:
         rows = conn.execute(
@@ -2116,6 +2161,7 @@ def get_topic_participants(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     """Return the distinct humans and agents that have posted on a topic."""
+    _require_topic_member(topic_id, int(principal["human_id"]))
     from .db import connect
     with connect() as conn:
         humans = [dict(r) for r in conn.execute(
