@@ -10,7 +10,7 @@ export function ArtifactRevisionMessage({ message, actor }: { message: MessageDT
   const version = meta.version ?? "?";
   return (
     <BaseMessage
-      actor={actor}
+      msgId={message.id} actor={actor}
       timeIso={message.created_at}
       tag={`artifact_revision · ${version}`}
       tone="artifact"

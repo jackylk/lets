@@ -28,7 +28,7 @@ export function SpecChangeMessage({ message, actor }: { message: MessageDTO; act
 
   return (
     <BaseMessage
-      actor={actor}
+      msgId={message.id} actor={actor}
       timeIso={message.created_at}
       tag="spec_change"
       tone="spec"
@@ -38,7 +38,7 @@ export function SpecChangeMessage({ message, actor }: { message: MessageDTO; act
           <div className="text-[13px]">{message.body}</div>
           <div className="flex items-center gap-2 text-[12px]">
             <span className="font-mono px-1.5 py-px rounded bg-finding-bg text-finding">{String(meta.before ?? "-")}</span>
-            <span className="text-text-dim">→</span>
+            <span className="text-text-dim font-mono text-[10px]">to</span>
             <span className="font-mono px-1.5 py-px rounded bg-spec-bg text-spec">{String(meta.after ?? "-")}</span>
           </div>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -48,7 +48,7 @@ export function SpecChangeMessage({ message, actor }: { message: MessageDTO; act
             ))}
             <div className="flex-1" />
             {approved ? (
-              <span className="text-[12px] text-status-on font-medium">Approved ✓</span>
+              <span className="text-[12px] text-status-on font-medium">Approved</span>
             ) : (
               <>
                 <button

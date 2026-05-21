@@ -34,7 +34,7 @@ export function GoalProposalMessage({
 
   return (
     <BaseMessage
-      actor={actor}
+      msgId={message.id} actor={actor}
       timeIso={message.created_at}
       tag="goal_proposal"
       tone="spec"
@@ -50,7 +50,7 @@ export function GoalProposalMessage({
             <div className="flex-1" />
             {adopted ? (
               <span className="text-[12px] text-status-on font-medium">
-                Adopted ✓
+                Adopted
               </span>
             ) : (
               <button

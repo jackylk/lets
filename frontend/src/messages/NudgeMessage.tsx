@@ -30,7 +30,7 @@ export function NudgeMessage({
     // Backward compat: nudge without backing drift_nudges row (legacy fixtures)
     return (
       <BaseMessage
-        actor={actor}
+        msgId={message.id} actor={actor}
         timeIso={message.created_at}
         tag="nudge"
         tone="nudge"

@@ -18,7 +18,7 @@ export function GoalDetailPanel({ topicId }: Props) {
   }
   const t = tree.data.tree;
   return (
-    <div className="border border-border-soft rounded-lg bg-surface-elev p-3 flex flex-col gap-2">
+    <div className="border border-border-soft border-l-2 border-l-accent rounded bg-surface-elev p-3 flex flex-col gap-2 shadow-sm">
       <div className="flex items-center gap-2">
         <span className="text-[11px] uppercase tracking-wider text-text-dim font-semibold">
           目标 Artifact

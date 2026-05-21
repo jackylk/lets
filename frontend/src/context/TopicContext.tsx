@@ -1,146 +1,95 @@
-import { useMemo } from "react";
 import { ContextPane, ContextBlock } from "../layout/ContextPane";
-import { TopicInfoCard } from "./TopicInfoCard";
 import { GoalAutoPanel } from "./GoalAutoPanel";
-import { ActivityTimelinePanel } from "./ActivityTimelinePanel";
-import { TaskTreePanel } from "./TaskTreePanel";
-import { ArtifactPanel } from "./ArtifactPanel";
-import { SpecTouchedPanel } from "./SpecTouchedPanel";
-import { ParticipantsPanel } from "./ParticipantsPanel";
-import { GitRow } from "./GitRow";
 import {
-  useTopic, useTopicMessages, useTopicParticipants,
-  useArtifactsByTopic, useProjectGitStatus,
-} from "../api/queries";
-import type { SpecChangeMeta } from "../api/types";
+  useDiscussionItems,
+  DecisionsPanel,
+  ConstraintsPanel,
+  OpenQuestionsPanel,
+  OptionsPanel,
+  ReferencesPanel,
+  BlindSpotsPanel,
+  CritiquesPanel,
+  ExtensionsPanel,
+} from "./DiscussionPanes";
+import { useTopicMessages } from "../api/queries";
 
 interface Props {
   topicId: number;
   projectId: number | null;
 }
 
-export function TopicContext({ topicId, projectId }: Props) {
-  const topic = useTopic(topicId);
+export function TopicContext({ topicId }: Props) {
   const messages = useTopicMessages(topicId);
-  const participants = useTopicParticipants(topicId);
-  const artifacts = useArtifactsByTopic(topicId);
-  const gitStatus = useProjectGitStatus(projectId);
-
-  // Derive "spec touched" from spec_change messages in this topic.
-  const specItems = useMemo(() => {
-    const msgs = messages.data?.messages ?? [];
-    const byPath = new Map<
-      string,
-      { path: string; latestMessageId: number; meta: SpecChangeMeta }
-    >();
-    for (const m of msgs) {
-      if (m.type !== "spec_change") continue;
-      const meta = m.metadata as unknown as SpecChangeMeta;
-      if (!meta?.file) continue;
-      const prev = byPath.get(meta.file);
-      if (!prev || m.id > prev.latestMessageId) {
-        byPath.set(meta.file, { path: meta.file, latestMessageId: m.id, meta });
-      }
-    }
-    return [...byPath.values()].map((row) => ({
-      path: row.path,
-      version: row.meta.after !== undefined ? "pending" : "applied",
-      pending: row.meta.after !== undefined,
-    }));
-  }, [messages.data]);
-
-  const participantsList = useMemo(() => {
-    const p = participants.data;
-    if (!p) return [];
-    type Kind = "human" | "claude" | "codex" | "system";
-    const out: Array<{ kind: Kind; initial: string; name: string }> = [];
-    for (const h of p.humans) {
-      out.push({ kind: "human", initial: h.name.slice(0, 1).toUpperCase(), name: h.name });
-    }
-    for (const a of p.agents) {
-      const kind: Kind =
-        a.role === "claude" ? "claude" : a.role === "codex" ? "codex" : "system";
-      out.push({
-        kind,
-        initial: a.role === "codex" ? "CX" : "CC",
-        name: `${a.role} · ${a.device_label}`,
-      });
-    }
-    return out;
-  }, [participants.data]);
-
-  const artifactsList = artifacts.data ?? [];
+  const items = useDiscussionItems(topicId);
 
   return (
     <ContextPane>
-      <ContextBlock label="当前 Topic">
-        {topic.data ? (
-          <TopicInfoCard
-            topicSlug={topic.data.slug}
-            title={topic.data.title}
-            description={`project_id=${topic.data.project_id ?? "—"}`}
-            chips={[`#${topic.data.id}`, "live"]}
-          />
-        ) : (
-          <div className="text-text-dim text-sm">…</div>
-        )}
-      </ContextBlock>
-
-      <ContextBlock label="目标">
+      <ContextBlock label="正在讨论">
         <GoalAutoPanel topicId={topicId} />
       </ContextBlock>
 
-      <ContextBlock label="方案探索">
-        <TaskTreePanel topicId={topicId} />
-      </ContextBlock>
-
-      <ContextBlock label="活动">
-        <ActivityTimelinePanel topicId={topicId} />
+      <ContextBlock
+        label="共识"
+        right={items.decisions.length > 0 ? `${items.decisions.length}` : undefined}
+        hint="这次讨论里达成的结论"
+      >
+        <DecisionsPanel items={items.decisions} />
       </ContextBlock>
 
       <ContextBlock
-        label="交付物"
-        right={artifactsList.length > 0 ? `${artifactsList.length} 个` : undefined}
+        label="候选方案"
+        right={items.options.length > 0 ? `${items.options.length}` : undefined}
+        hint="正在比较的几条路线 — 每张卡片带 ✓✗"
       >
-        {artifactsList.length === 0 ? (
-          <div className="text-text-dim text-sm italic">尚无交付物</div>
-        ) : (
-          <ArtifactPanel artifacts={artifactsList} />
-        )}
-      </ContextBlock>
-
-      <ContextBlock label="本 Topic 涉及 Spec">
-        {specItems.length === 0 ? (
-          <div className="text-text-dim text-sm italic">no spec_change posted</div>
-        ) : (
-          <SpecTouchedPanel items={specItems} />
-        )}
+        <OptionsPanel items={items.options} />
       </ContextBlock>
 
       <ContextBlock
-        label="Participants"
-        right={participantsList.length > 0 ? `${participantsList.length}` : undefined}
+        label="待回答"
+        right={items.openQuestions.length > 0 ? `${items.openQuestions.length}` : undefined}
+        hint="还没想清楚的问题，挂在这里别忘了"
       >
-        {participantsList.length === 0 ? (
-          <div className="text-text-dim text-sm italic">no participants yet</div>
-        ) : (
-          <ParticipantsPanel participants={participantsList} />
-        )}
+        <OpenQuestionsPanel
+          items={items.openQuestions}
+          topicId={topicId}
+          dismissedCount={items.dismissedCount}
+        />
       </ContextBlock>
 
-      <ContextBlock label="Git">
-        {gitStatus.data ? (
-          <GitRow
-            subject={gitStatus.data.head.subject}
-            shortSha={gitStatus.data.head.short_sha}
-            author={gitStatus.data.head.author}
-            dirtyCount={gitStatus.data.dirty.length}
-          />
-        ) : (
-          <div className="text-text-dim text-sm italic">
-            {projectId === null ? "no project" : "no repo_path configured"}
-          </div>
-        )}
+      <ContextBlock
+        label="你没想到的"
+        right={items.blindSpots.length > 0 ? `${items.blindSpots.length}` : undefined}
+        hint="agent 帮你查漏 — 设计里还没考虑到的角度"
+      >
+        <BlindSpotsPanel items={items.blindSpots} />
+      </ContextBlock>
+
+      <ContextBlock
+        label="反方观点"
+        right={items.critiques.length > 0 ? `${items.critiques.length}` : undefined}
+        hint="agent 唱反调 — 这个方向哪里站不住"
+      >
+        <CritiquesPanel items={items.critiques} />
+      </ContextBlock>
+
+      <ContextBlock
+        label="延展想法"
+        right={items.extensions.length > 0 ? `${items.extensions.length}` : undefined}
+        hint="agent 的 yes-and — 顺着这个方向还可以怎么走"
+      >
+        <ExtensionsPanel items={items.extensions} />
+      </ContextBlock>
+
+      <ContextBlock
+        label="约束"
+        right={items.constraints.length > 0 ? `${items.constraints.length}` : undefined}
+        hint="不能动的条件 — 技术栈 / 截止日期 / 合规要求"
+      >
+        <ConstraintsPanel items={items.constraints} />
+      </ContextBlock>
+
+      <ContextBlock label="图与资料" hint="聊天里出现的 mermaid 图和链接自动收集到这里">
+        <ReferencesPanel messages={messages.data?.messages ?? []} topicId={topicId} />
       </ContextBlock>
     </ContextPane>
   );

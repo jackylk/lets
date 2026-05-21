@@ -9,7 +9,7 @@ export function DecisionMessage({ message, actor }: { message: MessageDTO; actor
   const decision = meta.decision_type ?? "adopt";
   return (
     <BaseMessage
-      actor={actor}
+      msgId={message.id} actor={actor}
       timeIso={message.created_at}
       tag={`decision · ${decision}`}
       tone="decision"

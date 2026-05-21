@@ -13,6 +13,8 @@ import { ProactiveFindingMessage } from "./ProactiveFindingMessage";
 import { TaskTreeProposalMessage } from "./TaskTreeProposalMessage";
 import { GoalProposalMessage } from "./GoalProposalMessage";
 import { SystemMessage } from "./SystemMessage";
+import { CollapsedAgentMessage } from "./CollapsedAgentMessage";
+import { useStream } from "./StreamContext";
 
 export interface ActorResolver {
   resolve(message: MessageDTO): {
@@ -29,6 +31,19 @@ interface Props {
 
 export function Message({ message, resolveActor }: Props) {
   const actor = resolveActor(message);
+  const { viewMode, isExpanded } = useStream();
+
+  // "AI 折叠" view: agent chat messages become a one-line summary unless
+  // the user has manually expanded that specific one.
+  const isAgentChat =
+    message.type === "chat" &&
+    (actor.kind === "claude" || actor.kind === "codex");
+  if (isAgentChat && viewMode === "collapsed" && !isExpanded(message.id)) {
+    return <CollapsedAgentMessage message={message} actor={actor} />;
+  }
+  // "只看人类" view: agent chats are hidden by Stream (with a count marker),
+  // but if we receive one here it means the user expanded it from the marker.
+
   switch (message.type) {
     case "chat":               return <ChatMessage message={message} actor={actor} />;
     case "status":             return <StatusMessage message={message} actor={actor} />;

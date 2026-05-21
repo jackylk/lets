@@ -21,10 +21,12 @@ export function makeActorResolver(dir: Directory) {
       return { kind: "human" as const, initial: name[0]?.toUpperCase() ?? "?", displayName: name };
     }
     const a = dir.agentInstances.find((x) => x.id === m.actor_id);
-    const role = (a?.role ?? "agent") as "claude" | "codex";
-    const kind = role === "claude" ? ("claude" as const) : ("codex" as const);
-    const initial = role === "claude" ? "CC" : role === "codex" ? "CX" : "??";
-    const display = a ? `${a.role} · ${a.device_label}` : `${role}#${m.actor_id}`;
+    const role = a?.role;
+    const kind = role === "codex" ? ("codex" as const) : ("claude" as const);
+    const initial = role === "codex" ? "CX" : "CC";
+    const display = a
+      ? role === "codex" ? "Codex" : role === "claude" ? "CC" : `${role} · ${a.device_label}`
+      : `agent#${m.actor_id}`;
     return { kind, initial, displayName: display };
   };
 }

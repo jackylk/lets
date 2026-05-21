@@ -20,7 +20,6 @@ interface Step {
  * required — purely a projection over messages + artifacts.
  *
  * Rules:
- *   - chat from human  → "Brief received"          (done)
  *   - status (active)  → "<actor> 工作中: <body>"   (doing) — supersedes earlier doing
  *   - artifact_revision → "<actor> 交付 vN"         (done)
  *   - review            → "<actor> 评审"            (done)
@@ -52,15 +51,7 @@ export function ActivityTimelinePanel({ topicId }: Props) {
     for (const m of msgs) {
       const actor = m.actor_type === "agent" ? "agent" : "human";
       const _ = actorLabel; void _;
-      if (m.type === "chat" && m.actor_type === "human") {
-        out.push({
-          id: `m-${m.id}`,
-          label: "收到任务",
-          detail: m.body.slice(0, 80),
-          status: "done",
-          actor,
-        });
-      } else if (m.type === "status") {
+      if (m.type === "status") {
         currentlyWorking = m.body.slice(0, 80);
         out.push({
           id: `m-${m.id}`,
@@ -139,7 +130,7 @@ export function ActivityTimelinePanel({ topicId }: Props) {
   const artifactCount = artifacts.data?.length ?? 0;
 
   return (
-    <div className="border border-border-soft rounded-lg bg-surface-elev p-3 flex flex-col gap-2">
+    <div className="border border-border-soft rounded bg-surface-elev p-3 flex flex-col gap-2 shadow-sm">
       <div className="flex items-baseline justify-between">
         <span className="font-semibold text-[13px]">
           活动时间线
@@ -153,14 +144,13 @@ export function ActivityTimelinePanel({ topicId }: Props) {
           <li key={s.id} className="flex items-start gap-2 text-[12.5px]">
             <span
               className={cn(
-                "inline-block w-3.5 h-3.5 rounded-full mt-px shrink-0 grid place-items-center text-[8px] font-bold",
-                s.status === "done" && "bg-finding text-bg",
-                s.status === "doing" && "bg-status-work text-bg animate-pulse",
-                s.status === "queued" && "border border-border bg-bg text-text-dim",
+                "inline-block w-3.5 h-3.5 rounded-full mt-px shrink-0 border",
+                s.status === "done" && "border-finding bg-finding",
+                s.status === "doing" && "border-status-work bg-status-work animate-pulse",
+                s.status === "queued" && "border-border bg-bg",
               )}
-            >
-              {s.status === "done" ? "✓" : s.status === "doing" ? "•" : "?"}
-            </span>
+              aria-label={s.status}
+            />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
                 <span className="font-medium truncate">{s.label}</span>

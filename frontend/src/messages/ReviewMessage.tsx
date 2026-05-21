@@ -8,7 +8,7 @@ export function ReviewMessage({ message, actor }: { message: MessageDTO; actor: 
   const refId = (message.metadata as { ref_message_id?: number }).ref_message_id;
   return (
     <BaseMessage
-      actor={actor}
+      msgId={message.id} actor={actor}
       timeIso={message.created_at}
       tag="review"
       tone="review"

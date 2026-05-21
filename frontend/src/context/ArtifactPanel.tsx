@@ -21,11 +21,11 @@ export function ArtifactPanel({ artifacts }: Props) {
             type="button"
             onClick={() => setOpen(a)}
             aria-label={`open ${a.slug}`}
-            className="text-left border border-border-soft rounded-lg bg-surface-elev p-3 flex flex-col gap-2 hover:bg-surface-hover hover:border-border transition-colors cursor-pointer"
+            className="text-left border border-border-soft rounded bg-surface-elev p-3 flex flex-col gap-2 hover:border-border hover:shadow-[inset_2px_0_0_var(--color-accent)] transition-colors cursor-pointer shadow-sm"
           >
             <div className="flex items-center gap-2 text-[13px]">
               <span className="font-mono truncate flex-1">{a.slug}</span>
-              <span className="bg-artifact text-bg px-1.5 py-px rounded text-[10px] font-mono">
+              <span className="bg-artifact text-bg px-1.5 py-px rounded-[3px] text-[10px] font-mono">
                 {currentLabel}
               </span>
             </div>
@@ -39,8 +39,8 @@ export function ArtifactPanel({ artifacts }: Props) {
                     key={v.id}
                     className={
                       v.version_label === currentLabel
-                        ? "px-1.5 py-px rounded font-mono bg-artifact text-bg"
-                        : "px-1.5 py-px rounded font-mono bg-surface text-text-muted"
+                        ? "px-1.5 py-px rounded-[3px] font-mono bg-artifact text-bg"
+                        : "px-1.5 py-px rounded-[3px] font-mono bg-surface text-text-muted border border-border-soft"
                     }
                     title={v.summary ?? undefined}
                   >
@@ -48,7 +48,7 @@ export function ArtifactPanel({ artifacts }: Props) {
                   </span>
                 ))
               )}
-              <span className="ml-auto text-text-dim">点击查看 →</span>
+              <span className="ml-auto text-text-dim">点击查看</span>
             </div>
           </button>
         );

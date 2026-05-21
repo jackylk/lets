@@ -28,7 +28,7 @@ export function TaskTreeProposalMessage({
 
   return (
     <BaseMessage
-      actor={actor}
+      msgId={message.id} actor={actor}
       timeIso={message.created_at}
       tag="task_tree"
       tone="tree"
@@ -71,7 +71,7 @@ export function TaskTreeProposalMessage({
             <div className="flex-1" />
             {adopted ? (
               <span className="text-[12px] text-status-on font-medium">
-                Adopted ✓
+                Adopted
               </span>
             ) : (
               <button

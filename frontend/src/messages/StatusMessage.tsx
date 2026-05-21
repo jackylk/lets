@@ -6,7 +6,7 @@ interface Actor { kind: "human" | "claude" | "codex" | "system"; initial: string
 export function StatusMessage({ message, actor }: { message: MessageDTO; actor: Actor }) {
   return (
     <BaseMessage
-      actor={actor}
+      msgId={message.id} actor={actor}
       timeIso={message.created_at}
       tag="status"
       tone="status"

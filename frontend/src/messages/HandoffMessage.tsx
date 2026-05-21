@@ -8,9 +8,9 @@ export function HandoffMessage({ message, actor }: { message: MessageDTO; actor:
   const meta = message.metadata as { from_actor_id?: number; to_actor_id?: number };
   return (
     <BaseMessage
-      actor={actor}
+      msgId={message.id} actor={actor}
       timeIso={message.created_at}
-      tag={`handoff · #${meta.from_actor_id ?? "?"} → #${meta.to_actor_id ?? "?"}`}
+      tag={`handoff · #${meta.from_actor_id ?? "?"} to #${meta.to_actor_id ?? "?"}`}
       tone="handoff"
       body={<MentionText>{message.body}</MentionText>}
     />
