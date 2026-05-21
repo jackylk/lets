@@ -104,6 +104,6 @@ def test_workspace_invites_token_unique(temp_db):
                 "VALUES (?, ?, ?)",
                 (ws_id, "tok1", human_id),
             )
-            assert False
+            assert False, "expected unique violation"
         except sqlite3.IntegrityError:
             pass
