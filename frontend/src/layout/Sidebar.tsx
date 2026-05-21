@@ -1,172 +1,36 @@
 import { useState } from "react";
-import { useAllAgents } from "../api/queries";
-import type { TopicDTO } from "../api/types";
+import { WorkspaceSwitcher } from "../workspace/WorkspaceSwitcher";
+import { WorkspaceSection } from "../workspace/WorkspaceSection";
+import { CreateWorkspaceInline } from "../workspace/CreateWorkspaceInline";
+import { MembersList } from "../workspace/MembersList";
 import { cn } from "../lib/cn";
+import type { TopicDTO, Workspace, WorkspaceMember } from "../api/types";
 
-interface SidebarProps {
+interface Props {
+  activeWorkspace: Workspace | undefined;
+  workspaces: Workspace[];
   topics: TopicDTO[];
+  members: WorkspaceMember[];
   activeTopicId: number | null;
-  onSelectTopic?: (id: number) => void;
+  onSelectTopic: (id: number) => void;
+  onCreateTopic: (t: { slug: string; title: string }) => void;
+  onSwitchWorkspace: (id: number) => void;
+  onCreateWorkspace: (name: string) => void;
+  onInviteMember: () => void;
   onClickSettings?: () => void;
-  onCreateTopic?: (input: { slug: string; title: string }) => void | Promise<void>;
 }
 
-export function Sidebar({
-  topics,
-  activeTopicId,
-  onSelectTopic,
-  onClickSettings,
-  onCreateTopic,
-}: SidebarProps) {
-  const agents = useAllAgents();
-  const agentList = agents.data ?? [];
-  const onlineCount = agentList.filter((a) => a.is_online).length;
-
-  return (
-    <div className="flex flex-col h-full">
-      <div className="px-5 pt-5 pb-5 border-b border-border-soft">
-        <div className="font-[var(--font-display)] font-semibold text-[34px] leading-none tracking-tight text-text">
-          Let's
-        </div>
-        <div className="text-text-dim text-[11.5px] italic mt-2 leading-snug">
-          a board for humans + agents
-        </div>
-      </div>
-
-      <Section
-        label="话题"
-        count={topics.length}
-        action={
-          <button
-            type="button"
-            aria-label="新建话题"
-            title="新建话题"
-            onClick={(e) => {
-              e.stopPropagation();
-              void onCreateTopic?.({
-                slug: `topic-${Date.now().toString(36)}`,
-                title: "新对话",
-              });
-            }}
-            className="w-5 h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text text-[14px] leading-none"
-          >
-            +
-          </button>
-        }
-      >
-        {topics.length === 0 ? (
-          <div className="px-3 py-1 text-[11px] text-text-dim italic">
-            还没有话题
-          </div>
-        ) : (
-          topics.map((t) => (
-            <ChannelRow
-              key={t.id}
-              tag={t.slug.slice(0, 6).toUpperCase()}
-              title={t.title}
-              active={activeTopicId === t.id}
-              onClick={() => onSelectTopic?.(t.id)}
-            />
-          ))
-        )}
-      </Section>
-
-      <Section
-        label="Agent"
-        count={agentList.length}
-        rightCount={`${onlineCount} 在线`}
-        hint="所有 agent_instance。绿点=近 5 分钟有 token 调用过 Let's；灰点=离线"
-      >
-        {agentList.length === 0 ? (
-          <div className="px-3 py-1 text-[11px] text-text-dim italic leading-relaxed">
-            还没有 agent。在主区按提示运行那条 <span className="font-mono">curl … /install</span> 命令把这台电脑接上来。
-          </div>
-        ) : (
-          agentList.map((a) => (
-            <AgentRow
-              key={a.agent_instance_id}
-              role={a.role}
-              deviceLabel={a.device_label}
-              humanName={a.human_name}
-              isOnline={!!a.is_online}
-              lastSeenAt={a.last_seen_at}
-            />
-          ))
-        )}
-      </Section>
-
-      <div className="flex-1 min-h-3" />
-
-      <div className="border-t border-border-soft px-4 py-3 flex flex-col gap-0.5">
-        <FooterLink onClick={onClickSettings}>设置</FooterLink>
-      </div>
-    </div>
-  );
+interface TopicRowProps {
+  topic: TopicDTO;
+  active: boolean;
+  onSelect: () => void;
 }
 
-function Section({
-  label,
-  count,
-  rightCount,
-  hint,
-  action,
-  children,
-  defaultOpen = true,
-}: {
-  label: string;
-  count: number;
-  rightCount?: string;
-  hint?: string;
-  action?: React.ReactNode;
-  children?: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="p-3 pt-1">
-      <div className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-[11px] font-semibold text-text-dim">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          title={hint}
-          className="flex items-center gap-2 flex-1 text-left hover:text-text"
-        >
-          <span
-            className="text-[9px] text-text-dim transition-transform"
-            style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
-          >
-            ›
-          </span>
-          <span>{label}</span>
-          <span className="font-mono font-medium">{count}</span>
-          {rightCount && (
-            <span className="font-mono font-normal text-[10px] text-text-dim ml-1">
-              · {rightCount}
-            </span>
-          )}
-        </button>
-        {action}
-      </div>
-      {open && children && <div className="mt-1 flex flex-col gap-0.5">{children}</div>}
-    </div>
-  );
-}
-
-function ChannelRow({
-  tag,
-  title,
-  active,
-  onClick,
-}: {
-  tag: string;
-  title: string;
-  active?: boolean;
-  onClick?: () => void;
-}) {
+function TopicRow({ topic, active, onSelect }: TopicRowProps) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={onSelect}
       className={cn(
         "w-full flex items-center gap-2 px-3 py-1 rounded text-[12.5px] text-left",
         active
@@ -174,48 +38,119 @@ function ChannelRow({
           : "text-text-muted hover:text-text hover:shadow-[inset_2px_0_0_var(--color-accent)]",
       )}
     >
-      <span className="font-mono text-[11px] text-text-dim w-12 flex-shrink-0">{tag}</span>
-      <span className="truncate">{title}</span>
+      <span className="font-mono text-[11px] text-text-dim w-12 flex-shrink-0">
+        {topic.slug.slice(0, 6).toUpperCase()}
+      </span>
+      <span className="truncate">{topic.title}</span>
     </button>
   );
 }
 
-function AgentRow({
-  role,
-  deviceLabel,
-  humanName,
-  isOnline,
-  lastSeenAt,
-}: {
-  role: string;
-  deviceLabel: string;
-  humanName: string;
-  isOnline: boolean;
-  lastSeenAt: string | null;
-}) {
-  const tag = role === "claude" ? "CC" : role === "codex" ? "CX" : role.slice(0, 2).toUpperCase();
+export function Sidebar({
+  activeWorkspace,
+  workspaces,
+  topics,
+  members,
+  activeTopicId,
+  onSelectTopic,
+  onCreateTopic,
+  onSwitchWorkspace,
+  onCreateWorkspace,
+  onInviteMember,
+  onClickSettings,
+}: Props) {
+  const [creating, setCreating] = useState(false);
+
+  const otherWorkspaces = workspaces.filter(
+    (w) => w.id !== activeWorkspace?.id,
+  );
+
   return (
-    <div
-      className="w-full flex items-center gap-2 px-3 py-1 rounded text-[12px] text-text-muted"
-      title={
-        isOnline
-          ? `${humanName} · ${role} · ${deviceLabel} · 在线`
-          : lastSeenAt
-            ? `${humanName} · ${role} · ${deviceLabel} · 上次活跃 ${lastSeenAt}`
-            : `${humanName} · ${role} · ${deviceLabel} · 从未连过`
-      }
-    >
-      <span
-        aria-label={isOnline ? "在线" : "离线"}
-        className={cn(
-          "inline-block w-2 h-2 rounded-full shrink-0",
-          isOnline ? "bg-status-on" : "bg-text-dim/40",
-        )}
+    <div className="flex flex-col h-full">
+      {/* Workspace switcher header */}
+      <WorkspaceSwitcher
+        workspaces={workspaces}
+        activeId={activeWorkspace?.id ?? -1}
+        onSelect={onSwitchWorkspace}
+        onCreate={() => setCreating(true)}
       />
-      <span className="font-mono text-[11px] text-text-dim w-12 flex-shrink-0">{tag}</span>
-      <span className={cn("truncate", !isOnline && "opacity-60")}>
-        {role} · {deviceLabel}
-      </span>
+
+      {/* Inline create-workspace form */}
+      {creating && (
+        <CreateWorkspaceInline
+          onSubmit={(name) => {
+            onCreateWorkspace(name);
+            setCreating(false);
+          }}
+          onCancel={() => setCreating(false)}
+        />
+      )}
+
+      {/* Active workspace topics */}
+      <div className="p-3 pt-1 border-b border-border-soft">
+        <div className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-[11px] font-semibold text-text-dim">
+          <span className="flex-1">话题</span>
+          <span className="font-mono font-medium">{topics.length}</span>
+          <button
+            type="button"
+            aria-label="新建话题"
+            title="新建话题"
+            onClick={() =>
+              onCreateTopic({
+                slug: `topic-${Date.now().toString(36)}`,
+                title: "新话题",
+              })
+            }
+            className="w-5 h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text text-[14px] leading-none"
+          >
+            +
+          </button>
+        </div>
+        <div className="mt-1 flex flex-col gap-0.5">
+          {topics.length === 0 ? (
+            <div className="px-3 py-1 text-[11px] text-text-dim italic">
+              还没有话题
+            </div>
+          ) : (
+            topics.map((t) => (
+              <TopicRow
+                key={t.id}
+                topic={t}
+                active={activeTopicId === t.id}
+                onSelect={() => onSelectTopic(t.id)}
+              />
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Other workspaces — collapsed sections */}
+      {otherWorkspaces.length > 0 && (
+        <div className="border-b border-border-soft py-1">
+          {otherWorkspaces.map((w) => (
+            <WorkspaceSection
+              key={w.id}
+              workspace={w}
+              onSelectTopic={(wsId, topicId) => {
+                onSwitchWorkspace(wsId);
+                onSelectTopic(topicId);
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="flex-1 min-h-3" />
+
+      {/* Members list */}
+      <MembersList members={members} onInvite={onInviteMember} />
+
+      {/* Footer */}
+      {onClickSettings && (
+        <div className="border-t border-border-soft px-4 py-3 flex flex-col gap-0.5">
+          <FooterLink onClick={onClickSettings}>设置</FooterLink>
+        </div>
+      )}
     </div>
   );
 }
