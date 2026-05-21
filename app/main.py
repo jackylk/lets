@@ -1818,48 +1818,23 @@ def revoke_invite(
     return {"ok": True}
 
 
-@app.get("/join/{token}")
+@app.get("/join/{token}", response_model=None)
 def join_by_token(
     token: str,
     lets_session: str | None = Cookie(default=None, alias="lets_session"),
-) -> RedirectResponse:
+) -> RedirectResponse | FileResponse:
+    """Magic-link landing.
+
+    Unauthenticated → bounce to /login with the join URL as redirect.
+    Authenticated → serve the SPA so `JoinTokenPage` runs the accept call
+    client-side. The accept itself happens via `POST /api/invites/:token/accept`.
+    """
     from .auth import verify_session
     if not lets_session or verify_session(lets_session) is None:
         return RedirectResponse(
             url=f"/login?redirect=/join/{token}", status_code=303
         )
-    principal = verify_session(lets_session)
-    human_id = int(principal["human_id"])
-    with connect() as conn:
-        inv = conn.execute(
-            """
-            SELECT id, workspace_id FROM workspace_invites
-            WHERE token = ?
-              AND revoked_at IS NULL
-              AND (expires_at IS NULL OR expires_at > NOW())
-              AND (max_uses IS NULL OR used_count < max_uses)
-            """,
-            (token,),
-        ).fetchone()
-        if inv is None:
-            return RedirectResponse(url="/?error=invite_invalid", status_code=303)
-        already = conn.execute(
-            "SELECT 1 FROM workspace_members WHERE workspace_id = ? AND human_id = ?",
-            (inv["workspace_id"], human_id),
-        ).fetchone()
-        if already is None:
-            conn.execute(
-                "INSERT INTO workspace_members (workspace_id, human_id, role) "
-                "VALUES (?, ?, 'member') RETURNING workspace_id",
-                (inv["workspace_id"], human_id),
-            )
-            conn.execute(
-                "UPDATE workspace_invites SET used_count = used_count + 1 WHERE id = ?",
-                (inv["id"],),
-            )
-    return RedirectResponse(
-        url=f"/?workspace={inv['workspace_id']}", status_code=303
-    )
+    return home()  # type: ignore[return-value]
 
 
 @app.post("/api/invites/{token}/accept")

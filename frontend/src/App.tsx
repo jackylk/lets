@@ -23,6 +23,7 @@ import { apiRequest } from "./api/client";
 import { useIdentity } from "./identity/useIdentity";
 import type { TopicDTO, Workspace, WorkspaceInvite } from "./api/types";
 import { InviteDialog } from "./workspace/InviteDialog";
+import { JoinTokenPage } from "./join/JoinTokenPage";
 
 type DesktopView =
   | { kind: "topic"; id: number }
@@ -30,6 +31,15 @@ type DesktopView =
   | { kind: "settings-tokens" };
 
 export default function App() {
+  const path = typeof window !== "undefined" ? window.location.pathname : "/";
+  if (path.startsWith("/join/")) {
+    const token = path.slice("/join/".length);
+    return (
+      <SessionGate fallback={<LoginPage />}>
+        <JoinTokenPage token={token} />
+      </SessionGate>
+    );
+  }
   return (
     <SessionGate fallback={<LoginPage />}>
       <Workspace />

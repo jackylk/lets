@@ -102,13 +102,21 @@ def test_join_token_unauthenticated_redirects_to_login(temp_db, client):
     assert f"/join/{inv['token']}" in r.headers["location"]
 
 
-def test_join_token_authenticated_adds_and_redirects(temp_db, client):
+def test_join_token_authenticated_returns_spa(temp_db, client):
+    """Authenticated /join/:token returns the SPA so JoinTokenPage can run accept client-side."""
     _login(client, "alice")
     ws = client.post("/api/workspaces", json={"name": "A"}).json()
     inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
     client.post("/api/auth/logout")
     _login(client, "bob", "b@b")
     r = client.get(f"/join/{inv['token']}", follow_redirects=False)
-    assert r.status_code in (302, 303, 307)
+    # Either 200 (SPA HTML) or 307 (redirect to /app when frontend/dist exists)
+    assert r.status_code in (200, 307)
+    # The membership add does NOT happen on this GET — it's the SPA's accept call that does it.
+    bobs_ws_before_accept = client.get("/api/workspaces").json()
+    assert ws["id"] not in [w["id"] for w in bobs_ws_before_accept]
+    # Simulate the SPA's accept call
+    r2 = client.post(f"/api/invites/{inv['token']}/accept")
+    assert r2.status_code == 200
     bobs_ws = client.get("/api/workspaces").json()
     assert ws["id"] in [w["id"] for w in bobs_ws]
