@@ -1277,19 +1277,19 @@ def resolve_drift_nudge(
     if payload.resolved_by == "moved_to_topic":
         if not payload.spinoff_title:
             raise HTTPException(status_code=400, detail="spinoff_title required")
-        # Create the new topic in the same project
+        # Create the new topic in the same workspace
         with connect() as conn:
             src_topic = conn.execute(
-                "SELECT project_id FROM topics WHERE id = ?", (nudge_row["topic_id"],)
+                "SELECT workspace_id FROM topics WHERE id = ?", (nudge_row["topic_id"],)
             ).fetchone()
-            project_id = src_topic["project_id"] if src_topic else None
+            workspace_id = src_topic["workspace_id"] if src_topic else None
             # Generate a slug from the title (lower, replace ws with -)
             import re, time
             slug_base = re.sub(r"\s+", "-", payload.spinoff_title.strip().lower())[:60]
             slug = f"{slug_base}-{int(time.time())}"
             cur = conn.execute(
-                "INSERT INTO topics (slug, title, project_id) VALUES (?, ?, ?)",
-                (slug, payload.spinoff_title, project_id),
+                "INSERT INTO topics (slug, title, workspace_id) VALUES (?, ?, ?)",
+                (slug, payload.spinoff_title, workspace_id),
             )
             new_topic_id = int(cur.lastrowid)
         # Post a system message summarizing the spinoff
@@ -1412,6 +1412,8 @@ def post_artifact(
 ) -> dict:
     from .artifacts.registry import get_adapter
     from .artifacts.models import create_artifact_row, record_version, get_artifact_by_id
+
+    _require_topic_member(payload.topic_id, int(principal["human_id"]))
 
     if payload.backend != "git":
         raise HTTPException(status_code=400, detail="only 'git' backend supported in v1.5b")
