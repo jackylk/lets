@@ -18,8 +18,8 @@ describe("<Sidebar />", () => {
     expect(screen.getByRole("button", { name: /Agent/ })).toBeInTheDocument();
   });
 
-  it("renders the attention entry button", () => {
+  it("no longer renders the 待处理 entry (removed from sidebar)", () => {
     renderWithProviders(<Sidebar topics={[]} activeTopicId={null} />);
-    expect(screen.getByRole("button", { name: /待处理|attention/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /待处理/ })).toBeNull();
   });
 });

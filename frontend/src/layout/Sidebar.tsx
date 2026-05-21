@@ -6,8 +6,6 @@ import { cn } from "../lib/cn";
 interface SidebarProps {
   topics: TopicDTO[];
   activeTopicId: number | null;
-  attentionCount?: number;
-  onClickAttention?: () => void;
   onSelectTopic?: (id: number) => void;
   onClickSettings?: () => void;
   onCreateTopic?: (input: { slug: string; title: string }) => void | Promise<void>;
@@ -16,8 +14,6 @@ interface SidebarProps {
 export function Sidebar({
   topics,
   activeTopicId,
-  attentionCount = 0,
-  onClickAttention,
   onSelectTopic,
   onClickSettings,
   onCreateTopic,
@@ -35,21 +31,6 @@ export function Sidebar({
         <div className="text-text-dim text-[11.5px] italic mt-2 leading-snug">
           a board for humans + agents
         </div>
-      </div>
-
-      <div className="p-3">
-        <button
-          className="w-full flex items-center justify-between px-3 py-2 rounded text-xs font-semibold text-text-dim hover:text-text hover:shadow-[inset_2px_0_0_var(--color-accent)]"
-          type="button"
-          onClick={onClickAttention}
-        >
-          <span>待处理</span>
-          {attentionCount > 0 && (
-            <span className="bg-accent-soft text-accent-text border border-accent-border px-2 py-px rounded-[3px] text-[10px] font-mono">
-              {attentionCount}
-            </span>
-          )}
-        </button>
       </div>
 
       <Section

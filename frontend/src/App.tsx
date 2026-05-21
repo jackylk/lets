@@ -114,14 +114,6 @@ function Workspace() {
     <Sidebar
       topics={topics.data ?? []}
       activeTopicId={view.kind === "topic" ? view.id : null}
-      attentionCount={
-        attention.data
-          ? attention.data.needs_decision.length +
-            attention.data.mentioned_questions.length +
-            attention.data.suggestions.length
-          : 0
-      }
-      onClickAttention={() => setView({ kind: "attention" })}
       onSelectTopic={(id) => setView({ kind: "topic", id })}
       onClickSettings={() => setView({ kind: "settings-tokens" })}
       onCreateTopic={
