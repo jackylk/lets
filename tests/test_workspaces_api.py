@@ -32,7 +32,8 @@ def test_get_workspaces_lists_only_mine(temp_db, client):
     client.post("/api/workspaces", json={"name": "Bob WS"})
     r = client.get("/api/workspaces")
     names = [w["name"] for w in r.json()]
-    assert names == ["Bob WS"]
+    assert "Bob WS" in names
+    assert "Auth" not in names  # Alice's workspace, not visible to Bob
 
 
 def test_patch_workspace_rename_owner_only(temp_db, client):
@@ -69,7 +70,13 @@ def test_delete_workspace_soft_delete(temp_db, client):
 
 def test_delete_last_workspace_refused(temp_db, client):
     _login(client, "alice")
+    # alice now has "我的工作区" auto-created; add "Only" so she has two
     r = client.post("/api/workspaces", json={"name": "Only"})
     ws_id = r.json()["id"]
+    # Delete the auto-created workspace first, leaving "Only" as the last one
+    all_ws = client.get("/api/workspaces").json()
+    auto_ws = next(w for w in all_ws if w["name"] == "我的工作区")
+    client.delete(f"/api/workspaces/{auto_ws['id']}")
+    # Now deleting the last remaining workspace should be refused
     r2 = client.delete(f"/api/workspaces/{ws_id}")
     assert r2.status_code == 400

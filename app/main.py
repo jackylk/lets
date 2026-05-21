@@ -264,6 +264,24 @@ class TopicUpdate(BaseModel):
     title: str | None = None
 
 
+def _ensure_onboarded(human_id: int) -> None:
+    """Create '我的工作区' + '主频道' on first login if absent. Idempotent."""
+    import secrets as _secrets
+    from .workspaces import list_workspaces_for_human, create_workspace
+    if list_workspaces_for_human(human_id):
+        return
+    ws = create_workspace(name="我的工作区", owner_human_id=human_id)
+    slug = f"general-{_secrets.token_hex(4)}"
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO topics (slug, title, workspace_id, mode)
+            VALUES (?, ?, ?, 'exploratory')
+            """,
+            (slug, "主频道", ws["id"]),
+        )
+
+
 def ensure_agent(name: str, agent_type: str) -> int:
     with connect() as conn:
         row = conn.execute("SELECT id FROM agents WHERE name = ?", (name,)).fetchone()
@@ -2471,6 +2489,7 @@ async def auth_github_callback(code: str, state: str) -> RedirectResponse:
 
     from .auth import issue_session
 
+    _ensure_onboarded(human_id)
     session_value = issue_session(human_id)
     res = RedirectResponse(url=next_url, status_code=307)
     res.set_cookie(
@@ -2573,6 +2592,7 @@ def api_dev_login(payload: DevLoginPayload, response: Response) -> dict:
     from .identity import ensure_human
 
     human_id = ensure_human(payload.name.strip() or "Neo", email=payload.email)
+    _ensure_onboarded(human_id)
     session_value = issue_session(human_id)
     response.set_cookie(
         "lets_session",
