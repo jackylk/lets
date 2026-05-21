@@ -1703,6 +1703,78 @@ def remove_workspace_member(
     return {"ok": True}
 
 
+@app.post("/api/workspaces/{workspace_id}/invites")
+def create_workspace_invite(
+    workspace_id: int,
+    request: Request,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_owner, generate_invite_token
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    token = generate_invite_token()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO workspace_invites (workspace_id, token, created_by_human_id)
+            VALUES (?, ?, ?)
+            RETURNING id, token, created_at
+            """,
+            (workspace_id, token, principal["human_id"]),
+        ).fetchone()
+    base_url = _public_base_url(request)
+    return {
+        "id": int(row["id"]),
+        "token": row["token"],
+        "join_url": f"{base_url}/join/{row['token']}",
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
+
+
+@app.get("/api/workspaces/{workspace_id}/invites")
+def list_workspace_invites(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    from .workspaces import require_workspace_owner
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, token, created_by_human_id, used_count,
+                   expires_at, max_uses, created_at
+            FROM workspace_invites
+            WHERE workspace_id = ?
+              AND revoked_at IS NULL
+              AND (expires_at IS NULL OR expires_at > NOW())
+            ORDER BY created_at DESC
+            """,
+            (workspace_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.delete("/api/invites/{invite_id}")
+def revoke_invite(
+    invite_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_owner
+    with connect() as conn:
+        inv = conn.execute(
+            "SELECT workspace_id FROM workspace_invites WHERE id = ?",
+            (invite_id,),
+        ).fetchone()
+        if inv is None:
+            raise HTTPException(status_code=404, detail="invite not found")
+    require_workspace_owner(int(inv["workspace_id"]), int(principal["human_id"]))
+    with connect() as conn:
+        conn.execute(
+            "UPDATE workspace_invites SET revoked_at = NOW() WHERE id = ?",
+            (invite_id,),
+        )
+    return {"ok": True}
+
+
 @app.get("/api/projects/{project_id}")
 def get_project(
     project_id: int,
