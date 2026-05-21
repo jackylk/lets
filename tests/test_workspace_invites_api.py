@@ -49,3 +49,43 @@ def test_create_invite_owner_only_403(temp_db, client):
     _login(client, "bob", "b@b")
     r = client.post(f"/api/workspaces/{ws['id']}/invites", json={})
     assert r.status_code == 403
+
+
+def test_accept_invite_adds_member(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+    r = client.post(f"/api/invites/{inv['token']}/accept")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["workspace_id"] == ws["id"]
+    bobs = client.get("/api/workspaces").json()
+    assert ws["id"] in [w["id"] for w in bobs]
+
+
+def test_accept_invite_idempotent(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+    client.post(f"/api/invites/{inv['token']}/accept")
+    r = client.post(f"/api/invites/{inv['token']}/accept")
+    assert r.status_code == 200
+    client.post("/api/auth/logout")
+    _login(client, "alice")
+    invs = client.get(f"/api/workspaces/{ws['id']}/invites").json()
+    assert invs[0]["used_count"] == 1
+
+
+def test_accept_invite_revoked_token_404(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+    client.delete(f"/api/invites/{inv['id']}")
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+    r = client.post(f"/api/invites/{inv['token']}/accept")
+    assert r.status_code == 404

@@ -1775,6 +1775,52 @@ def revoke_invite(
     return {"ok": True}
 
 
+@app.post("/api/invites/{token}/accept")
+def accept_invite(
+    token: str,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        inv = conn.execute(
+            """
+            SELECT id, workspace_id, max_uses, used_count, expires_at
+            FROM workspace_invites
+            WHERE token = ?
+              AND revoked_at IS NULL
+              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (max_uses IS NULL OR used_count < max_uses)
+            """,
+            (token,),
+        ).fetchone()
+        if inv is None:
+            raise HTTPException(status_code=404, detail="invite not valid")
+        already = conn.execute(
+            """
+            SELECT 1 FROM workspace_members
+            WHERE workspace_id = ? AND human_id = ?
+            """,
+            (inv["workspace_id"], human_id),
+        ).fetchone()
+        if already is None:
+            conn.execute(
+                """
+                INSERT INTO workspace_members (workspace_id, human_id, role)
+                VALUES (?, ?, 'member') RETURNING workspace_id
+                """,
+                (inv["workspace_id"], human_id),
+            )
+            conn.execute(
+                """
+                UPDATE workspace_invites
+                SET used_count = used_count + 1
+                WHERE id = ?
+                """,
+                (inv["id"],),
+            )
+    return {"workspace_id": int(inv["workspace_id"])}
+
+
 @app.get("/api/projects/{project_id}")
 def get_project(
     project_id: int,
