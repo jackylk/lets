@@ -1644,6 +1644,65 @@ def delete_workspace(
     return {"ok": True}
 
 
+@app.get("/api/workspaces/{workspace_id}/members")
+def list_workspace_members(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    from .workspaces import require_workspace_member
+    require_workspace_member(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        human_rows = conn.execute(
+            """
+            SELECT h.id, h.name, h.email, h.avatar_url, wm.role, wm.joined_at
+            FROM workspace_members wm
+            JOIN humans h ON h.id = wm.human_id
+            WHERE wm.workspace_id = ?
+            ORDER BY wm.joined_at ASC
+            """,
+            (workspace_id,),
+        ).fetchall()
+        agent_rows = conn.execute(
+            """
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
+                   ai.human_id AS started_by_human_id, h.name AS started_by_name
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN humans h ON h.id = ai.human_id
+            WHERE ai.workspace_id = ?
+            ORDER BY ai.created_at ASC
+            """,
+            (workspace_id,),
+        ).fetchall()
+    humans = [{**dict(r), "kind": "human"} for r in human_rows]
+    agents = [{**dict(r), "kind": "agent"} for r in agent_rows]
+    return humans + agents
+
+
+@app.delete("/api/workspaces/{workspace_id}/members/{human_id}")
+def remove_workspace_member(
+    workspace_id: int,
+    human_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_owner
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT role FROM workspace_members WHERE workspace_id = ? AND human_id = ?",
+            (workspace_id, human_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="member not found")
+        if row["role"] == "owner":
+            raise HTTPException(status_code=400, detail="cannot remove owner")
+        conn.execute(
+            "DELETE FROM workspace_members WHERE workspace_id = ? AND human_id = ?",
+            (workspace_id, human_id),
+        )
+    return {"ok": True}
+
+
 @app.get("/api/projects/{project_id}")
 def get_project(
     project_id: int,
