@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lets — Mock · 方案讨论场景</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400..700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono@5.1.1/index.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg:               #FAF8F3;
+  --surface:          #F2EEE6;
+  --surface-elev:     #FBF9F4;
+  --surface-hover:    #ECE7DC;
+  --border:           #E0D9CC;
+  --border-soft:      #EDE8DD;
+  --shadow:           0 1px 2px rgba(60,45,30,.05), 0 4px 12px rgba(60,45,30,.04);
+  --text:             #2C2A26;
+  --text-muted:       #5D5950;
+  --text-dim:         #8A8378;
+
+  --accent:           #B4654A;
+  --accent-soft:      #F3E4DA;
+  --accent-text:      #8E3B2E;
+  --accent-border:    #DCB29B;
+
+  --human:            #4A6B7F;
+  --human-bg:         #DEE7EC;
+  --agent:            #B4654A;
+  --agent-bg:         #F3E4DA;
+
+  --decision:         #6B7F4A;
+  --decision-bg:      #ECEFD9;
+  --option:           #7F4A6B;
+  --option-bg:        #ECDEE7;
+  --constraint:       #4A6B7F;
+  --constraint-bg:    #DEE7EC;
+  --question:         #B4654A;
+  --question-bg:      #F3E4DA;
+
+  --annotation:       #C8A24A;
+  --annotation-bg:    #FBF1D3;
+
+  --font-display:     'Newsreader', Georgia, serif;
+  --font-body:        'Source Serif 4', 'Newsreader', 'PingFang SC', Georgia, serif;
+  --font-mono:        'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  font-family:var(--font-body);
+  font-size:14.5px;line-height:1.7;color:var(--text);background:var(--bg);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-optical-sizing:auto;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+
+.app{
+  --sidebar-w: 260px;
+  --context-w: 360px;
+  display:grid;
+  grid-template-columns:var(--sidebar-w) 1fr 6px var(--context-w);
+  height:100vh;
+  background:var(--bg);
+  transition:grid-template-columns .18s ease;
+}
+.app.collapsed{--sidebar-w: 44px}
+
+/* ───────── SIDEBAR ───────── */
+.sidebar{
+  border-right:1px solid var(--border-soft);display:flex;flex-direction:column;padding:0;
+  position:relative;overflow:hidden;min-width:0;
+}
+.sidebar-toggle{
+  position:absolute;top:10px;right:8px;width:24px;height:24px;
+  display:grid;place-items:center;border-radius:4px;color:var(--text-dim);
+  font-size:13px;background:var(--bg);border:1px solid var(--border-soft);z-index:5;
+}
+.sidebar-toggle:hover{background:var(--surface-elev);color:var(--text)}
+.app.collapsed .sidebar > *:not(.sidebar-toggle):not(.collapsed-rail){display:none}
+.collapsed-rail{display:none;flex-direction:column;align-items:center;gap:18px;padding:48px 0 0;color:var(--text-dim);font-family:var(--font-display);font-weight:600}
+.app.collapsed .collapsed-rail{display:flex}
+.app.collapsed .sidebar-toggle{right:10px;left:auto}
+.collapsed-rail .glyph{font-size:18px}
+.collapsed-rail .vertical{writing-mode:vertical-rl;text-orientation:mixed;font-size:13px;letter-spacing:.04em;color:var(--text-muted)}
+
+/* Resize handle between main and context */
+.resizer{
+  background:transparent;cursor:col-resize;position:relative;
+  border-left:1px solid var(--border-soft);border-right:1px solid var(--border-soft);
+  transition:background .15s;
+}
+.resizer::after{
+  content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:2px;height:40px;background:var(--border);border-radius:1px;
+}
+.resizer:hover{background:var(--surface-hover)}
+.resizer:hover::after{background:var(--accent-border)}
+.resizing{user-select:none}
+.resizing .resizer{background:var(--surface-hover)}
+.resizing .resizer::after{background:var(--accent)}
+
+.masthead{padding:24px 22px 22px;border-bottom:1px solid var(--border-soft)}
+.masthead{padding:24px 22px 22px;border-bottom:1px solid var(--border-soft)}
+.masthead .name{font-family:var(--font-display);font-weight:600;font-size:34px;letter-spacing:-0.01em;line-height:1}
+.masthead .tagline{font-style:italic;color:var(--text-dim);font-size:11.5px;margin-top:8px}
+
+.attn{margin:14px 12px 0;padding:10px 12px;border-radius:4px;font-size:11.5px;font-weight:600;color:var(--text-dim);
+  display:flex;justify-content:space-between;align-items:center;text-transform:uppercase;letter-spacing:.08em}
+.attn .num{background:var(--accent-soft);color:var(--accent-text);border:1px solid var(--accent-border);
+  border-radius:3px;padding:1px 8px;font-family:var(--font-mono);font-size:10px}
+
+.section-h{display:flex;align-items:center;padding:14px 16px 4px;font-size:11px;font-weight:600;color:var(--text-dim);
+  text-transform:uppercase;letter-spacing:.08em;gap:8px}
+.section-h .add{margin-left:auto;color:var(--text-dim);font-size:14px;width:18px;height:18px;display:grid;place-items:center;border-radius:3px}
+.section-h .count{font-family:var(--font-mono);font-weight:400;color:var(--text-dim)}
+
+.channel{display:flex;gap:8px;padding:6px 14px;margin:0 8px;border-radius:0;font-size:13.5px;align-items:baseline}
+.channel.active{background:var(--surface-elev);box-shadow:inset 0 0 0 1px var(--border)}
+.channel .tag{font-family:var(--font-mono);font-size:10.5px;color:var(--text-dim);width:54px;flex-shrink:0}
+
+.agent-row{padding:6px 14px;margin:0 8px;display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--text-muted)}
+.agent-row .dot{width:7px;height:7px;border-radius:50%;background:var(--decision);box-shadow:0 0 0 3px color-mix(in oklch,var(--decision) 22%,transparent)}
+.agent-row .tag{font-family:var(--font-mono);font-size:10.5px;color:var(--text-dim);width:36px;flex-shrink:0}
+
+.footer-link{padding:10px 22px;font-size:12.5px;color:var(--text-dim)}
+.spacer{flex:1}
+
+/* ───────── MAIN ───────── */
+.main{display:flex;flex-direction:column;border-right:1px solid var(--border-soft);background:var(--bg);min-width:0}
+.main-header{
+  padding:18px 28px 12px;border-bottom:1px solid var(--border-soft);display:flex;align-items:baseline;gap:12px;
+}
+.main-header h1{font-family:var(--font-display);font-weight:600;font-size:22px;margin:0;letter-spacing:-0.005em}
+.main-header .menu{margin-left:auto;color:var(--text-dim);font-size:18px;padding:0 6px}
+
+.agent-status{
+  padding:6px 28px;font-size:11.5px;color:var(--text-dim);font-style:italic;
+  border-bottom:1px solid var(--border-soft);
+  display:flex;gap:6px;align-items:center;
+}
+.agent-status .pulse{width:6px;height:6px;border-radius:50%;background:var(--decision);
+  box-shadow:0 0 0 3px color-mix(in oklch,var(--decision) 25%,transparent)}
+.agent-status b{color:var(--text-muted);font-weight:600;font-style:normal;font-family:var(--font-mono);font-size:11px}
+
+.stream{flex:1;overflow-y:auto;padding:8px 28px 20px}
+
+/* Message row */
+.msg{display:grid;grid-template-columns:32px 1fr;gap:12px;padding:14px 0}
+.msg .avatar{width:28px;height:28px;border:1px solid var(--accent-border);color:var(--accent-text);
+  display:grid;place-items:center;font-weight:bold;font-family:var(--font-display);font-size:13px;border-radius:3px}
+.msg.human .avatar{border-color:#A3B5C2;color:var(--human)}
+.msg .body .meta{display:flex;align-items:baseline;gap:10px;margin-bottom:2px}
+.msg .body .name{font-weight:600;font-size:14px}
+.msg.human .body .name{color:var(--human)}
+.msg.agent .body .name{color:var(--agent)}
+.msg .body .time{font-family:var(--font-mono);color:var(--text-dim);font-size:11px}
+.msg .body .content{font-size:14.5px;line-height:1.78;color:var(--text)}
+.msg .body .content p{margin:4px 0}
+.msg .body .content ul{margin:6px 0;padding-left:22px}
+
+/* Agent provenance — "based on these msgs" using avatar+snippet chips */
+.provenance{
+  margin:4px 0 8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  font-size:11.5px;color:var(--text-dim);
+}
+.provenance .ic{font-size:11px;margin-right:2px;color:var(--text-dim)}
+.provenance .label{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-dim)}
+.cite-chip{
+  display:inline-flex;align-items:center;gap:5px;padding:2px 8px 2px 3px;
+  border-radius:999px;background:var(--surface);border:1px solid var(--border-soft);
+  font-size:11.5px;color:var(--text-muted);max-width:240px;cursor:pointer;
+  transition:all .15s;
+}
+.cite-chip:hover{background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent-text)}
+.cite-chip .av{
+  width:16px;height:16px;border-radius:3px;border:1px solid var(--border);
+  display:grid;place-items:center;font-family:var(--font-display);font-weight:bold;font-size:9.5px;
+  color:var(--text-muted);background:var(--bg);
+}
+.cite-chip[data-kind=agent] .av{border-color:var(--accent-border);color:var(--accent-text);background:var(--accent-soft)}
+.cite-chip[data-kind=human] .av{border-color:#A3B5C2;color:var(--human);background:var(--human-bg)}
+.cite-chip .snippet{
+  max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* Cited highlight — applied to .msg elements while hovering a provenance / chip */
+.msg.cited{
+  background:linear-gradient(to right, var(--accent-soft) 0, var(--accent-soft) 4px, transparent 4px);
+}
+.msg.cited .body{
+  background:color-mix(in srgb, var(--accent-soft) 50%, transparent);
+  box-shadow:inset 0 0 0 1px var(--accent-border);
+  border-radius:6px;padding:8px 10px;margin:-8px -10px;
+}
+
+/* Read cursor — fade-style: read messages have a warm tint background;
+   unread sit on the unfilled paper. The boundary becomes self-evident
+   without needing to count message numbers. */
+.stream{padding:8px 28px 20px;position:relative}
+
+.msg.read .body .content{
+  /* read messages are on the "agent's already-processed" surface — left
+     gutter stripe in accent gives a continuous "read column" you can scan */
+}
+.msg.read{
+  border-left:2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  padding-left:6px;margin-left:-8px;
+}
+.msg.unread{
+  border-left:2px dashed var(--border);
+  padding-left:6px;margin-left:-8px;
+  background:linear-gradient(to right, color-mix(in srgb, var(--bg) 100%, transparent) 0, var(--bg) 100%);
+}
+.msg.unread .body .meta::after{
+  content:'未读';
+  font-family:var(--font-mono);font-size:9.5px;letter-spacing:.04em;
+  color:var(--accent-text);font-weight:600;font-style:italic;
+  background:var(--accent-soft);border:1px solid var(--accent-border);
+  padding:1px 6px;border-radius:3px;margin-left:6px;
+}
+
+/* Upcoming-read banner: sits between unread messages and composer.
+   Tells the human "CC will pull these in N seconds" + lets them force it. */
+.upcoming-read{
+  margin:6px 0 10px;padding:8px 14px;border-radius:6px;
+  background:linear-gradient(90deg, var(--accent-soft) 0, var(--surface-elev) 70%);
+  border:1px solid var(--accent-border);border-left-width:3px;
+  display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-muted);
+}
+.upcoming-read .ic{font-size:14px}
+.upcoming-read .countdown{
+  font-family:var(--font-mono);font-weight:600;color:var(--accent-text);
+  background:var(--bg);border:1px solid var(--accent-border);padding:1px 7px;border-radius:3px;
+  min-width:24px;display:inline-block;text-align:center;
+  animation:tick 1.2s ease-in-out infinite;
+}
+@keyframes tick{
+  0%,100%{box-shadow:0 0 0 0 var(--accent-soft)}
+  50%   {box-shadow:0 0 0 4px transparent}
+}
+.upcoming-read .now-btn{
+  margin-left:auto;font-size:11.5px;color:var(--text);background:var(--bg);
+  border:1px solid var(--border);padding:4px 12px;border-radius:3px;font-weight:600;
+  cursor:pointer;transition:all .15s;
+}
+.upcoming-read .now-btn:hover{background:var(--text);color:var(--bg);border-color:var(--text)}
+
+.upcoming-read.reading{background:var(--surface-elev);border-color:var(--decision)}
+.upcoming-read.reading .countdown{display:none}
+.upcoming-read.reading .ic{animation:spin 1.5s linear infinite}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
+/* Per-unread relative-time hint */
+.msg.unread .body .meta::before{
+  content:attr(data-since);
+  font-family:var(--font-mono);font-size:9.5px;color:var(--text-dim);
+  margin-right:6px;
+}
+
+/* Clickable "未读" count in the status bar */
+.agent-status .jump-unread{
+  font-style:normal;color:var(--accent-text);font-weight:600;
+  text-decoration:underline;text-decoration-style:dotted;
+  cursor:pointer;
+}
+.agent-status .jump-unread:hover{text-decoration-style:solid}
+
+/* Boundary marker — sits between last-read and first-unread */
+.read-line{
+  display:flex;align-items:center;gap:10px;margin:12px 0;
+  font-size:10.5px;font-family:var(--font-mono);color:var(--accent-text);
+  letter-spacing:.04em;text-transform:uppercase;font-weight:600;
+  position:relative;
+}
+.read-line::before, .read-line::after{
+  content:'';flex:1;height:0;border-top:1px solid var(--accent-border);
+}
+.read-line .marker{
+  width:18px;height:18px;border-radius:50%;border:2px solid var(--accent);
+  background:var(--bg);display:grid;place-items:center;font-size:9px;color:var(--accent-text);font-weight:bold;
+  box-shadow:0 0 0 4px var(--accent-soft);
+}
+.read-line .note{color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0;font-style:italic}
+
+/* Promote chips */
+.chips{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.chips .chip{
+  font-size:11.5px;padding:3px 9px;border-radius:3px;border:1px solid var(--border);
+  color:var(--text-muted);background:var(--bg);font-family:var(--font-body);transition:all .15s;
+  cursor:pointer
+}
+.chips .chip:hover{background:var(--surface-elev);color:var(--text);border-color:var(--accent-border)}
+
+/* Mermaid diagram inset */
+.diagram-wrap{
+  margin:8px 0;border:1px solid var(--border-soft);background:var(--surface-elev);
+  border-radius:6px;padding:14px;overflow:hidden;position:relative;
+}
+.diagram-wrap .label{
+  position:absolute;top:6px;right:8px;font-family:var(--font-mono);font-size:10px;
+  color:var(--text-dim);background:var(--bg);padding:1px 6px;border-radius:3px;border:1px solid var(--border-soft);
+}
+
+/* Annotation */
+.annotated{position:relative;display:inline-block;background:var(--annotation-bg);
+  padding:0 2px;border-bottom:1px dotted var(--annotation);cursor:pointer}
+.annotation-pin{
+  margin-top:4px;background:var(--annotation-bg);border:1px solid var(--annotation);border-left:3px solid var(--annotation);
+  padding:7px 10px;font-size:12.5px;border-radius:0 4px 4px 0;display:flex;gap:8px;align-items:flex-start;
+  font-style:italic;color:var(--text)
+}
+.annotation-pin .who{font-family:var(--font-mono);font-style:normal;font-size:10.5px;color:var(--text-muted);font-weight:600}
+.annotation-pin .actions{margin-left:auto;display:flex;gap:8px;font-style:normal}
+.annotation-pin .actions a{font-size:10.5px;color:var(--text-dim);text-decoration:none}
+.annotation-pin .actions a:hover{color:var(--text)}
+
+/* Composer */
+.composer-wrap{padding:16px 28px 22px;border-top:1px solid var(--border-soft)}
+.composer{
+  border:1px solid var(--border);background:var(--surface-elev);padding:12px 14px;border-radius:6px;
+  display:flex;flex-direction:column;gap:8px;
+}
+.composer .ph{color:var(--text-dim);font-size:14.5px}
+.composer .row{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-dim)}
+.composer .row .send{background:var(--text);color:var(--bg);font-weight:600;padding:5px 14px;border-radius:3px;font-size:12.5px}
+
+/* ───────── CONTEXT ───────── */
+.context{overflow-y:auto;padding:18px 16px 20px;background:var(--bg);display:flex;flex-direction:column;gap:18px}
+.ctx-block{display:flex;flex-direction:column;gap:8px}
+.ctx-block > .h{display:flex;align-items:baseline;justify-content:space-between;padding:0 4px}
+.ctx-block > .h .label{font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em}
+.ctx-block > .h .meta{font-family:var(--font-mono);color:var(--text-dim);font-size:10.5px}
+
+.intent-card{
+  background:var(--surface-elev);border:1px solid var(--border-soft);box-shadow:var(--shadow);border-radius:6px;
+  padding:12px 14px;
+}
+.intent-card .title{font-family:var(--font-display);font-weight:600;font-size:16px;line-height:1.3;margin-bottom:4px}
+.intent-card .sub{font-size:12px;color:var(--text-muted);font-style:italic}
+
+.ctx-list{display:flex;flex-direction:column;gap:8px}
+.ctx-item{
+  background:var(--surface-elev);border:1px solid var(--border-soft);border-radius:4px;
+  padding:9px 12px;font-size:13px;line-height:1.55;color:var(--text);
+  display:flex;gap:8px;align-items:flex-start;
+}
+.ctx-item .marker{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:8px;background:var(--decision)}
+.ctx-item.constraint .marker{background:var(--constraint)}
+.ctx-item.open-q .marker{background:var(--question)}
+
+.option-card{
+  background:var(--surface-elev);border:1px solid var(--border-soft);border-radius:4px;
+  padding:10px 12px;display:flex;flex-direction:column;gap:4px;
+}
+.option-card .opt-title{font-family:var(--font-display);font-weight:600;font-size:14px}
+.option-card .pros-cons{font-size:12px;display:flex;flex-direction:column;gap:2px;color:var(--text-muted);font-family:var(--font-body)}
+.option-card .pros-cons .pro{color:var(--decision)}
+.option-card .pros-cons .con{color:var(--accent-text)}
+
+.ref-row{display:flex;gap:10px;align-items:center;font-size:13px;color:var(--text-muted);
+  padding:6px 10px;background:var(--surface-elev);border:1px solid var(--border-soft);border-radius:4px}
+.ref-row .ic{font-size:14px}
+.ref-row .ref-title{color:var(--text)}
+
+@media (max-width:1280px){.app{--sidebar-w:240px;--context-w:320px}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ─────── SIDEBAR ─────── -->
+  <aside class="sidebar" id="sidebar">
+    <button class="sidebar-toggle" id="sidebar-toggle" title="收起/展开侧栏">‹</button>
+    <div class="collapsed-rail">
+      <span class="glyph">L</span>
+      <span class="vertical">话题</span>
+    </div>
+    <div class="masthead">
+      <div class="name">Lets</div>
+      <div class="tagline">a board for humans + agents</div>
+    </div>
+
+    <div class="attn">
+      <span>待处理</span>
+      <span class="num">1</span>
+    </div>
+
+    <div class="section-h">
+      <span style="font-size:10px">▾</span>
+      <span>话题</span>
+      <span class="count">1</span>
+      <span class="add">+</span>
+    </div>
+    <div class="channel active">
+      <span class="tag">LOGIN</span>
+      <span>用户登录系统改造</span>
+    </div>
+
+    <div class="section-h">
+      <span style="font-size:10px">▾</span>
+      <span>Agent</span>
+      <span class="count">1</span>
+      <span style="font-family:var(--font-mono);font-size:10px;margin-left:6px">· 1 在线</span>
+    </div>
+    <div class="agent-row">
+      <span class="dot"></span>
+      <span class="tag">CC</span>
+      <span>claude · mac16</span>
+    </div>
+
+    <div class="spacer"></div>
+    <div class="footer-link">设置</div>
+  </aside>
+
+  <!-- ─────── MAIN ─────── -->
+  <main class="main">
+    <div class="main-header">
+      <h1>用户登录系统改造</h1>
+      <button class="menu">⋯</button>
+    </div>
+    <div class="agent-status">
+      <span class="pulse"></span>
+      <b>CC 在听</b> · 上次拉取黑板 40s 前 · 上次发言 2 分钟前 ·
+      <span class="jump-unread" id="jump-unread" style="margin-left:auto">↓ 2 条未读</span>
+    </div>
+
+    <div class="stream">
+
+      <!-- USER -->
+      <div class="msg human read" data-msg-id="m1">
+        <div class="avatar">J</div>
+        <div class="body">
+          <div class="meta"><span class="name">Jacky Li</span><span class="time">19:39</span></div>
+          <div class="content">
+            我们要给现有的内网工具加 SSO，支持 2 万员工。目标是替换密码登录。
+          </div>
+        </div>
+      </div>
+
+      <!-- AGENT -->
+      <div class="msg agent read" data-msg-id="m2">
+        <div class="avatar">CC</div>
+        <div class="body">
+          <div class="meta"><span class="name">CC</span><span class="time">19:40</span></div>
+          <div class="provenance" data-cites="m1">
+            <span class="ic">👁</span><span class="label">基于</span>
+            <span class="cite-chip" data-cite="m1" data-kind="human">
+              <span class="av">J</span><span class="snippet">我们要给现有的内网工具加…</span>
+            </span>
+          </div>
+          <div class="content">
+            好的，先把约束确认清楚再聊方案：
+            <ul>
+              <li>用户规模 2 万——影响登录峰值容量</li>
+              <li>现有系统是 Java / Spring Security</li>
+              <li>移动端 / 桌面 / Web 三端是否都要 SSO？</li>
+            </ul>
+          </div>
+          <div class="chips">
+            <button class="chip">+ 共识</button>
+            <button class="chip">+ 候选</button>
+            <button class="chip">+ 待问</button>
+            <button class="chip">+ 约束</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- USER -->
+      <div class="msg human read" data-msg-id="m3">
+        <div class="avatar">J</div>
+        <div class="body">
+          <div class="meta"><span class="name">Jacky Li</span><span class="time">19:42</span></div>
+          <div class="content">三端都要。我们已经有 SAML 的 IdP。</div>
+        </div>
+      </div>
+
+      <!-- AGENT with diagram + annotation -->
+      <div class="msg agent read" data-msg-id="m4">
+        <div class="avatar">CC</div>
+        <div class="body">
+          <div class="meta"><span class="name">CC</span><span class="time">19:42</span></div>
+          <div class="provenance" data-cites="m1,m2,m3">
+            <span class="ic">👁</span><span class="label">基于</span>
+            <span class="cite-chip" data-cite="m1" data-kind="human">
+              <span class="av">J</span><span class="snippet">我们要给现有的内网工具加…</span>
+            </span>
+            <span class="cite-chip" data-cite="m2" data-kind="agent">
+              <span class="av">CC</span><span class="snippet">好的，先把约束确认清楚…</span>
+            </span>
+            <span class="cite-chip" data-cite="m3" data-kind="human">
+              <span class="av">J</span><span class="snippet">三端都要。我们已经有 SAML…</span>
+            </span>
+            <span style="color:var(--text-dim);font-style:italic;font-size:11px">含 1 条批注</span>
+          </div>
+          <div class="content">
+            <p>那大致两条路。先看时序对比：</p>
+
+            <div class="diagram-wrap">
+              <span class="label">📊 mermaid</span>
+              <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant B as Browser
+    participant SP as Web App (SP)
+    participant IdP
+    B->>SP: GET /protected
+    SP-->>B: 302 redirect → IdP
+    B->>IdP: login form
+    IdP-->>B: SAML Assertion
+    B->>SP: POST assertion
+    SP-->>B: session cookie + content
+              </div>
+            </div>
+
+            <p>说说取舍：</p>
+            <ul>
+              <li><span class="annotated">SAML 桌面成熟但移动弱</span>—— 比如手机 Safari 跳转 IdP 后回不来很常见</li>
+              <li>OIDC 移动友好但要新建一个 IdP，迁移成本高</li>
+              <li>第三条路：内网走 SAML 复用现有 IdP；外网 / 移动单独搭一个 OIDC façade</li>
+            </ul>
+
+            <!-- annotation pin attached to "SAML 桌面成熟但移动弱" -->
+            <div class="annotation-pin">
+              <span class="who">Jacky</span>
+              <span>这步对吗？我们测过 iOS Safari 跳转吗？回不来的具体场景指什么？</span>
+              <span class="actions"><a href="#">回复</a><a href="#">✓ 已解决</a></span>
+            </div>
+          </div>
+          <div class="chips">
+            <button class="chip">+ 共识</button>
+            <button class="chip">+ 候选</button>
+            <button class="chip">+ 待问</button>
+            <button class="chip">+ 约束</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- USER #5 (still inside read range) -->
+      <div class="msg human read" data-msg-id="m5">
+        <div class="avatar">J</div>
+        <div class="body">
+          <div class="meta"><span class="name">Jacky Li</span><span class="time">19:45</span></div>
+          <div class="content">
+            你这图里 IdP 直接到 App，少了 SP 在 IdP 预注册的步骤吧？另外混合方案那条值得展开。
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── READ CURSOR ─── -->
+      <div class="read-line" title="CC 上一次拉取黑板时，读到这条为止">
+        <span class="marker">✓</span>
+        <span>CC 已读到此处</span>
+        <span class="note">40 秒前</span>
+      </div>
+
+      <!-- USER #6 — NOT YET SEEN BY CC -->
+      <div class="msg human unread" data-msg-id="m6" id="first-unread">
+        <div class="avatar">J</div>
+        <div class="body">
+          <div class="meta" data-since="35s 前"><span class="name">Jacky Li</span><span class="time">19:47</span></div>
+          <div class="content">
+            另外问一下，2 万员工同时登录峰值大概在什么量级？我们要不要先做容量测算。
+          </div>
+        </div>
+      </div>
+
+      <!-- USER #7 — NOT YET SEEN BY CC -->
+      <div class="msg human unread" data-msg-id="m7">
+        <div class="avatar">J</div>
+        <div class="body">
+          <div class="meta" data-since="刚刚"><span class="name">Jacky Li</span><span class="time">19:48</span></div>
+          <div class="content">
+            还有 IdP 是不是单点？挂了整个系统都登不了。
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── UPCOMING READ ─── -->
+      <div class="upcoming-read" id="upcoming-read"
+           title="agent 是异步的；它会等你停笔几秒再去拉黑板，避免合并读了一半。点 [让 CC 现在看] 跳过等待。">
+        <span class="ic">⏳</span>
+        <span>CC 将在 <span class="countdown" id="cd">18</span> 秒后查看这 2 条</span>
+        <button class="now-btn" id="now-btn">让 CC 现在看</button>
+      </div>
+
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="ph">发消息，输入 @ 选择人或 agent…</div>
+        <div class="row">
+          <span>/ 命令 · @ 提及 · Enter 发送 · Shift Enter 换行</span>
+          <button class="send">发送</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- resize handle between main and context -->
+  <div class="resizer" id="resizer" title="拖动调整右栏宽度"></div>
+
+  <!-- ─────── CONTEXT PANE ─────── -->
+  <aside class="context">
+
+    <div class="ctx-block">
+      <div class="h"><span class="label">正在讨论</span></div>
+      <div class="intent-card">
+        <div class="title">用户登录系统改造</div>
+        <div class="sub">SSO · 三端 · 2 万员工 · 替换密码登录</div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="h"><span class="label">共识</span><span class="meta">3</span></div>
+      <div class="ctx-list">
+        <div class="ctx-item"><span class="marker"></span><span>三端（移动 / 桌面 / Web）都需要 SSO</span></div>
+        <div class="ctx-item"><span class="marker"></span><span>替换密码登录，但需保留 LDAP 备援</span></div>
+        <div class="ctx-item"><span class="marker"></span><span>IdP 已具备 SAML 能力，桌面端可直接复用</span></div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="h"><span class="label">候选方案</span><span class="meta">3</span></div>
+      <div class="ctx-list">
+        <div class="option-card">
+          <div class="opt-title">A. SAML 接入现有 IdP</div>
+          <div class="pros-cons">
+            <span class="pro">✓ 成熟、零新建 IdP 成本</span>
+            <span class="con">✗ 移动端体验弱</span>
+          </div>
+        </div>
+        <div class="option-card">
+          <div class="opt-title">B. OIDC + 新建 IdP</div>
+          <div class="pros-cons">
+            <span class="pro">✓ 移动友好、未来扩展性好</span>
+            <span class="con">✗ 重建 IdP 成本高、迁移工程量大</span>
+          </div>
+        </div>
+        <div class="option-card">
+          <div class="opt-title">C. 混合（内网 SAML / 移动 OIDC）</div>
+          <div class="pros-cons">
+            <span class="pro">✓ 兼顾现有成熟度与移动体验</span>
+            <span class="con">✗ 双套维护成本</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="h"><span class="label">待回答</span><span class="meta">2</span></div>
+      <div class="ctx-list">
+        <div class="ctx-item open-q"><span class="marker"></span><span>移动端走 SAML 在实际跳转中是否可行？</span></div>
+        <div class="ctx-item open-q"><span class="marker"></span><span>断网 / 弱网下的离线模式如何处理？</span></div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="h"><span class="label">约束</span><span class="meta">3</span></div>
+      <div class="ctx-list">
+        <div class="ctx-item constraint"><span class="marker"></span><span>用户规模 2 万——登录峰值需考虑</span></div>
+        <div class="ctx-item constraint"><span class="marker"></span><span>现有栈 Java / Spring Security</span></div>
+        <div class="ctx-item constraint"><span class="marker"></span><span>三端都要 SSO（移动 / 桌面 / Web）</span></div>
+      </div>
+    </div>
+
+    <div class="ctx-block">
+      <div class="h"><span class="label">图与资料</span><span class="meta">2</span></div>
+      <div class="ctx-list">
+        <div class="ref-row"><span class="ic">📊</span><span class="ref-title">SAML 时序图</span><span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">19:42</span></div>
+        <div class="ref-row"><span class="ic">🔗</span><span class="ref-title">RFC 6749 — OAuth 2.0</span><span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">19:43</span></div>
+      </div>
+    </div>
+
+  </aside>
+
+</div>
+
+<script>
+// ─── Sidebar collapse ───
+const app = document.querySelector('.app');
+const sbToggle = document.getElementById('sidebar-toggle');
+sbToggle.addEventListener('click', () => {
+  app.classList.toggle('collapsed');
+  sbToggle.textContent = app.classList.contains('collapsed') ? '›' : '‹';
+});
+
+// ─── Context-pane drag-to-resize ───
+const resizer = document.getElementById('resizer');
+const MIN_W = 260;
+const MAX_W = 640;
+let dragStartX = 0;
+let startW = 0;
+function startDrag(e) {
+  dragStartX = e.clientX;
+  startW = parseInt(getComputedStyle(app).getPropertyValue('--context-w'), 10) || 360;
+  document.body.classList.add('resizing');
+  document.addEventListener('mousemove', onDrag);
+  document.addEventListener('mouseup', endDrag);
+}
+function onDrag(e) {
+  const dx = dragStartX - e.clientX;       // drag left → wider context
+  const next = Math.max(MIN_W, Math.min(MAX_W, startW + dx));
+  app.style.setProperty('--context-w', next + 'px');
+}
+function endDrag() {
+  document.body.classList.remove('resizing');
+  document.removeEventListener('mousemove', onDrag);
+  document.removeEventListener('mouseup', endDrag);
+}
+resizer.addEventListener('mousedown', startDrag);
+// Double-click resets to default width
+resizer.addEventListener('dblclick', () => app.style.removeProperty('--context-w'));
+
+// ─── Live countdown for "CC 将在 N 秒后查看" ───
+const cd = document.getElementById('cd');
+const upcoming = document.getElementById('upcoming-read');
+let secs = 18;
+const cdTimer = setInterval(() => {
+  secs -= 1;
+  if (secs > 0) {
+    cd.textContent = secs;
+  } else {
+    clearInterval(cdTimer);
+    upcoming.classList.add('reading');
+    upcoming.querySelector('span:nth-child(2)').textContent = 'CC 正在读这 2 条…';
+    upcoming.querySelector('.now-btn').remove();
+  }
+}, 1000);
+
+// "让 CC 现在看" — in real app this calls a force-read endpoint
+document.getElementById('now-btn').addEventListener('click', () => {
+  clearInterval(cdTimer);
+  upcoming.classList.add('reading');
+  upcoming.querySelector('span:nth-child(2)').textContent = 'CC 正在读这 2 条…';
+  upcoming.querySelector('.now-btn').remove();
+});
+
+// Jump to first unread when clicking "↓ N 条未读" in the status bar
+document.getElementById('jump-unread').addEventListener('click', () => {
+  document.getElementById('first-unread')?.scrollIntoView({behavior:'smooth', block:'center'});
+});
+
+// ─── Citation hover & click ───
+function setCited(ids, on) {
+  ids.forEach(id => {
+    const el = document.querySelector(`.msg[data-msg-id="${id}"]`);
+    if (el) el.classList.toggle('cited', on);
+  });
+}
+document.querySelectorAll('.provenance').forEach(p => {
+  const ids = (p.dataset.cites || '').split(',').filter(Boolean);
+  p.addEventListener('mouseenter', () => setCited(ids, true));
+  p.addEventListener('mouseleave', () => setCited(ids, false));
+});
+document.querySelectorAll('.cite-chip').forEach(chip => {
+  const id = chip.dataset.cite;
+  if (!id) return;
+  chip.addEventListener('mouseenter', e => { e.stopPropagation(); setCited([id], true); });
+  chip.addEventListener('mouseleave', e => { e.stopPropagation();
+    // restore the parent's full-set highlight
+    const parent = chip.closest('.provenance');
+    const all = (parent?.dataset.cites || '').split(',').filter(Boolean);
+    setCited([id], false);
+    if (parent && parent.matches(':hover')) setCited(all, true);
+  });
+  chip.addEventListener('click', () => {
+    const el = document.querySelector(`.msg[data-msg-id="${id}"]`);
+    if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
+  });
+});
+
+mermaid.initialize({
+  startOnLoad:true,
+  theme:'base',
+  themeVariables:{
+    background:'#FBF9F4',
+    primaryColor:'#F3E4DA',
+    primaryBorderColor:'#B4654A',
+    primaryTextColor:'#2C2A26',
+    lineColor:'#8E3B2E',
+    secondaryColor:'#ECEFD9',
+    tertiaryColor:'#DEE7EC',
+    fontFamily:'Source Serif 4, Newsreader, serif',
+  },
+});
+</script>
+</body>
+</html>

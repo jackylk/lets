@@ -7,6 +7,12 @@ __pycache__/
 .playwright-mcp/
 mock-*.png
 v[0-9]*.png
+# Session screenshots (live at repo root for reference, not committed)
+/*.png
+# Claude Code local config
+.claude/settings.local.json
+# One-off session handoff docs
+docs/HANDOFF-TO-*.md
 
 # Editor / OS
 *.swp
