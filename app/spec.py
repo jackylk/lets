@@ -1,8 +1,11 @@
 """Pure projection from a topic's typed-message stream to a handoff spec.
 
-Lives in its own module so both the CLI (`lets spec`) and the HTTP API
-(`GET /api/topics/{id}/spec`) project the same way. No DB, no I/O — just
-a list of message dicts in, markdown string out.
+Shared by the CLI (``lets spec``) and the HTTP API
+(``GET /api/topics/{id}/spec``). No DB, no LLM — just a list of message
+dicts in, markdown out. The optional polish / self-test passes live in
+``gateway.py`` and shell out to the user's local ``claude`` CLI; we
+deliberately don't add a server-side LLM path so deployments stay free
+of API-key configuration.
 """
 from __future__ import annotations
 
@@ -121,11 +124,59 @@ def render_spec_markdown(topic_id: int, msgs: list[dict]) -> str:
     parts.append(section("延展想法 (extensions)", by_kind["extension"]))
 
     if diagrams:
+        # Per-node feedback: when humans voted or commented on a specific node
+        # in a diagram (annotation with target_message_id = diagram msg, with
+        # target_quote = node text), surface that below the diagram. Both
+        # vote-aggregates and text comments are valuable spec context — the
+        # downstream agent sees which nodes the team blessed vs. flagged.
+        node_votes_by_diagram: dict[int, dict[str, int]] = {}
+        node_comments_by_diagram: dict[int, list[tuple[str, str, str]]] = {}
+        # First pass: latest ±1 vote per (actor, target_msg, node) wins.
+        latest_node_vote: dict[tuple[int, int, str], int] = {}
+        for m in msgs:
+            if m.get("type") != "annotation":
+                continue
+            meta = m.get("metadata") or {}
+            tgt = meta.get("target_message_id")
+            node = meta.get("target_quote")
+            if not isinstance(tgt, int) or not isinstance(node, str) or not node:
+                continue
+            sc = meta.get("score")
+            actor = m.get("actor_id")
+            if isinstance(sc, int) and isinstance(actor, int):
+                latest_node_vote[(actor, tgt, node)] = sc
+            elif (m.get("body") or "").strip():
+                # Comment annotation
+                who = "agent" if m.get("actor_type") == "agent" else "human"
+                node_comments_by_diagram.setdefault(tgt, []).append(
+                    (node, who, (m.get("body") or "").strip())
+                )
+        for (_a, tgt, node), s in latest_node_vote.items():
+            d = node_votes_by_diagram.setdefault(tgt, {})
+            d[node] = d.get(node, 0) + s
+
         parts.append("## 图与资料\n")
-        for _mid, src in diagrams:
+        for mid, src in diagrams:
             parts.append("```mermaid")
             parts.append(src)
-            parts.append("```\n")
+            parts.append("```")
+            # Aggregated node votes (only show non-zero)
+            votes = node_votes_by_diagram.get(mid, {})
+            voted = [(n, s) for n, s in votes.items() if s != 0]
+            if voted:
+                voted.sort(key=lambda x: (-x[1], x[0]))
+                parts.append("\n**节点评分** [#" + str(mid) + "]")
+                for node, s in voted:
+                    tag = f"`+{s}`" if s > 0 else f"`{s}`"
+                    parts.append(f"- {tag} {node}")
+            # Free-form node comments
+            comments = node_comments_by_diagram.get(mid, [])
+            if comments:
+                parts.append("\n**节点批注**")
+                for node, who, body in comments:
+                    body_trunc = body if len(body) <= 200 else body[:200] + "…"
+                    parts.append(f"- *{node}* ({who}): {body_trunc}")
+            parts.append("")
     if links:
         parts.append("## 引用链接\n")
         seen: set[str] = set()

@@ -6,6 +6,10 @@ import { useIdentity } from "../identity/useIdentity";
  * trigger a browser download. Same projection as `lets spec <id>` on the
  * CLI — the endpoint is `/api/topics/{id}/spec` and returns text/markdown
  * with content-disposition set, so the browser handles the save dialog.
+ *
+ * Polish / self-test live in the CLI only (`lets spec --polish --self-test`)
+ * because they need a `claude` binary; we deliberately don't add server-
+ * side LLM calls so deployments don't require ANTHROPIC_API_KEY.
  */
 export function ExportSpecButton({ topicId }: { topicId: number }) {
   const identity = useIdentity();

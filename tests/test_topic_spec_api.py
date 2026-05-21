@@ -58,3 +58,64 @@ def test_spec_endpoint_404_on_missing_topic(client, auth):
 def test_spec_endpoint_requires_auth(client):
     r = client.get("/api/topics/1/spec")
     assert r.status_code == 401
+
+
+def test_spec_surfaces_per_node_diagram_annotations(client, auth):
+    """Annotations with target_quote = node text should appear under the
+    matching diagram in 图与资料 — both ±1 vote aggregates and free-form
+    comments — so the downstream agent sees which nodes the team blessed
+    vs. flagged."""
+    from app.identity import ensure_human
+    from app.db import connect
+    me = ensure_human("Reviewer")
+    other = ensure_human("Second")
+    with connect() as conn:
+        c = conn.execute("INSERT INTO topics (slug, title) VALUES ('spec-d', 'D')")
+        tid = c.lastrowid
+
+    # Diagram message (human-authored chat — exporter looks at body only)
+    r = client.post("/api/messages", headers=auth, json={
+        "topic_id": tid, "type": "chat", "actor_type": "human", "actor_id": me,
+        "body": "架构：\n```mermaid\ngraph TD\nA[KB] --> B[Critique]\n```\n",
+    })
+    assert r.status_code == 200
+    diagram_id = r.json()["id"]
+
+    # Two humans vote +1 on KB (aggregate +2)
+    for hid in (me, other):
+        r = client.post("/api/messages", headers=auth, json={
+            "topic_id": tid, "type": "annotation", "actor_type": "human", "actor_id": hid,
+            "body": "",
+            "metadata": {"target_message_id": diagram_id, "target_quote": "KB", "score": 1},
+        })
+        assert r.status_code == 200, r.text
+
+    # One human -1 on Critique
+    r = client.post("/api/messages", headers=auth, json={
+        "topic_id": tid, "type": "annotation", "actor_type": "human", "actor_id": me,
+        "body": "",
+        "metadata": {"target_message_id": diagram_id, "target_quote": "Critique", "score": -1},
+    })
+    assert r.status_code == 200
+
+    # Free-form comment on KB
+    r = client.post("/api/messages", headers=auth, json={
+        "topic_id": tid, "type": "annotation", "actor_type": "human", "actor_id": me,
+        "body": "KB 要包含 tutor preferences",
+        "metadata": {"target_message_id": diagram_id, "target_quote": "KB"},
+    })
+    assert r.status_code == 200
+
+    r = client.get(f"/api/topics/{tid}/spec", headers=auth)
+    assert r.status_code == 200, r.text
+    body = r.text
+    assert "## 图与资料" in body
+    assert "节点评分" in body
+    # KB has +2 from two voters
+    assert "`+2` KB" in body
+    # Critique has -1
+    assert "`-1` Critique" in body
+    # Comment surfaced
+    assert "节点批注" in body
+    assert "KB 要包含 tutor preferences" in body
+

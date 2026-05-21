@@ -174,7 +174,11 @@ class MessageCreate(BaseModel):
     type: MessageTypeStr
     actor_type: ActorType
     actor_id: int | None = None
-    body: str = Field(min_length=1)
+    # Most messages need a body, but annotations carrying only a vote
+    # (metadata.score = ±1) legitimately have no body. The handler enforces
+    # the non-empty rule for everything except `annotation` so the v1
+    # frontend ScoreRow / NodeFeedbackPanel calls succeed.
+    body: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     ref_event_id: int | None = None
     addressed_to: str | None = None
@@ -963,6 +967,17 @@ async def post_message_endpoint(
     from .messages import post_message
     from .sse import broadcaster
 
+    # Body-required-unless-annotation: keep the old guarantee for all
+    # "real" message types so legacy callers don't regress, but allow
+    # empty body for annotations (vote-only annotations carry no text).
+    if payload.type != "annotation" and not (payload.body or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail=[{"type": "string_too_short", "loc": ["body", "body"],
+                     "msg": "String should have at least 1 character",
+                     "input": payload.body, "ctx": {"min_length": 1}}],
+        )
+
     addressed_to = payload.addressed_to
     # Auto-address rule: when a human types a chat without @mentioning anyone
     # and they have exactly ONE online agent, treat the message as addressed
@@ -1694,9 +1709,9 @@ def get_topic_spec(
     """Render the topic's blackboard as a handoff spec (markdown).
 
     Same projection as `lets spec <id>` so CLI and UI always agree. The
-    optional `--polish` polish step lives only in the CLI for now — it
-    needs a working `claude` CLI on the host, which the server can't
-    assume.
+    optional `--polish` / `--self-test` LLM steps live in the CLI only
+    (they shell out to the user's local `claude` binary); we don't run
+    them server-side so deployments stay free of API-key configuration.
     """
     from .messages import topic_stream
     from .topics import get_topic_by_id
