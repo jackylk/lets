@@ -377,6 +377,10 @@ set -euo pipefail
 BASE_URL="${{LETS_HOST:-{base_url}}}"
 LETS_HOME="${{LETS_HOME:-$HOME/.lets}}"
 PYTHON="${{PYTHON:-python3}}"
+MODEL_ARGS=()
+if [ -n "${{LETS_MODEL:-}}" ]; then
+  MODEL_ARGS=(--model "$LETS_MODEL")
+fi
 
 mkdir -p "$LETS_HOME" "$LETS_HOME/bin"
 
@@ -467,12 +471,12 @@ Adding your first agent (${{LETS_AGENT_ROLE:-claude}}) on this machine ...
 
 MSG
   LETS_HOST="$BASE_URL" "$LETS_HOME/bin/lets" add "${{LETS_AGENT_ROLE:-claude}}" \\
-    --host "$BASE_URL" || \\
+    --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} || \\
     {{ echo "lets add failed — try again with: lets add ${{LETS_AGENT_ROLE:-claude}}" >&2; exit 1; }}
 
   # launchd autostart is optional; if it fails the gateway is already running
   # for this session.
-  if "$LETS_HOME/bin/lets" install --host "$BASE_URL" >/dev/null 2>&1; then
+  if "$LETS_HOME/bin/lets" install --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} >/dev/null 2>&1; then
     AUTOSTART_MSG="Will also auto-start on login (launchd)."
   else
     AUTOSTART_MSG="(launchd autostart not configured — gateway runs for this session only.)"
