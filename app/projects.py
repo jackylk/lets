@@ -42,7 +42,8 @@ def create_project(
             )
             return int(cursor.lastrowid)
         except sqlite3.IntegrityError as e:
-            if "UNIQUE" in str(e) and "slug" in str(e):
+            msg = str(e).lower()
+            if "unique" in msg and "slug" in msg:
                 raise ValueError(f"slug already in use: {final_slug}")
             raise
 

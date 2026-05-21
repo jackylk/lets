@@ -68,7 +68,7 @@ def test_mcp_remote_workflow(client):
     # At least one of our v1 tool names should appear in the response
     assert "get_project_context" in body or "list_work_items" in body
 
-    # 2. tools/call — invoke get_project_context and verify "Lets" comes back
+    # 2. tools/call — invoke get_project_context and verify "Let's" comes back
     call_resp = client.post(
         "/mcp/",
         headers=headers,
@@ -80,4 +80,4 @@ def test_mcp_remote_workflow(client):
         },
     )
     assert call_resp.status_code == 200
-    assert "Lets" in call_resp.text
+    assert "Let's" in call_resp.text

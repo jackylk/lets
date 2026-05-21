@@ -7,7 +7,7 @@ def test_spa_mount_serves_index(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     dist = tmp_path / "dist"
     dist.mkdir()
-    (dist / "index.html").write_text("<html><body>Lets SPA</body></html>")
+    (dist / "index.html").write_text("<html><body>Let's SPA</body></html>")
     monkeypatch.setenv("LETS_FRONTEND_DIST", str(dist))
 
     import app.main as m
@@ -15,7 +15,7 @@ def test_spa_mount_serves_index(tmp_path, monkeypatch):
     with TestClient(m.app) as c:
         r = c.get("/app/")
         assert r.status_code == 200, f"got {r.status_code}: {r.text}"
-        assert "Lets SPA" in r.text
+        assert "Let's SPA" in r.text
 
 
 def test_spa_mount_absent_when_no_dist(tmp_path, monkeypatch):

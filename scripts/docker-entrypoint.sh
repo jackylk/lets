@@ -1,7 +1,10 @@
 #!/bin/sh
 set -eu
 
-mkdir -p "$(dirname "$LETS_DB_PATH")"
+if [ -z "${DATABASE_URL:-}" ] && [ -z "${LETS_DATABASE_URL:-}" ]; then
+  echo "DATABASE_URL or LETS_DATABASE_URL is required for Postgres" >&2
+  exit 1
+fi
 
 if [ ! -d "$LETS_GIT_REPO/.git" ]; then
   mkdir -p "$LETS_GIT_REPO"

@@ -1,19 +1,245 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
+import threading
 from contextlib import contextmanager
-from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator, Sequence
 
-_default = Path(__file__).resolve().parent.parent / "lets.db"
-DB_PATH = Path(os.environ.get("LETS_DB_PATH", str(_default)))
+import psycopg
+from psycopg.rows import dict_row
+
+
+IntegrityError = sqlite3.IntegrityError
+
+
+def database_url() -> str:
+    return (
+        os.environ.get("DATABASE_URL")
+        or os.environ.get("LETS_DATABASE_URL")
+        or "postgresql://jacky@localhost:5432/lets_dev"
+    )
+
+
+class _Row(dict):
+    """Small sqlite3.Row-compatible dict.
+
+    Most of Lets was written against sqlite3.Row. This keeps both
+    row["name"] and row[0] working while the storage backend is Postgres.
+    """
+
+    def __init__(self, values: dict[str, Any]):
+        super().__init__(values)
+        self._keys = list(values.keys())
+
+    def __getitem__(self, key: int | str) -> Any:  # type: ignore[override]
+        if isinstance(key, int):
+            return super().__getitem__(self._keys[key])
+        return super().__getitem__(key)
+
+
+def _row(values: dict[str, Any]) -> _Row:
+    return _Row(dict(values))
+
+
+_INSERT_RE = re.compile(r"^\s*INSERT\s+INTO\s+", re.IGNORECASE)
+_RETURNING_RE = re.compile(r"\bRETURNING\b", re.IGNORECASE)
+_PRAGMA_TABLE_INFO_RE = re.compile(
+    r"^\s*PRAGMA\s+table_info\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*$",
+    re.IGNORECASE,
+)
+_SQLITE_MASTER_RE = re.compile(
+    r"^\s*SELECT\s+(?P<select>.+?)\s+FROM\s+sqlite_master(?P<rest>.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_DATETIME_NOW_RE = re.compile(
+    r"datetime\s*\(\s*'now'\s*(?:,\s*'(?P<offset>[+-]\d+)\s+(?P<unit>[A-Za-z]+)'\s*)?\)",
+    re.IGNORECASE,
+)
+
+
+def _translate_datetime(sql: str) -> str:
+    def repl(m: re.Match[str]) -> str:
+        offset = m.group("offset")
+        unit = m.group("unit")
+        if not offset or not unit:
+            return "NOW()"
+        sign = "+" if offset.startswith("+") else "-"
+        amount = offset[1:]
+        return f"NOW() {sign} INTERVAL '{amount} {unit}'"
+
+    return _DATETIME_NOW_RE.sub(repl, sql)
+
+
+def _translate_placeholders(sql: str) -> str:
+    """Convert sqlite ``?`` placeholders to psycopg ``%s`` placeholders."""
+    out: list[str] = []
+    in_string = False
+    quote = ""
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if in_string:
+            if ch == quote:
+                in_string = False
+            if ch == "%":
+                out.append("%%")
+            else:
+                out.append(ch)
+        else:
+            if ch in ("'", '"'):
+                in_string = True
+                quote = ch
+                out.append(ch)
+            elif ch == "?":
+                out.append("%s")
+            elif ch == "%":
+                out.append("%%")
+            else:
+                out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _translate_sqlite_master(sql: str) -> str | None:
+    m = _SQLITE_MASTER_RE.match(sql)
+    if not m:
+        return None
+    select = m.group("select")
+    rest = m.group("rest")
+    # Tests only need name/sql/table/index introspection. pg_indexes.indexdef
+    # is close enough to sqlite_master.sql for CHECK-style assertions.
+    translated = (
+        "SELECT table_name AS name, 'table' AS type, table_name AS tbl_name, "
+        "NULL::text AS sql FROM information_schema.tables "
+        "WHERE table_schema = 'public' "
+        "UNION ALL "
+        "SELECT indexname AS name, 'index' AS type, tablename AS tbl_name, "
+        "indexdef AS sql FROM pg_indexes WHERE schemaname = 'public'"
+    )
+    out = f"SELECT {select} FROM ({translated}) sqlite_master {rest}"
+    return out
+
+
+def _translate_pragma(sql: str) -> str | None:
+    m = _PRAGMA_TABLE_INFO_RE.match(sql)
+    if not m:
+        return None
+    table = m.group(1)
+    return (
+        "SELECT column_name AS name, data_type AS type, "
+        "CASE WHEN is_nullable = 'NO' THEN 1 ELSE 0 END AS notnull, "
+        "column_default AS dflt_value "
+        "FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = "
+        f"'{table}' ORDER BY ordinal_position"
+    )
+
+
+def _translate_sql(sql: str) -> str:
+    translated = _translate_pragma(sql) or _translate_sqlite_master(sql) or sql
+    translated = _translate_datetime(translated)
+    translated = re.sub(
+        r"\bINSERT\s+OR\s+IGNORE\s+INTO\b",
+        "INSERT INTO",
+        translated,
+        flags=re.IGNORECASE,
+    )
+    translated = _translate_placeholders(translated)
+    translated = re.sub(r"\bIS\s+%s\b", "IS NOT DISTINCT FROM %s", translated, flags=re.IGNORECASE)
+    return translated
+
+
+class Cursor:
+    def __init__(self, pg_cur: psycopg.Cursor):
+        self._cur = pg_cur
+        self.lastrowid: int | None = None
+        self._auto_returning = False
+
+    def execute(self, sql: str, params: Sequence[Any] | None = None) -> "Cursor":
+        sql_pg = _translate_sql(sql)
+        self._auto_returning = False
+        if _INSERT_RE.match(sql_pg) and not _RETURNING_RE.search(sql_pg):
+            sql_pg = sql_pg.rstrip().rstrip(";") + " RETURNING id"
+            self._auto_returning = True
+        try:
+            if params is None:
+                self._cur.execute(sql_pg)
+            else:
+                self._cur.execute(sql_pg, tuple(params))
+        except psycopg.errors.IntegrityError as e:
+            raise sqlite3.IntegrityError(str(e)) from e
+        self.lastrowid = None
+        if self._auto_returning:
+            try:
+                row = self._cur.fetchone()
+            except psycopg.ProgrammingError:
+                row = None
+            if row and "id" in row:
+                self.lastrowid = int(row["id"])
+        return self
+
+    def executemany(self, sql: str, seq_params: list[Sequence[Any]]) -> "Cursor":
+        sql_pg = _translate_sql(sql)
+        self._cur.executemany(sql_pg, [tuple(p) for p in seq_params])
+        return self
+
+    def fetchone(self) -> _Row | None:
+        try:
+            row = self._cur.fetchone()
+        except psycopg.ProgrammingError:
+            return None
+        return _row(row) if row is not None else None
+
+    def fetchall(self) -> list[_Row]:
+        try:
+            rows = self._cur.fetchall()
+        except psycopg.ProgrammingError:
+            return []
+        return [_row(r) for r in rows]
+
+    @property
+    def rowcount(self) -> int:
+        return self._cur.rowcount
+
+    def close(self) -> None:
+        self._cur.close()
+
+
+class Connection:
+    def __init__(self, pg: psycopg.Connection):
+        self._pg = pg
+
+    def execute(self, sql: str, params: Sequence[Any] | None = None) -> Cursor:
+        cur = Cursor(self._pg.cursor(row_factory=dict_row))
+        return cur.execute(sql, params)
+
+    def executemany(self, sql: str, seq_params: list[Sequence[Any]]) -> Cursor:
+        cur = Cursor(self._pg.cursor(row_factory=dict_row))
+        return cur.executemany(sql, seq_params)
+
+    def executescript(self, script: str) -> None:
+        with self._pg.cursor() as cur:
+            for statement in script.split(";"):
+                statement = statement.strip()
+                if statement:
+                    cur.execute(statement)
+
+    def commit(self) -> None:
+        self._pg.commit()
+
+    def rollback(self) -> None:
+        self._pg.rollback()
+
+    def close(self) -> None:
+        self._pg.close()
 
 
 @contextmanager
-def connect() -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+def connect() -> Iterator[Connection]:
+    raw = psycopg.connect(database_url(), autocommit=False)
+    conn = Connection(raw)
     try:
         yield conn
         conn.commit()
@@ -24,513 +250,290 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS work_items (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ('idea', 'task')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'claimed', 'in_progress', 'done', 'rejected')),
+    created_by TEXT NOT NULL DEFAULT 'human',
+    claimed_by_agent_id BIGINT,
+    claimed_at TIMESTAMPTZ,
+    git_branch TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS agents (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    agent_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'idle'
+        CHECK (status IN ('idle', 'active', 'blocked', 'offline')),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS humans (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    email TEXT,
+    github_id BIGINT UNIQUE,
+    github_login TEXT,
+    avatar_url TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    value_hash TEXT NOT NULL UNIQUE,
+    human_id BIGINT NOT NULL REFERENCES humans(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_value_hash ON sessions(value_hash);
+CREATE TABLE IF NOT EXISTS projects (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT,
+    owner_human_id BIGINT REFERENCES humans(id),
+    repo_path TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
+CREATE TABLE IF NOT EXISTS agent_roles (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS agent_instances (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    role_id BIGINT NOT NULL REFERENCES agent_roles(id),
+    human_id BIGINT NOT NULL REFERENCES humans(id),
+    device_label TEXT NOT NULL,
+    model TEXT,
+    status TEXT NOT NULL DEFAULT 'idle'
+        CHECK (status IN ('idle', 'active', 'blocked', 'offline', 'working')),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(role_id, human_id, device_label)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_instances_human ON agent_instances(human_id);
+CREATE INDEX IF NOT EXISTS idx_agent_instances_role ON agent_instances(role_id);
+CREATE TABLE IF NOT EXISTS tokens (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    value_hash TEXT NOT NULL UNIQUE,
+    human_id BIGINT NOT NULL REFERENCES humans(id),
+    agent_instance_id BIGINT REFERENCES agent_instances(id),
+    label TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_tokens_value_hash ON tokens(value_hash);
+CREATE INDEX IF NOT EXISTS idx_tokens_human ON tokens(human_id);
+CREATE TABLE IF NOT EXISTS device_auth_flows (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    device_code TEXT NOT NULL UNIQUE,
+    user_code TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL,
+    device_label TEXT NOT NULL,
+    model TEXT,
+    human_id BIGINT REFERENCES humans(id),
+    agent_instance_id BIGINT REFERENCES agent_instances(id),
+    token_id BIGINT REFERENCES tokens(id),
+    token_value TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    authorized_at TIMESTAMPTZ,
+    consumed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_device_auth_flows_device_code ON device_auth_flows(device_code);
+CREATE INDEX IF NOT EXISTS idx_device_auth_flows_user_code ON device_auth_flows(user_code);
+CREATE TABLE IF NOT EXISTS events (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
+    actor_id BIGINT,
+    target_type TEXT NOT NULL,
+    target_id BIGINT,
+    project_id BIGINT,
+    topic_id BIGINT,
+    payload TEXT NOT NULL DEFAULT '{}',
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_events_target ON events(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_events_occurred_at ON events(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_topic ON events(topic_id, occurred_at DESC);
+CREATE TABLE IF NOT EXISTS status_updates (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    agent_id BIGINT NOT NULL REFERENCES agents(id),
+    work_item_id BIGINT REFERENCES work_items(id),
+    status TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS findings (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    work_item_id BIGINT REFERENCES work_items(id),
+    agent_id BIGINT NOT NULL REFERENCES agents(id),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS human_notes (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    work_item_id BIGINT REFERENCES work_items(id),
+    body TEXT NOT NULL,
+    feedback_type TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS topics (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    project_id BIGINT REFERENCES projects(id),
+    mode TEXT NOT NULL DEFAULT 'exploratory'
+        CHECK (mode IN ('exploratory', 'actionable')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_topics_project ON topics(project_id);
+CREATE TABLE IF NOT EXISTS messages (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    topic_id BIGINT NOT NULL REFERENCES topics(id),
+    type TEXT NOT NULL CHECK (type IN (
+        'chat', 'status', 'finding', 'decision', 'question',
+        'handoff', 'review', 'artifact_revision', 'spec_change',
+        'nudge', 'proactive_finding', 'task_tree_proposal',
+        'project_proposal', 'goal_proposal', 'system', 'annotation'
+    )),
+    actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
+    actor_id BIGINT,
+    body TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    ref_event_id BIGINT REFERENCES events(id),
+    addressed_to TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
+CREATE TABLE IF NOT EXISTS artifacts (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    slug TEXT NOT NULL,
+    type TEXT NOT NULL,
+    backend TEXT NOT NULL,
+    backend_ref TEXT NOT NULL,
+    title TEXT NOT NULL,
+    topic_id BIGINT NOT NULL REFERENCES topics(id),
+    current_version_id BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(slug, topic_id)
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_topic ON artifacts(topic_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(type);
+CREATE TABLE IF NOT EXISTS artifact_versions (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    artifact_id BIGINT NOT NULL REFERENCES artifacts(id),
+    version_label TEXT NOT NULL,
+    backend_revision_id TEXT NOT NULL,
+    created_by_human_id BIGINT REFERENCES humans(id),
+    created_by_agent_instance_id BIGINT REFERENCES agent_instances(id),
+    summary TEXT,
+    preview_uri TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(artifact_id, version_label)
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact ON artifact_versions(artifact_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS task_trees (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    topic_id BIGINT NOT NULL UNIQUE REFERENCES topics(id),
+    goal_artifact_id BIGINT REFERENCES artifacts(id),
+    goal_spec_text TEXT,
+    version INT NOT NULL DEFAULT 1,
+    approved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    approved_by_human_id BIGINT REFERENCES humans(id),
+    proposal_message_id BIGINT REFERENCES messages(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_task_trees_topic ON task_trees(topic_id);
+CREATE TABLE IF NOT EXISTS task_items (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    task_tree_id BIGINT NOT NULL REFERENCES task_trees(id),
+    parent_item_id BIGINT REFERENCES task_items(id),
+    title TEXT NOT NULL,
+    summary TEXT,
+    linked_message_id BIGINT REFERENCES messages(id),
+    deliverable_artifact_id BIGINT REFERENCES artifacts(id),
+    owner_human_id BIGINT REFERENCES humans(id),
+    owner_agent_instance_id BIGINT REFERENCES agent_instances(id),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'done')),
+    position INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (NOT (owner_human_id IS NOT NULL AND owner_agent_instance_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_task_items_tree ON task_items(task_tree_id, position);
+CREATE INDEX IF NOT EXISTS idx_task_items_parent ON task_items(parent_item_id);
+CREATE TABLE IF NOT EXISTS drift_nudges (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    topic_id BIGINT NOT NULL REFERENCES topics(id),
+    nudge_message_id BIGINT NOT NULL UNIQUE REFERENCES messages(id),
+    triggered_by_agent_instance_id BIGINT REFERENCES agent_instances(id),
+    drift_window_start_message_id BIGINT,
+    drift_window_end_message_id BIGINT,
+    drift_summary TEXT,
+    resolved_at TIMESTAMPTZ,
+    resolved_by TEXT CHECK (
+        resolved_by IS NULL OR resolved_by IN ('moved_to_topic', 'returned', 'dismissed')
+    ),
+    resolved_to_topic_id BIGINT REFERENCES topics(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_drift_nudges_topic ON drift_nudges(topic_id, created_at DESC);
+"""
+
+
+_init_lock = threading.Lock()
+_initialized_url: str | None = None
+
+
 def init_db() -> None:
-    with connect() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS work_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL CHECK (type IN ('idea', 'task')),
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'open'
-                    CHECK (status IN ('open', 'claimed', 'in_progress', 'done', 'rejected')),
-                created_by TEXT NOT NULL DEFAULT 'human',
-                claimed_by_agent_id INTEGER,
-                claimed_at TEXT,
-                git_branch TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS agents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                agent_type TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'idle'
-                    CHECK (status IN ('idle', 'active', 'blocked', 'offline')),
-                last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS humans (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                email TEXT,
-                github_id INTEGER UNIQUE,
-                github_login TEXT,
-                avatar_url TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                value_hash TEXT NOT NULL UNIQUE,
-                human_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                last_used_at TEXT,
-                revoked_at TEXT,
-                FOREIGN KEY(human_id) REFERENCES humans(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_sessions_value_hash ON sessions(value_hash);
-
-            CREATE TABLE IF NOT EXISTS projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                slug TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                description TEXT,
-                owner_human_id INTEGER,
-                repo_path TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(owner_human_id) REFERENCES humans(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
-
-            CREATE TABLE IF NOT EXISTS agent_roles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                description TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS agent_instances (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                role_id INTEGER NOT NULL,
-                human_id INTEGER NOT NULL,
-                device_label TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'idle'
-                    CHECK (status IN ('idle', 'active', 'blocked', 'offline', 'working')),
-                last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(role_id, human_id, device_label),
-                FOREIGN KEY(role_id) REFERENCES agent_roles(id),
-                FOREIGN KEY(human_id) REFERENCES humans(id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_agent_instances_human ON agent_instances(human_id);
-            CREATE INDEX IF NOT EXISTS idx_agent_instances_role ON agent_instances(role_id);
-
-            CREATE TABLE IF NOT EXISTS tokens (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                value_hash TEXT NOT NULL UNIQUE,
-                human_id INTEGER NOT NULL,
-                agent_instance_id INTEGER,
-                label TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                last_used_at TEXT,
-                revoked_at TEXT,
-                FOREIGN KEY(human_id) REFERENCES humans(id),
-                FOREIGN KEY(agent_instance_id) REFERENCES agent_instances(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_tokens_value_hash ON tokens(value_hash);
-            CREATE INDEX IF NOT EXISTS idx_tokens_human ON tokens(human_id);
-
-            CREATE TABLE IF NOT EXISTS device_auth_flows (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_code TEXT NOT NULL UNIQUE,
-                user_code TEXT NOT NULL UNIQUE,
-                role TEXT NOT NULL,
-                device_label TEXT NOT NULL,
-                human_id INTEGER,
-                agent_instance_id INTEGER,
-                token_id INTEGER,
-                token_value TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                expires_at TEXT NOT NULL,
-                authorized_at TEXT,
-                consumed_at TEXT,
-                FOREIGN KEY (human_id) REFERENCES humans(id),
-                FOREIGN KEY (agent_instance_id) REFERENCES agent_instances(id),
-                FOREIGN KEY (token_id) REFERENCES tokens(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_device_auth_flows_device_code
-                ON device_auth_flows(device_code);
-            CREATE INDEX IF NOT EXISTS idx_device_auth_flows_user_code
-                ON device_auth_flows(user_code);
-
-            CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type TEXT NOT NULL,
-                actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
-                actor_id INTEGER,
-                target_type TEXT NOT NULL,
-                target_id INTEGER,
-                project_id INTEGER,
-                topic_id INTEGER,
-                payload TEXT NOT NULL DEFAULT '{}',
-                occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_events_target ON events(target_type, target_id);
-            CREATE INDEX IF NOT EXISTS idx_events_occurred_at ON events(occurred_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
-            CREATE INDEX IF NOT EXISTS idx_events_topic ON events(topic_id, occurred_at DESC);
-
-            CREATE TABLE IF NOT EXISTS status_updates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                agent_id INTEGER NOT NULL,
-                work_item_id INTEGER,
-                status TEXT NOT NULL,
-                message TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(agent_id) REFERENCES agents(id),
-                FOREIGN KEY(work_item_id) REFERENCES work_items(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS findings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                work_item_id INTEGER,
-                agent_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(work_item_id) REFERENCES work_items(id),
-                FOREIGN KEY(agent_id) REFERENCES agents(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS human_notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                work_item_id INTEGER,
-                body TEXT NOT NULL,
-                feedback_type TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(work_item_id) REFERENCES work_items(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS topics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                slug TEXT NOT NULL UNIQUE,
-                title TEXT NOT NULL,
-                project_id INTEGER,
-                mode TEXT NOT NULL DEFAULT 'exploratory'
-                    CHECK (mode IN ('exploratory', 'actionable')),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_topics_project ON topics(project_id);
-
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic_id INTEGER NOT NULL,
-                type TEXT NOT NULL CHECK (type IN (
-                    'chat', 'status', 'finding', 'decision', 'question',
-                    'handoff', 'review', 'artifact_revision', 'spec_change',
-                    'nudge', 'proactive_finding', 'task_tree_proposal',
-                    'project_proposal', 'goal_proposal', 'system',
-                    'annotation'
-                )),
-                actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
-                actor_id INTEGER,
-                body TEXT NOT NULL,
-                metadata TEXT NOT NULL DEFAULT '{}',
-                ref_event_id INTEGER,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(topic_id) REFERENCES topics(id),
-                FOREIGN KEY(ref_event_id) REFERENCES events(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type);
-
-            CREATE TABLE IF NOT EXISTS artifacts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                slug TEXT NOT NULL,
-                type TEXT NOT NULL,
-                backend TEXT NOT NULL,
-                backend_ref TEXT NOT NULL,
-                title TEXT NOT NULL,
-                topic_id INTEGER NOT NULL,
-                current_version_id INTEGER,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(slug, topic_id),
-                FOREIGN KEY(topic_id) REFERENCES topics(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_artifacts_topic ON artifacts(topic_id);
-            CREATE INDEX IF NOT EXISTS idx_artifacts_type ON artifacts(type);
-
-            CREATE TABLE IF NOT EXISTS artifact_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                artifact_id INTEGER NOT NULL,
-                version_label TEXT NOT NULL,
-                backend_revision_id TEXT NOT NULL,
-                created_by_human_id INTEGER,
-                created_by_agent_instance_id INTEGER,
-                summary TEXT,
-                preview_uri TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(artifact_id, version_label),
-                FOREIGN KEY(artifact_id) REFERENCES artifacts(id),
-                FOREIGN KEY(created_by_human_id) REFERENCES humans(id),
-                FOREIGN KEY(created_by_agent_instance_id) REFERENCES agent_instances(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact ON artifact_versions(artifact_id, created_at DESC);
-
-            CREATE TABLE IF NOT EXISTS task_trees (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic_id INTEGER NOT NULL UNIQUE,
-                goal_artifact_id INTEGER,
-                goal_spec_text TEXT,
-                version INTEGER NOT NULL DEFAULT 1,
-                approved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                approved_by_human_id INTEGER,
-                proposal_message_id INTEGER,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (topic_id) REFERENCES topics(id),
-                FOREIGN KEY (goal_artifact_id) REFERENCES artifacts(id),
-                FOREIGN KEY (approved_by_human_id) REFERENCES humans(id),
-                FOREIGN KEY (proposal_message_id) REFERENCES messages(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_task_trees_topic ON task_trees(topic_id);
-
-            CREATE TABLE IF NOT EXISTS task_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_tree_id INTEGER NOT NULL,
-                parent_item_id INTEGER,
-                title TEXT NOT NULL,
-                summary TEXT,
-                linked_message_id INTEGER,
-                deliverable_artifact_id INTEGER,
-                owner_human_id INTEGER,
-                owner_agent_instance_id INTEGER,
-                status TEXT NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'active', 'done')),
-                position INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (task_tree_id) REFERENCES task_trees(id),
-                FOREIGN KEY (parent_item_id) REFERENCES task_items(id),
-                FOREIGN KEY (linked_message_id) REFERENCES messages(id),
-                FOREIGN KEY (deliverable_artifact_id) REFERENCES artifacts(id),
-                FOREIGN KEY (owner_human_id) REFERENCES humans(id),
-                FOREIGN KEY (owner_agent_instance_id) REFERENCES agent_instances(id),
-                CHECK (NOT (owner_human_id IS NOT NULL AND owner_agent_instance_id IS NOT NULL))
-            );
-            CREATE INDEX IF NOT EXISTS idx_task_items_tree ON task_items(task_tree_id, position);
-            CREATE INDEX IF NOT EXISTS idx_task_items_parent ON task_items(parent_item_id);
-
-            CREATE TABLE IF NOT EXISTS drift_nudges (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic_id INTEGER NOT NULL,
-                nudge_message_id INTEGER NOT NULL UNIQUE,
-                triggered_by_agent_instance_id INTEGER,
-                drift_window_start_message_id INTEGER,
-                drift_window_end_message_id INTEGER,
-                drift_summary TEXT,
-                resolved_at TEXT,
-                resolved_by TEXT
-                    CHECK (resolved_by IS NULL OR
-                           resolved_by IN ('moved_to_topic', 'returned', 'dismissed')),
-                resolved_to_topic_id INTEGER,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (topic_id) REFERENCES topics(id),
-                FOREIGN KEY (nudge_message_id) REFERENCES messages(id),
-                FOREIGN KEY (triggered_by_agent_instance_id) REFERENCES agent_instances(id),
-                FOREIGN KEY (resolved_to_topic_id) REFERENCES topics(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_drift_nudges_topic
-                ON drift_nudges(topic_id, created_at DESC);
-            """
-        )
-
-        existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(human_notes)").fetchall()}
-        if "feedback_type" not in existing_cols:
-            conn.execute("ALTER TABLE human_notes ADD COLUMN feedback_type TEXT")
-
-        # Widen messages.type CHECK to include 'project_proposal' (Track C1)
-        # and 'goal_proposal' (Track C1.5). SQLite cannot ALTER a CHECK; rebuild
-        # the table when the constraint in sqlite_master doesn't yet list a
-        # required new value.
-        msg_sql = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
-        ).fetchone()
-        sql_text = (msg_sql["sql"] or "") if msg_sql else ""
-        if msg_sql and (
-            "project_proposal" not in sql_text
-            or "goal_proposal" not in sql_text
-            or "annotation" not in sql_text
-        ):
-            pre_cols = {
-                r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()
-            }
-            has_addr = "addressed_to" in pre_cols
-            conn.execute(
-                """
-                CREATE TABLE messages_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    topic_id INTEGER NOT NULL,
-                    type TEXT NOT NULL CHECK (type IN (
-                        'chat', 'status', 'finding', 'decision', 'question',
-                        'handoff', 'review', 'artifact_revision', 'spec_change',
-                        'nudge', 'proactive_finding', 'task_tree_proposal',
-                        'project_proposal', 'goal_proposal', 'system',
-                        'annotation'
-                    )),
-                    actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
-                    actor_id INTEGER,
-                    body TEXT NOT NULL,
-                    metadata TEXT NOT NULL DEFAULT '{}',
-                    ref_event_id INTEGER,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    addressed_to TEXT,
-                    FOREIGN KEY(topic_id) REFERENCES topics(id),
-                    FOREIGN KEY(ref_event_id) REFERENCES events(id)
-                )
-                """
-            )
-            if has_addr:
-                conn.execute(
-                    "INSERT INTO messages_new (id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at, addressed_to) "
-                    "SELECT id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at, addressed_to FROM messages"
-                )
-            else:
-                conn.execute(
-                    "INSERT INTO messages_new (id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at) "
-                    "SELECT id, topic_id, type, actor_type, actor_id, body, metadata, ref_event_id, created_at FROM messages"
-                )
-            conn.execute("DROP TABLE messages")
-            conn.execute("ALTER TABLE messages_new RENAME TO messages")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC)"
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_type ON messages(type)")
-
-        # Add project_id column to topics if missing (idempotent migration)
-        topic_cols = {r["name"] for r in conn.execute("PRAGMA table_info(topics)").fetchall()}
-        if "project_id" not in topic_cols:
-            conn.execute("ALTER TABLE topics ADD COLUMN project_id INTEGER REFERENCES projects(id)")
-
-        # Add addressed_to column to messages if missing (idempotent migration).
-        # Stores a CSV of human IDs the message is directed at — used by
-        # GET /api/attention to build the per-user inbox.
-        msg_cols_for_addr = {
-            r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()
-        }
-        if "addressed_to" not in msg_cols_for_addr:
-            conn.execute("ALTER TABLE messages ADD COLUMN addressed_to TEXT")
-
-        # Add exploration metadata to task_items if missing. Existing installs
-        # may have the original checklist-shaped table.
-        task_item_cols = {
-            r["name"] for r in conn.execute("PRAGMA table_info(task_items)").fetchall()
-        }
-        if "summary" not in task_item_cols:
-            conn.execute("ALTER TABLE task_items ADD COLUMN summary TEXT")
-        if "linked_message_id" not in task_item_cols:
-            conn.execute(
-                "ALTER TABLE task_items ADD COLUMN linked_message_id INTEGER REFERENCES messages(id)"
-            )
-        if "deliverable_artifact_id" not in task_item_cols:
-            conn.execute(
-                "ALTER TABLE task_items ADD COLUMN deliverable_artifact_id INTEGER REFERENCES artifacts(id)"
-            )
-
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS device_auth_flows (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                device_code TEXT NOT NULL UNIQUE,
-                user_code TEXT NOT NULL UNIQUE,
-                role TEXT NOT NULL,
-                device_label TEXT NOT NULL,
-                human_id INTEGER,
-                agent_instance_id INTEGER,
-                token_id INTEGER,
-                token_value TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                expires_at TEXT NOT NULL,
-                authorized_at TEXT,
-                consumed_at TEXT,
-                FOREIGN KEY (human_id) REFERENCES humans(id),
-                FOREIGN KEY (agent_instance_id) REFERENCES agent_instances(id),
-                FOREIGN KEY (token_id) REFERENCES tokens(id)
-            )
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_device_auth_flows_device_code ON device_auth_flows(device_code)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_device_auth_flows_user_code ON device_auth_flows(user_code)"
-        )
-
-        # Seed the default project (idempotent via INSERT OR IGNORE on slug UNIQUE)
-        conn.execute(
-            "INSERT OR IGNORE INTO projects (slug, name, description) VALUES (?, ?, ?)",
-            ("default", "Default Project", "Auto-created for topics without an explicit project."),
-        )
-
-        # Backfill any topics that still have NULL project_id
-        default_id_row = conn.execute("SELECT id FROM projects WHERE slug='default'").fetchone()
-        if default_id_row is not None:
-            conn.execute(
-                "UPDATE topics SET project_id = ? WHERE project_id IS NULL",
-                (default_id_row["id"],),
-            )
-
-        # Seed known agent roles (idempotent via INSERT OR IGNORE)
-        conn.execute("INSERT OR IGNORE INTO agent_roles (name, description) VALUES (?, ?)",
-                     ("claude", "Anthropic Claude Code"))
-        conn.execute("INSERT OR IGNORE INTO agent_roles (name, description) VALUES (?, ?)",
-                     ("codex", "OpenAI Codex CLI"))
-
-        _migrate_humans_github(conn)
-        _migrate_topics_mode(conn)
+    global _initialized_url
+    url = database_url()
+    with _init_lock:
+        with connect() as conn:
+            conn.executescript(_SCHEMA_SQL)
+            # Idempotent additive migrations for existing Postgres deploys.
+            conn.execute("ALTER TABLE agent_instances ADD COLUMN IF NOT EXISTS model TEXT")
+            conn.execute("ALTER TABLE device_auth_flows ADD COLUMN IF NOT EXISTS model TEXT")
+            conn.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS addressed_to TEXT")
+            conn.execute("ALTER TABLE topics ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES projects(id)")
+            conn.execute("ALTER TABLE topics ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'exploratory'")
+            conn.execute("ALTER TABLE task_items ADD COLUMN IF NOT EXISTS summary TEXT")
+            conn.execute("ALTER TABLE task_items ADD COLUMN IF NOT EXISTS linked_message_id BIGINT REFERENCES messages(id)")
+            conn.execute("ALTER TABLE task_items ADD COLUMN IF NOT EXISTS deliverable_artifact_id BIGINT REFERENCES artifacts(id)")
+            conn.execute("INSERT INTO projects (slug, name, description) VALUES (?, ?, ?) ON CONFLICT (slug) DO NOTHING",
+                         ("default", "Default Project", "Auto-created for topics without an explicit project."))
+            default_id = conn.execute("SELECT id FROM projects WHERE slug = ?", ("default",)).fetchone()
+            if default_id is not None:
+                conn.execute("UPDATE topics SET project_id = ? WHERE project_id IS NULL", (default_id["id"],))
+            conn.execute("INSERT INTO agent_roles (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
+                         ("claude", "Anthropic Claude Code"))
+            conn.execute("INSERT INTO agent_roles (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
+                         ("codex", "OpenAI Codex CLI"))
+        _initialized_url = url
 
 
-def _migrate_humans_github(conn) -> None:
-    """Non-destructive migration: ensure humans has github_id/login/avatar_url."""
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(humans)").fetchall()}
-    if "github_id" not in cols:
-        conn.execute("ALTER TABLE humans ADD COLUMN github_id INTEGER")
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_humans_github_id ON humans(github_id)"
-        )
-    if "github_login" not in cols:
-        conn.execute("ALTER TABLE humans ADD COLUMN github_login TEXT")
-    if "avatar_url" not in cols:
-        conn.execute("ALTER TABLE humans ADD COLUMN avatar_url TEXT")
-
-
-def _migrate_topics_mode(conn) -> None:
-    """Non-destructive migration: ensure topics has mode column with CHECK.
-
-    Wraps the table rebuild in ``PRAGMA foreign_keys=OFF`` so the DROP
-    doesn't trip if a hosting environment has FK enforcement on. The
-    rebuild swaps in a new table with identical id values, so referencing
-    tables (messages, etc.) remain valid by id.
-    """
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(topics)").fetchall()}
-    if "mode" in cols:
-        return
-    # Capture and restore foreign_keys around the rebuild
-    prev_fk = conn.execute("PRAGMA foreign_keys").fetchone()[0]
-    if prev_fk:
-        conn.execute("PRAGMA foreign_keys=OFF")
-    try:
-        conn.execute("""
-            CREATE TABLE topics_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                slug TEXT NOT NULL UNIQUE,
-                title TEXT NOT NULL,
-                project_id INTEGER,
-                mode TEXT NOT NULL DEFAULT 'exploratory'
-                    CHECK (mode IN ('exploratory', 'actionable')),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.execute("""
-            INSERT INTO topics_new (id, slug, title, project_id, created_at, updated_at)
-            SELECT id, slug, title, project_id, created_at, updated_at FROM topics
-        """)
-        conn.execute("DROP TABLE topics")
-        conn.execute("ALTER TABLE topics_new RENAME TO topics")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_topics_project ON topics(project_id)")
-    finally:
-        if prev_fk:
-            conn.execute("PRAGMA foreign_keys=ON")
+def reset_initialized_marker() -> None:
+    global _initialized_url
+    _initialized_url = None

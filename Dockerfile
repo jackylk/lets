@@ -29,7 +29,6 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist/
 COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 RUN chmod +x ./scripts/docker-entrypoint.sh
 
-ENV LETS_DB_PATH=/data/lets.db
 ENV LETS_GIT_REPO=/data/lets-artifacts
 ENV LETS_FRONTEND_DIST=/app/frontend/dist
 

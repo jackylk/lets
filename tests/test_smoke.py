@@ -16,4 +16,4 @@ def test_smoke_temp_db_works(temp_db):
 def test_smoke_client_works(client):
     r = client.get("/api/context")
     assert r.status_code == 200
-    assert r.json()["project"]["name"] == "Lets"
+    assert r.json()["project"]["name"] == "Let's"
