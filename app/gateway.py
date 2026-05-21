@@ -987,6 +987,11 @@ def _login(argv: list[str]) -> int:
         default=os.environ.get("LETS_MODEL"),
         help="Model to store for this Claude agent.",
     )
+    parser.add_argument(
+        "--workspace",
+        default=os.environ.get("LETS_WORKSPACE"),
+        help="Workspace slug to bind this agent to (default: caller's first workspace, auto-creates '我的工作区' if none).",
+    )
     args = parser.parse_args(argv)
 
     params_dict = {
@@ -995,6 +1000,8 @@ def _login(argv: list[str]) -> int:
     }
     if args.role == "claude" and args.model:
         params_dict["model"] = args.model
+    if args.workspace:
+        params_dict["workspace"] = args.workspace
     params = urllib.parse.urlencode(params_dict)
     start = _http_public(args.host, "GET", f"/auth/device-flow/start?{params}")
     verification_url = start["verification_url"]
@@ -1607,6 +1614,11 @@ def _add_agent(argv: list[str]) -> int:
         default=os.environ.get("LETS_MODEL"),
         help="Model to store/use for this Claude agent (haiku/sonnet/opus/full id).",
     )
+    parser.add_argument(
+        "--workspace",
+        default=os.environ.get("LETS_WORKSPACE"),
+        help="Workspace slug to bind this agent to (default: caller's first workspace).",
+    )
     args = parser.parse_args(argv)
 
     print(f"Adding agent: {args.role} on {args.device_label}")
@@ -1619,6 +1631,8 @@ def _add_agent(argv: list[str]) -> int:
         login_args.append("--no-open")
     if args.model:
         login_args.extend(["--model", args.model])
+    if args.workspace:
+        login_args.extend(["--workspace", args.workspace])
     rc = _login(login_args)
     if rc != 0:
         return rc

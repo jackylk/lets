@@ -405,6 +405,10 @@ MODEL_ARGS=()
 if [ -n "${{LETS_MODEL:-}}" ]; then
   MODEL_ARGS=(--model "$LETS_MODEL")
 fi
+WORKSPACE_ARGS=()
+if [ -n "${{LETS_WORKSPACE:-}}" ]; then
+  WORKSPACE_ARGS=(--workspace "$LETS_WORKSPACE")
+fi
 
 mkdir -p "$LETS_HOME" "$LETS_HOME/bin"
 
@@ -495,12 +499,12 @@ Adding your first agent (${{LETS_AGENT_ROLE:-claude}}) on this machine ...
 
 MSG
   LETS_HOST="$BASE_URL" "$LETS_HOME/bin/lets" add "${{LETS_AGENT_ROLE:-claude}}" \\
-    --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} || \\
+    --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} ${{WORKSPACE_ARGS[@]+"${{WORKSPACE_ARGS[@]}}"}} || \\
     {{ echo "lets add failed — try again with: lets add ${{LETS_AGENT_ROLE:-claude}}" >&2; exit 1; }}
 
   # launchd autostart is optional; if it fails the gateway is already running
   # for this session.
-  if "$LETS_HOME/bin/lets" install --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} >/dev/null 2>&1; then
+  if "$LETS_HOME/bin/lets" install --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} ${{WORKSPACE_ARGS[@]+"${{WORKSPACE_ARGS[@]}}"}} >/dev/null 2>&1; then
     AUTOSTART_MSG="Will also auto-start on login (launchd)."
   else
     AUTOSTART_MSG="(launchd autostart not configured — gateway runs for this session only.)"
@@ -2662,6 +2666,7 @@ def _device_flow_start_impl(
     device_label: str,
     model: str | None,
     workspace_id: int | None,
+    workspace_slug: str | None = None,
 ) -> dict:
     if role not in ("claude", "codex"):
         raise HTTPException(status_code=400, detail="role must be claude or codex")
@@ -2671,6 +2676,19 @@ def _device_flow_start_impl(
         model = None
     if model and any(ch.isspace() for ch in model):
         raise HTTPException(status_code=400, detail="model cannot contain whitespace")
+    # Resolve workspace slug to id when caller can't authenticate to look it up themselves.
+    # If slug doesn't resolve, fall through with workspace_id=None — authorize step
+    # will default to the human's first workspace or auto-create.
+    if workspace_id is None and workspace_slug:
+        ws_slug = workspace_slug.strip().lower()
+        if ws_slug:
+            with connect() as conn:
+                row = conn.execute(
+                    "SELECT id FROM workspaces WHERE slug = ? AND deleted_at IS NULL",
+                    (ws_slug,),
+                ).fetchone()
+            if row:
+                workspace_id = int(row["id"])
     device_code = _secrets.token_urlsafe(32)
     user_code = _new_user_code()
     with connect() as conn:
@@ -2702,6 +2720,7 @@ def device_flow_start(
     role: str = Query(default="claude"),
     device_label: str = Query(default="local"),
     model: str | None = Query(default=None),
+    workspace: str | None = Query(default=None),
 ) -> dict:
     return _device_flow_start_impl(
         request=request,
@@ -2709,6 +2728,7 @@ def device_flow_start(
         device_label=device_label,
         model=model,
         workspace_id=None,
+        workspace_slug=workspace,
     )
 
 
@@ -2719,6 +2739,7 @@ def api_device_flow_start(
     device_label: str = Query(default="local"),
     model: str | None = Query(default=None),
     workspace_id: int | None = Query(default=None),
+    workspace: str | None = Query(default=None),
 ) -> dict:
     return _device_flow_start_impl(
         request=request,
@@ -2726,6 +2747,7 @@ def api_device_flow_start(
         device_label=device_label,
         model=model,
         workspace_id=workspace_id,
+        workspace_slug=workspace,
     )
 
 
