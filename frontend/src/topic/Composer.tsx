@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
 
 export interface ComposerMessage {
   body: string;
@@ -10,9 +10,17 @@ export interface MentionResolver {
   resolveHumanIds: (mentions: string[]) => number[];
 }
 
+export interface MentionCandidate {
+  key: string;
+  label: string;
+  detail: string;
+  kind: "human" | "agent";
+}
+
 interface Props {
   onSend: (msg: ComposerMessage) => void;
   resolver?: MentionResolver;
+  mentionCandidates?: MentionCandidate[];
   placeholder?: string;
   disabled?: boolean;
 }
@@ -29,11 +37,77 @@ function extractMentions(body: string): string[] {
   for (const m of matches) {
     out.add(m[1]!.toLowerCase());
   }
+  const lowered = body.toLowerCase();
+  if (/(^|[^\p{L}\p{N}_-])(cc|claude)(?=$|[^\p{L}\p{N}_-]|[\u4e00-\u9fff])/u.test(lowered)) {
+    out.add("cc");
+  }
+  if (/(^|[^\p{L}\p{N}_-])(cx|codex)(?=$|[^\p{L}\p{N}_-]|[\u4e00-\u9fff])/u.test(lowered)) {
+    out.add("cx");
+  }
   return [...out];
 }
 
-export function Composer({ onSend, resolver, placeholder, disabled }: Props) {
+function activeMentionQuery(text: string, caret: number): { start: number; query: string } | null {
+  const before = text.slice(0, caret);
+  const match = before.match(/@([\p{L}\p{N}_-]*)$/u);
+  if (!match || match.index == null) return null;
+  return { start: match.index, query: (match[1] ?? "").toLowerCase() };
+}
+
+export function Composer({
+  onSend,
+  resolver,
+  mentionCandidates = [],
+  placeholder,
+  disabled,
+}: Props) {
   const [text, setText] = useState("");
+  const [caret, setCaret] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const mentionQuery = activeMentionQuery(text, caret);
+  const mentionOptions = useMemo(() => {
+    if (!mentionQuery) return [];
+    const q = mentionQuery.query;
+    // Empty query (just typed "@") → show everything in stable order.
+    if (q === "") return mentionCandidates.slice(0, 6);
+    // Prefix match on key (e.g. "cc", "codex", "jacky") OR on label, with
+    // a tier so key-prefix matches rank above label-prefix matches.
+    const ranked: { c: MentionCandidate; tier: number }[] = [];
+    for (const c of mentionCandidates) {
+      const key = c.key.toLowerCase();
+      const label = c.label.toLowerCase();
+      if (key.startsWith(q)) ranked.push({ c, tier: 0 });
+      else if (label.startsWith(q)) ranked.push({ c, tier: 1 });
+      // Also tolerate the user typing inside the label after a space —
+      // e.g. "@mac" should still find "claude · mac16".
+      else if (label.split(/[\s·]+/).some((part) => part.startsWith(q))) {
+        ranked.push({ c, tier: 2 });
+      }
+    }
+    ranked.sort((a, b) => a.tier - b.tier);
+    return ranked.map((r) => r.c).slice(0, 6);
+  }, [mentionCandidates, mentionQuery]);
+
+  function updateText(e: ChangeEvent<HTMLTextAreaElement>) {
+    setText(e.target.value);
+    setCaret(e.target.selectionStart);
+    setActiveIndex(0);
+  }
+
+  function selectMention(candidate: MentionCandidate) {
+    if (!mentionQuery) return;
+    const next = `${text.slice(0, mentionQuery.start)}@${candidate.key} ${text.slice(caret)}`;
+    const nextCaret = mentionQuery.start + candidate.key.length + 2;
+    setText(next);
+    setCaret(nextCaret);
+    setActiveIndex(0);
+    requestAnimationFrame(() => {
+      const textarea = document.querySelector<HTMLTextAreaElement>("[data-testid='composer-textarea']");
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
 
   function submit() {
     const trimmed = text.trim();
@@ -46,9 +120,40 @@ export function Composer({ onSend, resolver, placeholder, disabled }: Props) {
     }
     onSend({ body: trimmed, addressedTo });
     setText("");
+    setCaret(0);
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    // IME composition: while the user is committing 拼音/汉字/英文候选 via
+    // Sogou/Microsoft IME etc., Enter belongs to the IME, not to us. Bail
+    // out so the IME picks the candidate normally and we don't send a half-
+    // typed message. (e.keyCode === 229 is the legacy signal; isComposing
+    // is the modern one — check both.)
+    if (e.nativeEvent.isComposing || e.keyCode === 229) {
+      return;
+    }
+    if (mentionOptions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveIndex((i) => (i + 1) % mentionOptions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveIndex((i) => (i - 1 + mentionOptions.length) % mentionOptions.length);
+        return;
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        e.preventDefault();
+        const selected = mentionOptions[activeIndex] ?? mentionOptions[0];
+        if (selected) selectMention(selected);
+        return;
+      }
+      if (e.key === "Escape") {
+        setCaret(0);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
@@ -60,24 +165,55 @@ export function Composer({ onSend, resolver, placeholder, disabled }: Props) {
     mentions.length > 0 && resolver ? resolver.resolveHumanIds(mentions) : [];
 
   return (
-    <div className="px-6 py-3">
-      <div className="rounded-lg border border-border bg-surface-elev px-3 py-2 flex flex-col gap-2">
+    <div className="px-6 py-3 border-t border-border-soft bg-bg">
+      <div className="relative rounded border border-border bg-surface-elev px-3 py-2 flex flex-col gap-2 shadow-sm focus-within:border-accent-border focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
+        {mentionOptions.length > 0 && (
+          <div className="absolute left-3 bottom-[calc(100%+6px)] w-72 max-w-[calc(100vw-48px)] rounded border border-border bg-surface-elev shadow-lg overflow-hidden z-20">
+            {mentionOptions.map((candidate, index) => (
+              <button
+                key={`${candidate.kind}-${candidate.key}`}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectMention(candidate);
+                }}
+                className={[
+                  "w-full px-3 py-2 text-left flex items-center gap-2 transition-colors",
+                  index === activeIndex
+                    ? "bg-accent-soft shadow-[inset_2px_0_0_var(--color-accent)]"
+                    : "hover:bg-surface-hover",
+                ].join(" ")}
+              >
+                <span className="w-7 h-7 rounded-[3px] border border-border grid place-items-center font-[var(--font-display)] text-[12px] text-text-muted">
+                  {candidate.kind === "agent" ? candidate.key.toUpperCase().slice(0, 2) : candidate.label.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13px] text-text truncate">{candidate.label}</span>
+                  <span className="block text-[11px] text-text-dim font-mono truncate">@{candidate.key} · {candidate.detail}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
+          data-testid="composer-textarea"
           rows={1}
           value={text}
           disabled={disabled}
-          placeholder={placeholder ?? "发消息，或 @claude / @codex / @human 派活…"}
-          onChange={(e) => setText(e.target.value)}
+          placeholder={placeholder ?? "发消息，输入 @ 选择人或 agent…"}
+          onChange={updateText}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          onClick={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={onKey}
-          className="bg-transparent outline-none resize-none text-[14px] leading-relaxed min-h-[28px]"
+          className="bg-transparent outline-none resize-none text-[14.5px] leading-relaxed min-h-[28px]"
         />
         <div className="flex items-center text-[11px] text-text-dim gap-2">
-          <span>/ 命令 · @ 提及 · ⏎ 发送 · ⇧⏎ 换行</span>
+          <span>/ 命令 · @ 提及 · Enter 发送 · Shift Enter 换行</span>
           {mentions.length > 0 && (
             <span className="font-mono">
               {mentions.map((m) => `@${m}`).join(" ")}
               {resolvedIds.length > 0
-                ? ` → human_id ${resolvedIds.join(",")}`
+                ? ` to human_id ${resolvedIds.join(",")}`
                 : " (无法解析)"}
             </span>
           )}
@@ -86,7 +222,7 @@ export function Composer({ onSend, resolver, placeholder, disabled }: Props) {
             type="button"
             onClick={submit}
             disabled={!text.trim() || disabled}
-            className="px-3 py-1 rounded bg-text text-bg disabled:opacity-40 disabled:cursor-not-allowed text-[12px] font-medium"
+            className="px-3 py-1 rounded-[3px] bg-text text-bg disabled:opacity-40 disabled:cursor-not-allowed text-[12px] font-medium"
           >
             发送
           </button>

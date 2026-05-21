@@ -1,54 +1,56 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg:               oklch(0.985 0.006 75);
-  --color-surface:          oklch(0.965 0.008 75);
-  --color-surface-elev:     oklch(0.995 0.004 75);
-  --color-surface-hover:    oklch(0.955 0.009 75);
-  --color-border:           oklch(0.88  0.010 75);
-  --color-border-soft:      oklch(0.92  0.008 75);
+  --color-bg:               #FAF8F3;
+  --color-surface:          #F2EEE6;
+  --color-surface-elev:     #FBF9F4;
+  --color-surface-hover:    #ECE7DC;
+  --color-border:           #E0D9CC;
+  --color-border-soft:      #EDE8DD;
 
-  --color-text:             oklch(0.22 0.010 240);
-  --color-text-muted:       oklch(0.46 0.010 240);
-  --color-text-dim:         oklch(0.62 0.008 240);
+  --color-text:             #2C2A26;
+  --color-text-muted:       #5D5950;
+  --color-text-dim:         #8A8378;
 
-  --color-accent:           oklch(0.62 0.16 55);
-  --color-accent-soft:      oklch(0.93 0.07 70);
-  --color-accent-text:      oklch(0.42 0.16 55);
-  --color-accent-border:    oklch(0.78 0.10 70);
+  --color-accent:           #B4654A;
+  --color-accent-soft:      #F3E4DA;
+  --color-accent-text:      #8E3B2E;
+  --color-accent-border:    #DCB29B;
 
-  --color-agent-claude:     oklch(0.52 0.14 50);
-  --color-agent-claude-bg:  oklch(0.94 0.05 50);
-  --color-agent-codex:      oklch(0.46 0.10 155);
-  --color-agent-codex-bg:   oklch(0.93 0.04 155);
-  --color-human:            oklch(0.45 0.10 220);
-  --color-human-bg:         oklch(0.93 0.03 220);
+  --color-agent-claude:     #B4654A;
+  --color-agent-claude-bg:  #F3E4DA;
+  --color-agent-codex:      #6B7F4A;
+  --color-agent-codex-bg:   #ECEFD9;
+  --color-human:            #4A6B7F;
+  --color-human-bg:         #DEE7EC;
 
-  --color-finding:          oklch(0.46 0.10 155);
-  --color-finding-bg:       oklch(0.93 0.04 155);
-  --color-decision:         oklch(0.45 0.16 290);
-  --color-decision-bg:      oklch(0.93 0.06 290);
-  --color-handoff:          oklch(0.45 0.13 215);
-  --color-handoff-bg:       oklch(0.93 0.05 215);
-  --color-review:           oklch(0.45 0.12 285);
-  --color-review-bg:        oklch(0.93 0.05 285);
-  --color-artifact:         oklch(0.40 0.12 255);
-  --color-artifact-bg:      oklch(0.93 0.04 255);
-  --color-spec:             oklch(0.42 0.06 190);
-  --color-spec-bg:          oklch(0.93 0.03 190);
-  --color-proactive:        oklch(0.55 0.16 30);
-  --color-proactive-bg:     oklch(0.95 0.06 30);
-  --color-tree:             oklch(0.42 0.10 170);
-  --color-tree-bg:          oklch(0.94 0.04 170);
-  --color-nudge:            oklch(0.50 0.020 80);
-  --color-nudge-bg:         oklch(0.95 0.012 80);
+  --color-finding:          #6B7F4A;
+  --color-finding-bg:       #ECEFD9;
+  --color-decision:         #7F4A6B;
+  --color-decision-bg:      #ECDEE7;
+  --color-handoff:          #4A6B7F;
+  --color-handoff-bg:       #DEE7EC;
+  --color-review:           #7F4A6B;
+  --color-review-bg:        #ECDEE7;
+  --color-artifact:         #4A6B7F;
+  --color-artifact-bg:      #DEE7EC;
+  --color-spec:             #4A7F77;
+  --color-spec-bg:          #DEEDE9;
+  --color-proactive:        #B4654A;
+  --color-proactive-bg:     #F3E4DA;
+  --color-tree:             #4A7F77;
+  --color-tree-bg:          #DEEDE9;
+  --color-nudge:            #8A8378;
+  --color-nudge-bg:         #F2EEE6;
+  --color-annotation:       #C8A24A;
+  --color-annotation-bg:    #FBF1D3;
 
-  --color-status-on:        oklch(0.62 0.14 145);
-  --color-status-work:      oklch(0.65 0.16 55);
-  --color-status-idle:      oklch(0.65 0.008 240);
+  --color-status-on:        #6B7F4A;
+  --color-status-work:      #B4654A;
+  --color-status-idle:      #8A8378;
 
-  --font-display: "Bricolage Grotesque", system-ui, sans-serif;
-  --font-body:    "Geist Variable", "Geist", system-ui, sans-serif;
+  --font-display: "Newsreader", Georgia, "Source Serif 4", "Songti SC", serif;
+  --font-body:    "Source Serif 4", "Newsreader", Georgia, "PingFang SC", serif;
   --font-mono:    "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
 
   --radius-sm: 6px;
@@ -64,9 +66,12 @@ body {
   margin: 0;
   font-family: var(--font-body);
   font-feature-settings: "ss01", "cv11";
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   background: var(--color-bg);
   color: var(--color-text);
+  line-height: 1.68;
 }
 
 @media (max-width: 1279px) {
@@ -76,4 +81,19 @@ body {
 @media (max-width: 767px) {
   [data-testid="app-shell"] { grid-template-columns: 1fr !important; }
   [data-testid="app-shell"] > aside:first-child { display: none !important; }
+}
+
+@keyframes lets-slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+.animate-slide-in-right {
+  animation: lets-slide-in-right 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Mermaid node selection highlight inside DiagramOverlay. The renderer
+   sets data-lets-selected="1" on whichever shape was clicked. */
+[data-lets-selected="1"] {
+  stroke: var(--color-accent) !important;
+  stroke-width: 2.5px !important;
 }

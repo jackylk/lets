@@ -1,12 +1,18 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   useTopicMessages, usePostMessage, useIdentityMe,
   useTopic, useTopicParticipants, useAllAgents,
 } from "../api/queries";
 import { useTopicStream } from "../api/sse";
 import { TopicHeader } from "./TopicHeader";
+import { AgentListenStatus } from "./AgentListenStatus";
 import { Stream } from "./Stream";
-import { Composer, type MentionResolver } from "./Composer";
+import { ViewModeToggle } from "./ViewModeToggle";
+import { ExportSpecButton } from "./ExportSpecButton";
+import { StreamProvider } from "../messages/StreamContext";
+import { DiagramOverlay } from "../messages/DiagramOverlay";
+import { Composer, type MentionCandidate, type MentionResolver } from "./Composer";
+import { topicDisplayTitle } from "./topicSummary";
 import type { MessageDTO, TaskTreeProposalMeta } from "../api/types";
 
 interface Props {
@@ -20,6 +26,8 @@ export function TopicView({ topicId }: Props) {
   const initial = useTopicMessages(topicId);
   const live = useTopicStream(topicId);
   const postMessage = usePostMessage(topicId);
+  const agents = useAllAgents();
+  const scrollEndRef = useRef<HTMLDivElement | null>(null);
 
   const merged: MessageDTO[] = useMemo(() => {
     const base = initial.data?.messages ?? [];
@@ -46,20 +54,71 @@ export function TopicView({ topicId }: Props) {
   // Build a real actor directory from /api/topics/{id}/participants
   const directory = useMemo(() => {
     const p = participants.data;
-    if (!p) return { humans: [], agentInstances: [] };
-    return {
-      humans: p.humans.map((h) => ({ id: h.id, name: h.name })),
-      agentInstances: p.agents.map((a) => ({
+    const humanById = new Map<number, { id: number; name: string }>();
+    const agentById = new Map<number, { id: number; role: string; device_label: string; human_id: number }>();
+    if (me.data?.human) {
+      humanById.set(me.data.human.id, {
+        id: me.data.human.id,
+        name: me.data.human.name,
+      });
+    }
+    for (const h of p?.humans ?? []) {
+      humanById.set(h.id, { id: h.id, name: h.name });
+    }
+    for (const a of p?.agents ?? []) {
+      agentById.set(a.id, {
         id: a.id,
         role: a.role,
         device_label: a.device_label,
-        human_id: 0, // not currently needed by Stream rendering
-      })),
+        human_id: 0,
+      });
+    }
+    for (const a of agents.data ?? []) {
+      agentById.set(a.agent_instance_id, {
+        id: a.agent_instance_id,
+        role: a.role,
+        device_label: a.device_label,
+        human_id: a.human_id,
+      });
+    }
+    return {
+      humans: [...humanById.values()],
+      agentInstances: [...agentById.values()],
     };
-  }, [participants.data]);
+  }, [agents.data, me.data, participants.data]);
 
   // Build a mention resolver: @cc / @codex / @<role> / @<device> / @<human> → human_id list.
-  const agents = useAllAgents();
+  const mentionCandidates: MentionCandidate[] = useMemo(() => {
+    const out: MentionCandidate[] = [];
+    const seen = new Set<string>();
+    for (const a of agents.data ?? []) {
+      if (!a.is_online) continue;
+      const key = a.role === "claude" ? "cc" : a.role === "codex" ? "cx" : a.role.toLowerCase();
+      if (!seen.has(`agent:${key}`)) {
+        seen.add(`agent:${key}`);
+        out.push({
+          key,
+          label: `${a.role} · ${a.device_label}`,
+          detail: a.is_online ? "online" : "offline",
+          kind: "agent",
+        });
+      }
+    }
+    for (const h of participants.data?.humans ?? []) {
+      if (me.data?.human.id === h.id) continue;
+      const key = h.name.toLowerCase();
+      if (seen.has(`human:${key}`)) continue;
+      seen.add(`human:${key}`);
+      out.push({
+        key,
+        label: h.name,
+        detail: "human",
+        kind: "human",
+      });
+    }
+    return out;
+  }, [agents.data, me.data, participants.data]);
+
   const resolver: MentionResolver = useMemo(() => {
     const lookup: Record<string, number> = {};
     // Humans in the topic
@@ -99,17 +158,42 @@ export function TopicView({ topicId }: Props) {
     });
   }
 
-  const title = topic.data?.title ?? (topic.isLoading ? "" : `Topic #${topicId}`);
+  const title = topicDisplayTitle(topic.data, merged) || (topic.isLoading ? "" : `Topic #${topicId}`);
+
+  useEffect(() => {
+    scrollEndRef.current?.scrollIntoView?.({ block: "end" });
+  }, [topicId, merged.length]);
 
   return (
-    <div className="flex flex-col h-full">
-      <TopicHeader title={title} goal={goal} />
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        {initial.isLoading && <div className="text-text-dim">加载中…</div>}
-        {initial.isError && <div className="text-text-dim">加载失败</div>}
-        <Stream messages={merged} directory={directory} />
+    <StreamProvider messages={merged} directory={directory} topicId={topicId}>
+      <div className="flex flex-col h-full">
+        <TopicHeader
+          title={title}
+          goal={goal}
+          headerRight={
+            <div className="flex items-center gap-2">
+              <ExportSpecButton topicId={topicId} />
+              <ViewModeToggle />
+            </div>
+          }
+        />
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {initial.isLoading && <div className="text-text-dim">加载中…</div>}
+          {initial.isError && <div className="text-text-dim">加载失败</div>}
+          <Stream messages={merged} directory={directory} topicId={topicId} />
+          <div ref={scrollEndRef} />
+        </div>
+        <Composer
+          onSend={send}
+          resolver={resolver}
+          mentionCandidates={mentionCandidates}
+          disabled={postMessage.isPending}
+        />
+        {/* Status strip lives below the composer so the user can see CC's
+            state while typing (eyes are already at the bottom of the screen). */}
+        <AgentListenStatus messages={merged} />
       </div>
-      <Composer onSend={send} resolver={resolver} disabled={postMessage.isPending} />
-    </div>
+      <DiagramOverlay />
+    </StreamProvider>
   );
 }

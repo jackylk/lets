@@ -25,7 +25,7 @@ export function TopicHeaderProgress({ doneCount, totalCount, currentTaskTitle }:
       <span className="font-mono">{doneCount}/{totalCount}</span>
       {currentTaskTitle && (
         <>
-          <span className="text-text-dim">→</span>
+          <span className="text-text-dim font-mono">now</span>
           <span className="truncate max-w-[16ch]" title={currentTaskTitle}>{currentTaskTitle}</span>
         </>
       )}

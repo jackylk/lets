@@ -44,6 +44,109 @@ describe("<Composer />", () => {
     });
   });
 
+  it("treats plain CC/Codex calls as addressed agent mentions", async () => {
+    const onSend = vi.fn();
+    const resolver = {
+      resolveHumanIds: vi.fn((mentions: string[]) => {
+        const map: Record<string, number> = { cc: 1, cx: 2 };
+        return mentions.map((m) => map[m]).filter((n): n is number => typeof n === "number");
+      }),
+    };
+    const user = userEvent.setup();
+    renderWithProviders(<Composer onSend={onSend} resolver={resolver} />);
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "CC在吗");
+    await user.keyboard("{Enter}");
+
+    expect(resolver.resolveHumanIds).toHaveBeenCalledWith(["cc"]);
+    expect(onSend).toHaveBeenCalledWith({
+      body: "CC在吗",
+      addressedTo: "1",
+    });
+  });
+
+  it("shows mention candidates after @ and inserts the selected alias", async () => {
+    const onSend = vi.fn();
+    const resolver = {
+      resolveHumanIds: vi.fn((mentions: string[]) => {
+        const map: Record<string, number> = { cc: 1 };
+        return mentions.map((m) => map[m]).filter((n): n is number => typeof n === "number");
+      }),
+    };
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Composer
+        onSend={onSend}
+        resolver={resolver}
+        mentionCandidates={[
+          { key: "cc", label: "claude · mac16", detail: "online", kind: "agent" },
+        ]}
+      />,
+    );
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(textarea, "@");
+    expect(screen.getByText("claude · mac16")).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    expect(textarea.value).toBe("@cc ");
+
+    await user.type(textarea, "hi");
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledWith({ body: "@cc hi", addressedTo: "1" });
+  });
+
+  it("@c prefix-matches @cc and Enter auto-selects (case-insensitive)", async () => {
+    const onSend = vi.fn();
+    const resolver = {
+      resolveHumanIds: vi.fn((mentions: string[]) => {
+        const map: Record<string, number> = { cc: 1, codex: 2, jacky: 3 };
+        return mentions.map((m) => map[m]).filter((n): n is number => typeof n === "number");
+      }),
+    };
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Composer
+        onSend={onSend}
+        resolver={resolver}
+        mentionCandidates={[
+          { key: "cc", label: "claude · mac16", detail: "online", kind: "agent" },
+          { key: "cx", label: "codex · mbp", detail: "offline", kind: "agent" },
+          { key: "jacky", label: "Jacky", detail: "human", kind: "human" },
+        ]}
+      />,
+    );
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(textarea, "@C");  // uppercase → still prefix-matches "cc"
+    expect(screen.getByText("claude · mac16")).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    expect(textarea.value).toBe("@cc ");
+  });
+
+  it("Enter during IME composition does not send (Sogou/Pinyin candidate confirm)", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const onSend = vi.fn();
+    renderWithProviders(<Composer onSend={onSend} />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    // Simulate user typing "ppt" inside an IME session.
+    fireEvent.compositionStart(textarea);
+    fireEvent.change(textarea, { target: { value: "ppt" } });
+    // The IME forwards Enter to commit a candidate. Browsers set
+    // isComposing=true / keyCode=229. We must NOT send.
+    fireEvent.keyDown(textarea, {
+      key: "Enter",
+      keyCode: 229,
+      isComposing: true,
+    });
+    expect(onSend).not.toHaveBeenCalled();
+    // Composition ends after the IME finishes its own handling.
+    fireEvent.compositionEnd(textarea, { data: "ppt" });
+    expect(textarea.value).toBe("ppt");
+  });
+
   it("Shift+Enter inserts newline without sending", async () => {
     const onSend = vi.fn();
     const user = userEvent.setup();

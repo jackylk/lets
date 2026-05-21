@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { TopicHeaderProgress } from "./TopicHeaderProgress";
 
 interface GoalInfo {
@@ -10,12 +11,14 @@ interface TopicHeaderProps {
   title: string;
   goal?: GoalInfo;
   onOpenMenu?: () => void;
+  /** Extra controls rendered on the right, before the menu button. */
+  headerRight?: ReactNode;
 }
 
-export function TopicHeader({ title, goal, onOpenMenu }: TopicHeaderProps) {
+export function TopicHeader({ title, goal, onOpenMenu, headerRight }: TopicHeaderProps) {
   return (
-    <header className="flex items-center gap-4 px-6 py-3 border-b border-border-soft min-w-0">
-      <h1 className="font-[var(--font-display)] font-semibold text-lg truncate">{title}</h1>
+    <header className="flex items-center gap-4 px-6 py-3 border-b border-border-soft bg-bg min-w-0">
+      <h1 className="font-[var(--font-display)] font-semibold text-[18px] truncate">{title}</h1>
       {goal && (
         <TopicHeaderProgress
           doneCount={goal.doneCount}
@@ -24,11 +27,12 @@ export function TopicHeader({ title, goal, onOpenMenu }: TopicHeaderProps) {
         />
       )}
       <div className="flex-1" />
+      {headerRight}
       <button
         type="button"
         onClick={onOpenMenu}
         aria-label="topic menu"
-        className="px-2 py-1 rounded hover:bg-surface-hover text-text-muted"
+        className="px-2 py-1 rounded-[3px] hover:bg-surface-hover text-text-muted"
       >
         ⋯
       </button>
