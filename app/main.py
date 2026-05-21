@@ -247,12 +247,6 @@ class ProjectCreate(BaseModel):
     repo_path: str | None = None
 
 
-class ProjectPatch(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    repo_path: str | None = None
-
-
 class TopicCreate(BaseModel):
     slug: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=200)
@@ -1887,146 +1881,6 @@ def accept_invite(
     return {"workspace_id": int(inv["workspace_id"])}
 
 
-@app.get("/api/projects/{project_id}")
-def get_project(
-    project_id: int,
-    principal: dict = Depends(get_api_principal),
-) -> dict:
-    from .projects import get_project_by_id
-    p = get_project_by_id(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="project not found")
-    return p
-
-
-@app.patch("/api/projects/{project_id}")
-def patch_project(
-    project_id: int,
-    payload: ProjectPatch,
-    principal: dict = Depends(get_api_principal),
-) -> dict:
-    from .projects import get_project_by_id, update_project
-    if not get_project_by_id(project_id):
-        raise HTTPException(status_code=404, detail="project not found")
-    update_project(
-        project_id,
-        name=payload.name,
-        description=payload.description,
-        repo_path=payload.repo_path,
-    )
-    return get_project_by_id(project_id)
-
-
-@app.get("/api/projects/{project_id}/spec")
-def get_project_spec(
-    project_id: int,
-    include_content: bool = False,
-    principal: dict = Depends(get_api_principal),
-) -> dict:
-    """Read-only Spec view: lists CLAUDE.md, .mcp.json, and .claude/** files.
-
-    Returns each file's relative path, size, and optionally base64-encoded
-    content. Files outside the project's repo_path cannot be reached.
-    """
-    from pathlib import Path
-    from .projects import get_project_by_id
-
-    p = get_project_by_id(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="project not found")
-    if not p.get("repo_path"):
-        raise HTTPException(status_code=404, detail="project has no repo_path configured")
-
-    root = Path(p["repo_path"]).resolve()
-    if not root.exists() or not root.is_dir():
-        raise HTTPException(status_code=404, detail="repo_path does not exist or is not a directory")
-
-    # Collect candidate spec files
-    candidates: list[Path] = []
-    for top_name in ("CLAUDE.md", ".mcp.json", ".claude"):
-        p_node = root / top_name
-        if not p_node.exists():
-            continue
-        if p_node.is_file():
-            candidates.append(p_node)
-        elif p_node.is_dir():
-            for f in p_node.rglob("*"):
-                if f.is_file():
-                    candidates.append(f)
-
-    files_out: list[dict] = []
-    for f in candidates:
-        try:
-            resolved = f.resolve()
-            # Defense: reject anything that escapes root
-            resolved.relative_to(root)
-        except ValueError:
-            continue
-        rel = resolved.relative_to(root).as_posix()
-        entry: dict = {
-            "path": rel,
-            "size": resolved.stat().st_size,
-        }
-        if include_content:
-            import base64
-            try:
-                entry["content_b64"] = base64.b64encode(resolved.read_bytes()).decode("ascii")
-            except OSError:
-                entry["content_b64"] = None
-        files_out.append(entry)
-
-    return {
-        "project_id": project_id,
-        "repo_path": p["repo_path"],
-        "files": sorted(files_out, key=lambda x: x["path"]),
-    }
-
-
-class SpecApply(BaseModel):
-    file: str = Field(min_length=1)
-    content: str
-
-
-@app.post("/api/projects/{project_id}/spec/apply")
-def apply_spec_change(
-    project_id: int,
-    payload: SpecApply,
-    principal: dict = Depends(get_api_principal),
-) -> dict:
-    import os
-    from pathlib import Path
-    from .projects import get_project_by_id
-
-    p = get_project_by_id(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="project not found")
-    if not p.get("repo_path"):
-        raise HTTPException(status_code=404, detail="project has no repo_path")
-    root = Path(p["repo_path"]).resolve()
-    if not root.is_dir():
-        raise HTTPException(status_code=404, detail="repo_path missing")
-
-    rel = payload.file
-    # Reject absolute paths and any traversal segment
-    if rel.startswith("/") or ".." in Path(rel).parts:
-        raise HTTPException(status_code=400, detail="invalid file path")
-    # Only allow the managed spec set
-    if not (rel == "CLAUDE.md" or rel == ".mcp.json" or rel.startswith(".claude/")):
-        raise HTTPException(status_code=400, detail="file is not in managed spec set")
-
-    target = (root / rel).resolve()
-    try:
-        target.relative_to(root)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="path escapes repo_path")
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".lets-tmp")
-    tmp.write_text(payload.content, encoding="utf-8")
-    os.replace(tmp, target)
-    return {"ok": True, "file": rel, "bytes": target.stat().st_size}
-
-
 @app.get("/api/workspaces/{workspace_id}/topics")
 def list_topics_in_workspace(
     workspace_id: int,
@@ -2276,44 +2130,6 @@ def update_topic(
             tuple(vals),
         ).fetchone()
     return dict(row)
-
-
-@app.get("/api/projects/{project_id}/git-status")
-def get_project_git_status(
-    project_id: int,
-    principal: dict = Depends(get_api_principal),
-) -> dict:
-    """Return HEAD commit + dirty-file list for a project's repo_path."""
-    import subprocess
-    from pathlib import Path
-    from .projects import get_project_by_id
-
-    p = get_project_by_id(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="project not found")
-    if not p.get("repo_path"):
-        raise HTTPException(status_code=404, detail="project has no repo_path")
-    repo = Path(p["repo_path"]).resolve()
-    if not (repo / ".git").exists():
-        raise HTTPException(status_code=404, detail="repo_path is not a git repo")
-
-    def _run(args: list[str]) -> str:
-        return subprocess.run(
-            ["git"] + args, cwd=repo, check=True, capture_output=True, text=True
-        ).stdout.strip()
-
-    log = _run(["log", "-1", "--pretty=format:%H|%h|%s|%an|%ai"])
-    parts = log.split("|", 4)
-    head = {
-        "sha": parts[0],
-        "short_sha": parts[1] if len(parts) > 1 else "",
-        "subject": parts[2] if len(parts) > 2 else "",
-        "author": parts[3] if len(parts) > 3 else "",
-        "date": parts[4] if len(parts) > 4 else "",
-    }
-    status = _run(["status", "--short"])
-    dirty = [line for line in status.splitlines() if line.strip()]
-    return {"head": head, "dirty": dirty}
 
 
 # ---------------------------------------------------------------------------

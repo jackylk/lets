@@ -22,7 +22,7 @@ def get_attention(human_id: int) -> dict:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT m.*, t.slug as topic_slug, t.title as topic_title, t.project_id
+            SELECT m.*, t.slug as topic_slug, t.title as topic_title, t.workspace_id
             FROM messages m
             JOIN topics t ON t.id = m.topic_id
             WHERE m.addressed_to IS NOT NULL
