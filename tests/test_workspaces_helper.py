@@ -30,6 +30,12 @@ def test_slugify_cjk_fallback(temp_db):
     assert len(s) == 9  # "ws-" + 6 hex chars
 
 
+def test_slugify_collapses_dashes_with_surrounding_punctuation(temp_db):
+    assert slugify("test - case") == "test-case"
+    assert slugify("Back-end Services") == "back-end-services"
+    assert slugify("--leading dashes--") == "leading-dashes"
+
+
 def test_slugify_conflict_appends_counter(temp_db):
     hid = _make_human()
     create_workspace(name="User Auth", owner_human_id=hid)
@@ -67,4 +73,4 @@ def test_generate_invite_token_unique(temp_db):
     tokens = {generate_invite_token() for _ in range(50)}
     assert len(tokens) == 50
     for t in tokens:
-        assert len(t) >= 20
+        assert len(t) == 22

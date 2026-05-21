@@ -9,13 +9,17 @@ from .db import connect
 
 def slugify(name: str) -> str:
     """Lowercase + dashes; CJK / non-ASCII names fall back to ws-<6hex>."""
-    s = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
+    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     if not s:
         s = f"ws-{secrets.token_hex(3)}"
     return s
 
 
 def _next_unique_slug(base: str, conn) -> str:
+    # NOTE: not concurrency-safe — between the SELECT and the caller's INSERT,
+    # a parallel writer could claim the same slug, causing a UNIQUE constraint
+    # IntegrityError at the call site. Acceptable for v1 (low concurrency);
+    # revisit if write rate climbs.
     candidate = base
     n = 2
     while True:
