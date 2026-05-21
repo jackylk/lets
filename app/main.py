@@ -259,6 +259,11 @@ class TopicCreate(BaseModel):
     mode: str = Field(default="exploratory")
 
 
+class TopicUpdate(BaseModel):
+    workspace_id: int | None = None
+    title: str | None = None
+
+
 def ensure_agent(name: str, agent_type: str) -> int:
     with connect() as conn:
         row = conn.execute("SELECT id FROM agents WHERE name = ?", (name,)).fetchone()
@@ -2192,6 +2197,36 @@ def get_topic_participants(
             (topic_id,),
         ).fetchall()]
     return {"humans": humans, "agents": agents}
+
+
+@app.patch("/api/topics/{topic_id}")
+def update_topic(
+    topic_id: int,
+    payload: TopicUpdate,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    _require_topic_member(topic_id, human_id)
+    sets, vals = [], []
+    if payload.workspace_id is not None:
+        from .workspaces import require_workspace_member
+        require_workspace_member(payload.workspace_id, human_id)
+        sets.append("workspace_id = ?")
+        vals.append(payload.workspace_id)
+    if payload.title is not None:
+        sets.append("title = ?")
+        vals.append(payload.title)
+    if not sets:
+        raise HTTPException(status_code=400, detail="no fields to update")
+    sets.append("updated_at = NOW()")  # literal, no value appended to vals
+    vals.append(topic_id)
+    with connect() as conn:
+        row = conn.execute(
+            f"UPDATE topics SET {', '.join(sets)} WHERE id = ? "
+            "RETURNING id, slug, title, workspace_id, mode, updated_at",
+            tuple(vals),
+        ).fetchone()
+    return dict(row)
 
 
 @app.get("/api/projects/{project_id}/git-status")
