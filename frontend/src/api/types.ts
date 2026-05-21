@@ -110,6 +110,46 @@ export interface ProjectDTO {
   updated_at: string;
 }
 
+export interface Workspace {
+  id: number;
+  slug: string;
+  name: string;
+  description: string | null;
+  owner_human_id: number;
+  is_private: boolean;
+  my_role: "owner" | "member";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceMemberHuman {
+  kind: "human";
+  id: number;
+  name: string;
+  email: string | null;
+  avatar_url: string | null;
+  role: "owner" | "member";
+  joined_at: string;
+}
+
+export interface WorkspaceMemberAgent {
+  kind: "agent";
+  id: number;
+  role: string;
+  device_label: string | null;
+  model: string | null;
+  started_by_name: string;
+}
+
+export type WorkspaceMember = WorkspaceMemberHuman | WorkspaceMemberAgent;
+
+export interface WorkspaceInvite {
+  id: number;
+  token: string;
+  join_url: string;
+  created_at: string;
+}
+
 export interface ParticipantsDTO {
   humans: Array<{ id: number; name: string; email: string | null }>;
   agents: Array<{ id: number; device_label: string; role: string; human_name: string }>;
