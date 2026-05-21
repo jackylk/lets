@@ -1551,31 +1551,97 @@ def read_artifact(
     }
 
 
-@app.post("/api/projects")
-def post_project(
-    payload: ProjectCreate,
-    principal: dict = Depends(get_api_principal),
-) -> dict:
-    from .projects import create_project, get_project_by_id
-    try:
-        pid = create_project(
-            name=payload.name,
-            slug=payload.slug,
-            description=payload.description,
-            owner_human_id=principal["human_id"],
-            repo_path=payload.repo_path,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return get_project_by_id(pid)
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
 
 
-@app.get("/api/projects")
-def get_projects(
+class WorkspaceUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+@app.get("/api/workspaces")
+def list_workspaces(
     principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
-    from .projects import list_projects
-    return list_projects()
+    from .workspaces import list_workspaces_for_human
+    return list_workspaces_for_human(int(principal["human_id"]))
+
+
+@app.post("/api/workspaces")
+def create_workspace_endpoint(
+    payload: WorkspaceCreate,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import create_workspace
+    ws = create_workspace(name=payload.name, owner_human_id=int(principal["human_id"]))
+    ws["my_role"] = "owner"
+    return ws
+
+
+@app.get("/api/workspaces/{workspace_id}")
+def get_workspace(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_member
+    require_workspace_member(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, slug, name, description, owner_human_id, is_private, "
+            "created_at, updated_at FROM workspaces WHERE id = ? AND deleted_at IS NULL",
+            (workspace_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    return dict(row)
+
+
+@app.patch("/api/workspaces/{workspace_id}")
+def update_workspace(
+    workspace_id: int,
+    payload: WorkspaceUpdate,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_owner
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        conn.execute(
+            "UPDATE workspaces SET name = ?, updated_at = NOW() WHERE id = ?",
+            (payload.name, workspace_id),
+        )
+        row = conn.execute(
+            "SELECT id, slug, name, description FROM workspaces WHERE id = ?",
+            (workspace_id,),
+        ).fetchone()
+    return dict(row)
+
+
+@app.delete("/api/workspaces/{workspace_id}")
+def delete_workspace(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_owner
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        my_count = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM workspaces w
+            JOIN workspace_members wm ON wm.workspace_id = w.id
+            WHERE wm.human_id = ? AND w.deleted_at IS NULL
+            """,
+            (principal["human_id"],),
+        ).fetchone()["n"]
+        if int(my_count) <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="cannot delete your last workspace",
+            )
+        conn.execute(
+            "UPDATE workspaces SET deleted_at = NOW() WHERE id = ?",
+            (workspace_id,),
+        )
+    return {"ok": True}
 
 
 @app.get("/api/projects/{project_id}")
@@ -2207,6 +2273,56 @@ def auth_dev_login(human: str = "Neo", next: str = "/app") -> RedirectResponse:
 def auth_logout(
     lets_session: str | None = Cookie(default=None, alias="lets_session"),
 ) -> Response:
+    from .auth import revoke_session
+
+    if lets_session:
+        revoke_session(lets_session)
+    res = Response(status_code=204)
+    res.delete_cookie("lets_session", path="/")
+    return res
+
+
+# ---------------------------------------------------------------------------
+# API-facing auth helpers (for test clients and programmatic use)
+# ---------------------------------------------------------------------------
+
+
+class DevLoginPayload(BaseModel):
+    name: str = Field(default="Neo", min_length=1)
+    email: str | None = None
+
+
+@app.post("/api/auth/dev-login")
+def api_dev_login(payload: DevLoginPayload, response: Response) -> dict:
+    """JSON dev-login for test clients. Sets a session cookie and returns human_id.
+
+    Only active when LETS_DEV_SESSIONS=1 (same gate as the browser dev-login).
+    """
+    if os.environ.get("LETS_DEV_SESSIONS") != "1":
+        raise HTTPException(status_code=404, detail="not found")
+
+    from .auth import issue_session
+    from .identity import ensure_human
+
+    human_id = ensure_human(payload.name.strip() or "Neo", email=payload.email)
+    session_value = issue_session(human_id)
+    response.set_cookie(
+        "lets_session",
+        session_value,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+    )
+    return {"human_id": human_id}
+
+
+@app.post("/api/auth/logout", status_code=204)
+def api_auth_logout(
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> Response:
+    """JSON-friendly logout alias for test clients and the SPA."""
     from .auth import revoke_session
 
     if lets_session:
