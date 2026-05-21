@@ -2,7 +2,35 @@ from mcp.server.fastmcp import FastMCP
 
 from .db import connect, init_db
 
-mcp = FastMCP("Lets", streamable_http_path="/", stateless_http=True)
+_mcp_kwargs = {
+    "streamable_http_path": "/",
+    "stateless_http": True,
+}
+
+try:
+    from mcp.server.transport_security import TransportSecuritySettings
+except ModuleNotFoundError:
+    TransportSecuritySettings = None  # type: ignore[assignment]
+
+if TransportSecuritySettings is not None:
+    _mcp_kwargs["transport_security"] = TransportSecuritySettings(
+        allowed_hosts=[
+            "testserver",
+            "localhost",
+            "localhost:*",
+            "127.0.0.1",
+            "127.0.0.1:*",
+            "lets.up.railway.app",
+        ],
+        allowed_origins=[
+            "http://testserver",
+            "http://localhost:*",
+            "http://127.0.0.1:*",
+            "https://lets.up.railway.app",
+        ],
+    )
+
+mcp = FastMCP("Let's", **_mcp_kwargs)
 
 
 def ensure_agent(name: str, agent_type: str) -> int:
@@ -27,10 +55,10 @@ def ensure_agent(name: str, agent_type: str) -> int:
 
 @mcp.tool()
 def get_project_context() -> dict:
-    """Return the current Lets project context."""
+    """Return the current Let's project context."""
     return {
         "project": {
-            "name": "Lets",
+            "name": "Let's",
             "description": "Shared workboard for local coding agents.",
         }
     }
@@ -385,7 +413,7 @@ def whoami() -> dict:
         if out["agent_instance_id"] is not None:
             row = conn.execute(
                 """
-                SELECT ai.device_label, ar.name AS role
+                SELECT ai.device_label, ai.model, ar.name AS role
                 FROM agent_instances ai
                 JOIN agent_roles ar ON ar.id = ai.role_id
                 WHERE ai.id = ?
@@ -395,12 +423,13 @@ def whoami() -> dict:
             if row:
                 out["role"] = row["role"]
                 out["device_label"] = row["device_label"]
+                out["model"] = row["model"]
     return out
 
 
 @mcp.tool()
 def list_my_topics(limit: int = 50) -> list[dict]:
-    """List topics on this Lets instance, newest activity first.
+    """List topics on this Let's instance, newest activity first.
 
     For each topic returns: ``{id, slug, title, project_id, project_slug,
     project_name, last_message_id, last_message_at, last_message_body}``.

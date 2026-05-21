@@ -53,6 +53,30 @@ describe("<AgentListenStatus />", () => {
     expect(screen.getByTestId("agent-listen-status")).toHaveAttribute("data-phase", "thinking");
   });
 
+  it("shows 调用失败 when the latest agent result is an error finding", () => {
+    const now = new Date();
+    const t = (offsetSec: number) =>
+      new Date(now.getTime() - offsetSec * 1000)
+        .toISOString().replace("T", " ").replace("Z", "");
+    const messages: MessageDTO[] = [
+      msg({ id: 1, body: "ping", created_at: t(20) }),
+      msg({
+        id: 2, type: "status", actor_type: "agent", actor_id: 4,
+        body: "思考中…", metadata: { phase: "thinking", cites: [1] },
+        created_at: t(12),
+      }),
+      msg({
+        id: 3, type: "finding", actor_type: "agent", actor_id: 4,
+        body: "Claude CLI 调用失败。 · ERROR", metadata: { cites: [1] },
+        created_at: t(8),
+      }),
+    ];
+    render(<AgentListenStatus messages={messages} />);
+    expect(screen.getByText(/CC 调用失败/)).toBeInTheDocument();
+    expect(screen.getByTestId("agent-listen-status")).toHaveAttribute("data-phase", "failed");
+  });
+
+
   it("shows 即将介入 with a countdown to the debounce-fire moment", () => {
     const now = new Date();
     const t = (offsetSec: number) =>

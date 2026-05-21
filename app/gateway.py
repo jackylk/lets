@@ -65,6 +65,7 @@ class Identity:
     agent_instance_id: int
     role: str
     device_label: str
+    model: str | None = None
 
 
 def _http(host: str, token: str, method: str, path: str, body: dict | None = None) -> Any:
@@ -184,6 +185,7 @@ def _whoami(host: str, token: str) -> Identity:
         agent_instance_id=int(me["agent_instance_id"]),
         role=str(me.get("role") or "?"),
         device_label=str(me.get("device_label") or "?"),
+        model=str(me.get("model")).strip() if me.get("model") else None,
     )
 
 
@@ -691,6 +693,12 @@ def _with_arg(cmd: list[str], *args: str) -> list[str]:
     return out
 
 
+def _with_model(cmd: list[str], engine: str, model: str | None) -> list[str]:
+    if engine != "claude" or not model or "--model" in cmd:
+        return cmd
+    return [*cmd, "--model", model]
+
+
 def _agent_command(
     cmd: list[str],
     engine: str,
@@ -974,12 +982,20 @@ def _login(argv: list[str]) -> int:
         action="store_true",
         help="Print the authorization URL but do not open a browser",
     )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("LETS_MODEL"),
+        help="Model to store for this Claude agent.",
+    )
     args = parser.parse_args(argv)
 
-    params = urllib.parse.urlencode({
+    params_dict = {
         "role": args.role,
         "device_label": args.device_label,
-    })
+    }
+    if args.role == "claude" and args.model:
+        params_dict["model"] = args.model
+    params = urllib.parse.urlencode(params_dict)
     start = _http_public(args.host, "GET", f"/auth/device-flow/start?{params}")
     verification_url = start["verification_url"]
     device_code = start["device_code"]
@@ -1380,6 +1396,11 @@ def _install(argv: list[str]) -> int:
         "--host", default=None,
         help="Override --host for the daemon (default: from saved token.json)",
     )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("LETS_MODEL"),
+        help="Model to use on launchd autostart (claude only).",
+    )
     args = parser.parse_args(argv)
 
     if sys.platform != "darwin":
@@ -1401,9 +1422,12 @@ def _install(argv: list[str]) -> int:
     python_exec, argv_prefix, workdir = _script_invocation()
     home = os.path.expanduser(os.environ.get("LETS_HOME", "~/.lets"))
     out_log, err_log = _log_paths()
+    run_args = [python_exec, *argv_prefix, "run", "--host", host]
+    if args.model:
+        run_args.extend(["--model", args.model])
     program_args = "\n".join(
         f"    <string>{arg}</string>"
-        for arg in [python_exec, *argv_prefix, "run", "--host", host]
+        for arg in run_args
     )
 
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -1578,6 +1602,11 @@ def _add_agent(argv: list[str]) -> int:
         action="store_true",
         help="Just authorize; don't start the background gateway",
     )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("LETS_MODEL"),
+        help="Model to store/use for this Claude agent (haiku/sonnet/opus/full id).",
+    )
     args = parser.parse_args(argv)
 
     print(f"Adding agent: {args.role} on {args.device_label}")
@@ -1588,6 +1617,8 @@ def _add_agent(argv: list[str]) -> int:
     ]
     if args.no_open:
         login_args.append("--no-open")
+    if args.model:
+        login_args.extend(["--model", args.model])
     rc = _login(login_args)
     if rc != 0:
         return rc
@@ -1597,7 +1628,8 @@ def _add_agent(argv: list[str]) -> int:
         return 0
 
     print()
-    _spawn_background_for(args.role, args.host, [])
+    extra = ["--model", args.model] if args.role == "claude" and args.model else []
+    _spawn_background_for(args.role, args.host, extra)
     print()
     print(f"agent '{args.role}' is live. Manage with:")
     print(f"  lets gateway --agent {args.role}    # restart")
@@ -1724,11 +1756,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("LETS_MODEL", "haiku"),
+        default=os.environ.get("LETS_MODEL"),
         help="Model alias to pass to the local CLI (haiku/sonnet/opus or full "
-             "model id). Defaults to haiku because typical discussion turns "
-             "are 30s vs opus 60s+ — large for-each-message latency hurts "
-             "conversational feel. Set LETS_MODEL env to override.",
+             "model id). When omitted, uses the web setting on this "
+             "agent_instance, falling back to haiku.",
     )
     parser.add_argument(
         "--session-dir",
@@ -1799,15 +1830,14 @@ def main(argv: list[str] | None = None) -> int:
         cli_cmd = shlex.split(args.cmd)
     elif me.role == "claude":
         cli_cmd = ["claude", "--print"]
-        if args.model:
-            cli_cmd.extend(["--model", args.model])
     elif me.role == "codex":
         cli_cmd = ["codex", "exec"]
         # codex model passthrough TBD when we wire it up
     else:
         print(f"unknown role '{me.role}' — pass --cmd explicitly", file=sys.stderr)
         return 2
-    print(f"will invoke: {' '.join(cli_cmd)} <prompt>")
+    model_source = "CLI/env" if args.model else "web setting"
+    print(f"will invoke: {' '.join(cli_cmd)} <prompt> (model from {model_source})")
 
     last_seen_per_topic: dict[int, int] = {}
     # Cold-start: avoid replying to historical messages. Seed each topic's
@@ -1885,6 +1915,13 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"[topic {tid}] trigger msg {trigger_ids[-1]} vanished; skipping")
                     continue
 
+                try:
+                    me = _whoami(args.host, args.token)
+                except Exception as e:
+                    print(f"  WARN: failed to refresh agent settings: {e}", file=sys.stderr)
+                effective_model = args.model or me.model or "haiku"
+                effective_cli_cmd = _with_model(cli_cmd, me.role, effective_model)
+
                 system_prompt, user_prompt = _build_prompt_split(
                     me=me,
                     topic_title=t.get("title", f"topic#{tid}"),
@@ -1913,7 +1950,7 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"  (status post failed: {e})")
 
                 if args.dry_run:
-                    print(f"  DRY RUN — would run: {' '.join(cli_cmd)}")
+                    print(f"  DRY RUN — would run: {' '.join(effective_cli_cmd)}")
                     print(f"  system:\n{system_prompt}\n")
                     print(f"  user:\n{user_prompt}\n")
                     ok, output = True, "[dry-run] not actually invoked"
@@ -1925,7 +1962,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 else:
                     ok, output = _invoke_agent_turn(
-                        cmd=cli_cmd,
+                        cmd=effective_cli_cmd,
                         prompt=user_prompt,
                         timeout=args.cli_timeout,
                         me=me,

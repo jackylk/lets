@@ -60,6 +60,7 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
     let lastAgentActivityAt: string | null = null;  // any agent post
     let lastHumanMsg: MessageDTO | null = null;
     let pendingStatus: MessageDTO | null = null;
+    let lastFailure: MessageDTO | null = null;
 
     for (const m of messages) {
       if (m.actor_type === "human") {
@@ -82,6 +83,13 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
               lastReadMsgId = localMax;
               lastReadAt = m.created_at;
             }
+          }
+        } else if (
+          m.type === "finding" &&
+          /(?:ERROR|调用失败|failed|failure)/i.test(m.body || "")
+        ) {
+          if (!lastFailure || m.created_at > lastFailure.created_at) {
+            lastFailure = m;
           }
         }
       }
@@ -129,9 +137,14 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
     // 1. thinking — pending status from agent without a reply yet
     // 2. impending — user posted recently AND no agent activity since
     // 3. idle — default
-    let phase: "thinking" | "impending" | "idle" = "idle";
+    let phase: "thinking" | "impending" | "failed" | "idle" = "idle";
     if (pendingStatus) {
       phase = "thinking";
+    } else if (
+      lastFailure &&
+      (!lastAgentReplyAt || lastFailure.created_at >= lastAgentReplyAt)
+    ) {
+      phase = "failed";
     } else if (
       lastHumanMsg &&
       (!lastAgentActivityAt || lastHumanMsg.created_at > lastAgentActivityAt) &&
@@ -144,12 +157,16 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
 
     return {
       lastReadAt, lastAgentReplyAt, unreadCount, agentLabel: "CC",
-      phase, pendingStatus, lastHumanMsg,
+      phase, pendingStatus, lastHumanMsg, lastFailure,
     };
   }, [messages]);
 
   // No data yet → don't show anything (avoids noisy header on a brand-new topic).
-  if (!summary.lastReadAt && !summary.lastAgentReplyAt && summary.phase === "idle") return null;
+  if (
+    !summary.lastReadAt &&
+    !summary.lastAgentReplyAt &&
+    summary.phase === "idle"
+  ) return null;
 
   const handleJump = () => {
     if (onJumpToUnread) return onJumpToUnread();
@@ -162,9 +179,14 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
   const isWorking = summary.phase === "thinking" || summary.phase === "impending";
   const dotClass = isWorking
     ? "bg-accent shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-accent)_30%,transparent)] animate-pulse"
+    : summary.phase === "failed"
+      ? "bg-finding shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-finding)_25%,transparent)]"
     : "bg-status-on shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-status-on)_25%,transparent)]";
 
-  const labelClass = isWorking ? "text-accent-text" : "text-text-muted";
+  const labelClass =
+    isWorking ? "text-accent-text" :
+    summary.phase === "failed" ? "text-finding" :
+    "text-text-muted";
 
   // Sits below the Composer — no rectangular frame, no border, transparent
   // background. The pulsing dot is the visual anchor. Reads "● CC 思考中 ·
@@ -186,6 +208,18 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
             · 已 {Math.round(secsSince(summary.pendingStatus.created_at))}s
           </span>
         </>
+      ) : summary.phase === "failed" && summary.lastFailure ? (
+        <button
+          type="button"
+          onClick={() => {
+            document
+              .querySelector(`[data-msg-id="${summary.lastFailure!.id}"]`)
+              ?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }}
+          className={`not-italic font-mono text-[10.5px] ${labelClass} underline decoration-dotted hover:decoration-solid cursor-pointer`}
+        >
+          {summary.agentLabel} 调用失败 · 点击查看
+        </button>
       ) : summary.phase === "impending" && summary.lastHumanMsg ? (
         <>
           <b className={`not-italic font-mono text-[10.5px] ${labelClass}`}>

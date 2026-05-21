@@ -31,7 +31,12 @@ export interface TopicDTO {
 }
 
 export interface HumanDTO { id: number; name: string; }
-export interface AgentInstanceDTO { id: number; role: string; device_label: string; }
+export interface AgentInstanceDTO {
+  id: number;
+  role: string;
+  device_label: string;
+  model?: string | null;
+}
 export interface IdentityDTO { human: HumanDTO; agent_instance?: AgentInstanceDTO; }
 
 export interface PostMessageInput {
@@ -74,7 +79,7 @@ export interface TokenRowDTO {
   label: string | null;
   human_id: number;
   agent_instance_id: number | null;
-  agent_instance: { id: number; role: string; device_label: string } | null;
+  agent_instance: { id: number; role: string; device_label: string; model?: string | null } | null;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
@@ -84,13 +89,14 @@ export interface CreateTokenInput {
   label: string;
   role: string;
   device_label: string;
+  model?: string | null;
 }
 
 export interface CreateTokenResponseDTO {
   id: number;
   value: string;
   label: string;
-  agent_instance: { id: number; role: string; device_label: string };
+  agent_instance: { id: number; role: string; device_label: string; model?: string | null };
 }
 
 export interface ProjectDTO {
@@ -132,6 +138,7 @@ export interface AgentInstanceRowDTO {
   agent_instance_id: number;
   role: string;
   device_label: string;
+  model: string | null;
   human_id: number;
   human_name: string;
   last_seen_at: string | null;

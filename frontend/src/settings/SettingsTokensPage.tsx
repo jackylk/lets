@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { useMyTokens, useRevokeToken } from "../api/queries";
+import { useMyTokens, useRevokeToken, useUpdateAgentModel } from "../api/queries";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 
 export function SettingsTokensPage() {
   const [openNew, setOpenNew] = useState(false);
   const tokens = useMyTokens();
   const revoke = useRevokeToken();
+  const updateModel = useUpdateAgentModel();
 
   const agentName = (role?: string | null) => {
     if (role === "claude") return "Claude Code";
@@ -42,6 +43,7 @@ export function SettingsTokensPage() {
             <tr className="text-text-dim text-[11px] uppercase tracking-wider">
               <th className="px-3 py-2">Agent</th>
               <th className="px-3 py-2">电脑</th>
+              <th className="px-3 py-2">模型</th>
               <th className="px-3 py-2">添加时间</th>
               <th className="px-3 py-2">最近连接</th>
               <th className="px-3 py-2">状态</th>
@@ -54,6 +56,28 @@ export function SettingsTokensPage() {
                 <td className="px-3 py-2">{agentName(t.agent_instance?.role)}</td>
                 <td className="px-3 py-2 font-mono">
                   {t.agent_instance?.device_label ?? t.label ?? `#${t.id}`}
+                </td>
+                <td className="px-3 py-2">
+                  {t.agent_instance?.role === "claude" && t.agent_instance?.id ? (
+                    <select
+                      aria-label={`${t.agent_instance.device_label} 模型`}
+                      value={t.agent_instance.model ?? "haiku"}
+                      disabled={updateModel.isPending}
+                      onChange={(e) =>
+                        updateModel.mutate({
+                          agentInstanceId: t.agent_instance!.id,
+                          model: e.target.value,
+                        })
+                      }
+                      className="border border-border rounded px-2 py-1 bg-surface-elev text-[12px]"
+                    >
+                      <option value="haiku">Haiku</option>
+                      <option value="sonnet">Sonnet</option>
+                      <option value="opus">Opus</option>
+                    </select>
+                  ) : (
+                    <span className="text-text-dim">-</span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-text-muted">{t.created_at.slice(0, 16).replace("T", " ")}</td>
                 <td className="px-3 py-2 text-text-muted">

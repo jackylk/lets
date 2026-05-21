@@ -2,7 +2,7 @@ import type { Identity } from "../identity/useIdentity";
 
 export class ApiError extends Error {
   constructor(public status: number, public body: unknown) {
-    super(`Lets API ${status}`);
+    super(`Let's API ${status}`);
   }
 }
 

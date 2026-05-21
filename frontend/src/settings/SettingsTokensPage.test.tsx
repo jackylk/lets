@@ -15,16 +15,46 @@ describe("<SettingsTokensPage />", () => {
     // Default Claude: shows the full curl one-liner for first-time install
     // and the shorter `lets add claude` form for already-installed users.
     expect(
-      screen.getByText((text) => text.includes("curl -fsSL") && text.includes("/install | bash")),
+      screen.getByText((text) =>
+        text.includes("curl -fsSL") &&
+        text.includes("/install | LETS_MODEL=haiku bash"),
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByText("lets add claude")).toBeInTheDocument();
+    expect(screen.getByText("lets add claude --model haiku")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: /Claude 模型/i }), "sonnet");
+    expect(
+      screen.getByText((text) => text.includes("LETS_MODEL=sonnet")),
+    ).toBeInTheDocument();
+    expect(screen.getByText("lets add claude --model sonnet")).toBeInTheDocument();
 
     // Switch to Codex and confirm both commands update.
-    await user.selectOptions(screen.getByRole("combobox"), "codex");
+    await user.selectOptions(screen.getByRole("combobox", { name: /Agent 类型/i }), "codex");
     expect(
       screen.getByText((text) => text.includes("LETS_AGENT_ROLE=codex")),
     ).toBeInTheDocument();
     expect(screen.getByText("lets add codex")).toBeInTheDocument();
+  });
+
+  it("lets the user update an existing Claude agent model", async () => {
+    await fetch("/api/tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        label: "claude on mac16",
+        role: "claude",
+        device_label: "mac16",
+        model: "haiku",
+      }),
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<SettingsTokensPage />);
+    const select = await screen.findByRole("combobox", { name: /mac16 模型/i });
+    expect(select).toHaveValue("haiku");
+
+    await user.selectOptions(select, "sonnet");
+    await waitFor(() => expect(select).toHaveValue("sonnet"));
   });
 
   it("revokes a token that already exists", async () => {

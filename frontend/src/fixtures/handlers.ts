@@ -11,7 +11,7 @@ export function resetFixtures() { seed = makeSeed(); }
 export const handlers = [
   http.get("/api/context", () =>
     HttpResponse.json({
-      project: { name: "Lets", description: "Track F mock workspace" },
+      project: { name: "Let's", description: "Track F mock workspace" },
       auth: { dev_login_enabled: false, github_configured: true },
     }),
   ),
@@ -111,14 +111,21 @@ export const handlers = [
   }),
 
   http.post("/api/tokens", async ({ request }) => {
-    const body = (await request.json()) as { label: string; role: string; device_label: string };
+    const body = (await request.json()) as {
+      label: string; role: string; device_label: string; model?: string | null;
+    };
     const slot = seed as unknown as { fixtureTokens?: TokenRow[] };
     const tokens = (slot.fixtureTokens ??= []);
     const id = tokens.length + 1;
     const row: TokenRow = {
       id, label: body.label, human_id: 1,
       agent_instance_id: 100 + id,
-      agent_instance: { id: 100 + id, role: body.role, device_label: body.device_label },
+      agent_instance: {
+        id: 100 + id,
+        role: body.role,
+        device_label: body.device_label,
+        model: body.model ?? null,
+      },
       created_at: new Date().toISOString(),
       last_used_at: null, revoked_at: null,
     };
@@ -127,7 +134,12 @@ export const handlers = [
       {
         id, value: `lets_${Math.random().toString(36).slice(2, 10)}`,
         label: body.label,
-        agent_instance: { id: row.agent_instance_id, role: body.role, device_label: body.device_label },
+        agent_instance: {
+          id: row.agent_instance_id,
+          role: body.role,
+          device_label: body.device_label,
+          model: body.model ?? null,
+        },
       },
       { status: 201 },
     );
@@ -139,6 +151,18 @@ export const handlers = [
     const t = tokens.find((x) => x.id === Number(params.id));
     if (t) t.revoked_at = new Date().toISOString();
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.patch("/api/agent-instances/:id", async ({ params, request }) => {
+    const body = (await request.json()) as { model: string };
+    const slot = seed as unknown as { fixtureTokens?: TokenRow[] };
+    for (const t of slot.fixtureTokens ?? []) {
+      if (t.agent_instance?.id === Number(params.id)) {
+        t.agent_instance.model = body.model;
+        return HttpResponse.json(t.agent_instance);
+      }
+    }
+    return new HttpResponse(null, { status: 404 });
   }),
 
   http.get("/auth/me", () =>
@@ -168,7 +192,7 @@ export const handlers = [
   http.get("/api/projects", () =>
     HttpResponse.json([
       {
-        id: 1, slug: "lets-mock", name: "Lets",
+        id: 1, slug: "lets-mock", name: "Let's",
         description: "Track F mock workspace",
         owner_human_id: 1, repo_path: null,
         created_at: "2026-05-19T09:00:00Z",
@@ -178,7 +202,7 @@ export const handlers = [
   ),
   http.get("/api/projects/:id", ({ params }) =>
     HttpResponse.json({
-      id: Number(params.id), slug: "lets-mock", name: "Lets",
+      id: Number(params.id), slug: "lets-mock", name: "Let's",
       description: "Track F mock workspace",
       owner_human_id: 1, repo_path: null,
       created_at: "2026-05-19T09:00:00Z",

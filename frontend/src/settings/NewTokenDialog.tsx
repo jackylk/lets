@@ -37,7 +37,7 @@ export function NewTokenDialog({ onCreate, onClose }: Props) {
           <form onSubmit={submit} className="flex flex-col gap-3">
             <h2 className="font-[var(--font-display)] text-lg">添加电脑和 Agent</h2>
             <p className="text-[12px] text-text-muted">
-              选择这台电脑上要接入 Lets 的本地 Agent。创建后会生成一段连接密钥，只显示一次。
+              选择这台电脑上要接入 Let's 的本地 Agent。创建后会生成一段连接密钥，只显示一次。
             </p>
             <label className="text-[12px] text-text-muted flex flex-col gap-1">
               Agent

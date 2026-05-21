@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="Lets", lifespan=lifespan)
+app = FastAPI(title="Let's", lifespan=lifespan)
 
 
 class BearerAuthMiddleware:
@@ -313,7 +313,7 @@ def mock() -> FileResponse:
 def get_context() -> dict:
     return {
         "project": {
-            "name": "Lets",
+            "name": "Let's",
             "description": "Shared workboard for local coding agents.",
         },
         "auth": {
@@ -355,7 +355,7 @@ def install_alias(request: Request) -> PlainTextResponse:
 
 @app.get("/install/gateway.sh")
 def install_gateway_sh(request: Request) -> PlainTextResponse:
-    """One-line installer for the local Lets gateway.
+    """One-line installer for the local Let's gateway.
 
     Designed so a brand-new user can run the curl-bash one-liner and then
     immediately type ``lets login`` — no $PATH editing, no rc-file
@@ -389,7 +389,7 @@ import sys
 raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
 PY
 then
-  echo "Lets gateway requires Python 3.10+." >&2
+  echo "Let's gateway requires Python 3.10+." >&2
   exit 1
 fi
 
@@ -810,6 +810,7 @@ def list_all_agent_instances(
                 ai.id as agent_instance_id,
                 ar.name as role,
                 ai.device_label,
+                ai.model,
                 h.id as human_id,
                 h.name as human_name,
                 MAX(t.last_used_at) as last_seen_at,
@@ -823,11 +824,65 @@ def list_all_agent_instances(
             JOIN humans h ON h.id = ai.human_id
             LEFT JOIN tokens t ON t.agent_instance_id = ai.id
                               AND t.revoked_at IS NULL
-            GROUP BY ai.id, ar.name, ai.device_label, h.id, h.name
+            GROUP BY ai.id, ar.name, ai.device_label, ai.model, h.id, h.name
             ORDER BY is_online DESC, last_seen_at DESC, ai.id ASC
             """
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+@app.patch("/api/agent-instances/{agent_instance_id}")
+def update_agent_instance(
+    agent_instance_id: int,
+    payload: AgentModelUpdate,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    from .auth import verify_session
+
+    if not lets_session:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    principal = verify_session(lets_session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="invalid session")
+
+    model = payload.model.strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="model required")
+    if any(ch.isspace() for ch in model):
+        raise HTTPException(status_code=400, detail="model cannot contain whitespace")
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.human_id
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            WHERE ai.id = ?
+            """,
+            (agent_instance_id,),
+        ).fetchone()
+        if row is None or int(row["human_id"]) != int(principal["human_id"]):
+            raise HTTPException(status_code=404, detail="agent not found")
+        if row["role"] != "claude":
+            raise HTTPException(status_code=400, detail="model setting is only supported for claude")
+        conn.execute(
+            """
+            UPDATE agent_instances
+            SET model = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (model, agent_instance_id),
+        )
+        updated = conn.execute(
+            """
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            WHERE ai.id = ?
+            """,
+            (agent_instance_id,),
+        ).fetchone()
+    return dict(updated)
 
 
 @app.get("/api/agents/online")
@@ -2183,10 +2238,16 @@ def device_flow_start(
     request: Request,
     role: str = Query(default="claude"),
     device_label: str = Query(default="local"),
+    model: str | None = Query(default=None),
 ) -> dict:
     if role not in ("claude", "codex"):
         raise HTTPException(status_code=400, detail="role must be claude or codex")
     device_label = device_label.strip()[:80] or "local"
+    model = (model or "").strip()[:128] or None
+    if role != "claude":
+        model = None
+    if model and any(ch.isspace() for ch in model):
+        raise HTTPException(status_code=400, detail="model cannot contain whitespace")
     device_code = _secrets.token_urlsafe(32)
     user_code = _new_user_code()
     with connect() as conn:
@@ -2197,10 +2258,10 @@ def device_flow_start(
         conn.execute(
             """
             INSERT INTO device_auth_flows
-                (device_code, user_code, role, device_label, expires_at)
-            VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))
+                (device_code, user_code, role, device_label, model, expires_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now', '+10 minutes'))
             """,
-            (device_code, user_code, role, device_label),
+            (device_code, user_code, role, device_label, model),
         )
     base_url = _public_base_url(request)
     return {
@@ -2245,7 +2306,7 @@ def device_flow_authorize(
         if row is None:
             raise HTTPException(status_code=404, detail="device flow not found")
         if row["authorized_at"] is not None:
-            return HTMLResponse("<h1>Lets gateway already authorized</h1>")
+            return HTMLResponse("<h1>Let's gateway already authorized</h1>")
         expired = conn.execute(
             "SELECT CURRENT_TIMESTAMP > ? AS expired", (row["expires_at"],)
         ).fetchone()["expired"]
@@ -2259,6 +2320,7 @@ def device_flow_authorize(
         role=role,
         human_id=human_id,
         device_label=device_label,
+        model=str(row["model"]).strip() if row["model"] else None,
     )
     token_value, token_id = issue_token(
         human_id=human_id,
@@ -2287,7 +2349,7 @@ def _device_authorized_page(role: str, device_label: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lets connected</title>
+  <title>Let's connected</title>
   <style>
     :root {{
       --bg: oklch(0.985 0.006 75);
@@ -2380,7 +2442,7 @@ def device_flow_poll(device_code: str) -> dict:
         )
         agent = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
             WHERE ai.id = ?
@@ -2407,6 +2469,11 @@ class TokenCreate(BaseModel):
     label: str
     role: str
     device_label: str
+    model: str | None = None
+
+
+class AgentModelUpdate(BaseModel):
+    model: str = Field(min_length=1, max_length=128)
 
 
 @app.get("/api/tokens")
@@ -2426,10 +2493,11 @@ def list_my_tokens(
                 "id": int(r["id"]),
                 "role": r["role"],
                 "device_label": r["device_label"],
+                "model": r["model"],
             }
             for r in conn.execute(
                 """
-                SELECT ai.id, ar.name AS role, ai.device_label
+                SELECT ai.id, ar.name AS role, ai.device_label, ai.model
                 FROM agent_instances ai
                 JOIN agent_roles ar ON ar.id = ai.role_id
                 WHERE ai.human_id = ?
@@ -2466,6 +2534,7 @@ def create_my_token(
         role=payload.role,
         human_id=principal["human_id"],
         device_label=payload.device_label,
+        model=payload.model,
     )
     raw_value, token_id = issue_token(
         human_id=principal["human_id"],
@@ -2475,7 +2544,7 @@ def create_my_token(
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
             WHERE ai.id = ?

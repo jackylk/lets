@@ -22,7 +22,12 @@ def ensure_human(name: str, email: Optional[str] = None) -> int:
         return int(cursor.lastrowid)
 
 
-def ensure_agent_instance(role: str, human_id: int, device_label: str) -> int:
+def ensure_agent_instance(
+    role: str,
+    human_id: int,
+    device_label: str,
+    model: str | None = None,
+) -> int:
     """Return agent_instances.id. Create if missing. Idempotent. Raises ValueError if role unknown."""
     with connect() as conn:
         role_row = conn.execute(
@@ -40,13 +45,22 @@ def ensure_agent_instance(role: str, human_id: int, device_label: str) -> int:
             (role_id, human_id, device_label),
         ).fetchone()
         if existing:
+            if model is not None:
+                conn.execute(
+                    """
+                    UPDATE agent_instances
+                    SET model = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (model, existing["id"]),
+                )
             return int(existing["id"])
 
         cursor = conn.execute(
             """
-            INSERT INTO agent_instances (role_id, human_id, device_label)
-            VALUES (?, ?, ?)
+            INSERT INTO agent_instances (role_id, human_id, device_label, model)
+            VALUES (?, ?, ?, ?)
             """,
-            (role_id, human_id, device_label),
+            (role_id, human_id, device_label, model),
         )
         return int(cursor.lastrowid)

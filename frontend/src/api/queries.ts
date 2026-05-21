@@ -181,3 +181,19 @@ export function useRevokeToken() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["tokens"] }),
   });
 }
+
+export function useUpdateAgentModel() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentInstanceId, model }: { agentInstanceId: number; model: string }) =>
+      apiRequest<{ id: number; role: string; device_label: string; model: string | null }>(
+        `/api/agent-instances/${agentInstanceId}`,
+        { method: "PATCH", body: { model }, identity },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tokens"] });
+      qc.invalidateQueries({ queryKey: ["agent-instances"] });
+    },
+  });
+}

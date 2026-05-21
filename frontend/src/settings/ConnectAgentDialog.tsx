@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 type Role = "claude" | "codex";
+type ClaudeModel = "haiku" | "sonnet" | "opus";
 
 interface Props {
   onClose: () => void;
@@ -29,15 +30,17 @@ function useCopy() {
  */
 export function ConnectAgentDialog({ onClose }: Props) {
   const [role, setRole] = useState<Role>("claude");
+  const [model, setModel] = useState<ClaudeModel>("haiku");
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://lets.up.railway.app";
   const { copiedKey, copy } = useCopy();
 
   const installCmd =
     role === "claude"
-      ? `curl -fsSL ${origin}/install | bash`
+      ? `curl -fsSL ${origin}/install | LETS_MODEL=${model} bash`
       : `curl -fsSL ${origin}/install | LETS_AGENT_ROLE=codex bash`;
-  const letsAddCmd = `lets add ${role}`;
+  const letsAddCmd =
+    role === "claude" ? `lets add claude --model ${model}` : "lets add codex";
 
   return (
     <div className="fixed inset-0 bg-black/30 grid place-items-center z-50 p-4">
@@ -61,6 +64,7 @@ export function ConnectAgentDialog({ onClose }: Props) {
         <div className="flex gap-2 items-center text-[12.5px]">
           <span className="text-text-muted">要装哪种 agent？</span>
           <select
+            aria-label="Agent 类型"
             value={role}
             onChange={(e) => setRole(e.target.value as Role)}
             className="border border-border rounded px-2 py-1 bg-surface-elev text-[13px]"
@@ -68,11 +72,26 @@ export function ConnectAgentDialog({ onClose }: Props) {
             <option value="claude">Claude Code</option>
             <option value="codex">Codex</option>
           </select>
+          {role === "claude" && (
+            <>
+              <span className="text-text-muted ml-2">模型</span>
+              <select
+                aria-label="Claude 模型"
+                value={model}
+                onChange={(e) => setModel(e.target.value as ClaudeModel)}
+                className="border border-border rounded px-2 py-1 bg-surface-elev text-[13px]"
+              >
+                <option value="haiku">Haiku</option>
+                <option value="sonnet">Sonnet</option>
+                <option value="opus">Opus</option>
+              </select>
+            </>
+          )}
         </div>
 
         <section className="flex flex-col gap-2">
           <div className="text-[12px] uppercase tracking-wider text-text-dim">
-            第一次在这台电脑上装 Lets
+            第一次在这台电脑上装 Let's
           </div>
           <CommandRow
             id="install"
