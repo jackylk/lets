@@ -34,7 +34,7 @@ export function ConnectComputerCard() {
       <div className="max-w-2xl w-full flex flex-col items-center text-center gap-6">
         <div className="flex flex-col gap-3">
           <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-text">
-            把这台电脑接上 Lets
+            把这台电脑接上 Let's
           </h1>
           <p className="text-text-muted text-[15px] max-w-md mx-auto leading-relaxed">
             在终端里粘贴下面这条命令 + 回车。装好后默认浏览器会自动弹出来让你授权这台电脑，授权完就能在这里和你的 agent 聊天了。

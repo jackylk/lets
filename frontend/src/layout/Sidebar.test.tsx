@@ -4,9 +4,9 @@ import { renderWithProviders } from "../../test/render";
 import { Sidebar } from "./Sidebar";
 
 describe("<Sidebar />", () => {
-  it("renders the Lets masthead + tagline", () => {
+  it("renders the Let's masthead + tagline", () => {
     renderWithProviders(<Sidebar topics={[]} activeTopicId={null} />);
-    expect(screen.getByText("Lets")).toBeInTheDocument();
+    expect(screen.getByText("Let's")).toBeInTheDocument();
     expect(screen.getByText(/humans \+ agents/i)).toBeInTheDocument();
   });
 

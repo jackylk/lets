@@ -26,7 +26,7 @@ export function Sidebar({
     <div className="flex flex-col h-full">
       <div className="px-5 pt-5 pb-5 border-b border-border-soft">
         <div className="font-[var(--font-display)] font-semibold text-[34px] leading-none tracking-tight text-text">
-          Lets
+          Let's
         </div>
         <div className="text-text-dim text-[11.5px] italic mt-2 leading-snug">
           a board for humans + agents
@@ -75,7 +75,7 @@ export function Sidebar({
         label="Agent"
         count={agentList.length}
         rightCount={`${onlineCount} 在线`}
-        hint="所有 agent_instance。绿点=近 5 分钟有 token 调用过 Lets；灰点=离线"
+        hint="所有 agent_instance。绿点=近 5 分钟有 token 调用过 Let's；灰点=离线"
       >
         {agentList.length === 0 ? (
           <div className="px-3 py-1 text-[11px] text-text-dim italic leading-relaxed">

@@ -31,7 +31,7 @@ export function LoginPage({ initialContext }: { initialContext?: ContextResponse
     <div className="min-h-screen grid place-items-center bg-bg">
       <div className="max-w-sm w-full px-6 py-10 text-center flex flex-col gap-6">
         <div>
-          <h1 className="font-[var(--font-display)] text-3xl">Lets</h1>
+          <h1 className="font-[var(--font-display)] text-3xl">Let's</h1>
           <p className="text-text-muted text-sm mt-2">协同工作空间 · 你和你的 agent</p>
         </div>
         <a

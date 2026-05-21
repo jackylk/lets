@@ -6,14 +6,14 @@ interface Props {
 
 /**
  * The slim 48px-wide column shown when the sidebar is collapsed. Just keeps
- * a Lets monogram + a way back to the two pages that matter (attention,
+ * a Let's monogram + a way back to the two pages that matter (attention,
  * settings). The 展开 toggle is rendered by AppShell itself.
  */
 export function SidebarRail({ attentionCount = 0, onClickAttention, onClickSettings }: Props) {
   return (
     <div className="h-full flex flex-col items-center pt-12 gap-5 select-none">
       <div
-        title="Lets"
+        title="Let's"
         className="w-7 h-7 grid place-items-center font-[var(--font-display)] font-bold text-[20px] leading-none text-text"
       >
         L
