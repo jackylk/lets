@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { useMyTokens, useCreateToken, useRevokeToken } from "../api/queries";
-import { NewTokenDialog } from "./NewTokenDialog";
+import { useMyTokens, useRevokeToken } from "../api/queries";
+import { ConnectAgentDialog } from "./ConnectAgentDialog";
 
 export function SettingsTokensPage() {
   const [openNew, setOpenNew] = useState(false);
   const tokens = useMyTokens();
-  const createToken = useCreateToken();
   const revoke = useRevokeToken();
 
   const agentName = (role?: string | null) => {
@@ -26,14 +25,14 @@ export function SettingsTokensPage() {
       </div>
 
       <p className="text-[12px] text-text-muted max-w-2xl">
-        把这台电脑上的 Claude Code 或 Codex 接入 Lets。创建后会给你一段连接密钥，只显示一次；丢了就移除后重新添加。
+        每台电脑上的 Claude Code / Codex 都是一个独立条目。在哪台电脑上跑过 <code className="font-mono">lets add</code>，它就会出现在这里——网站本身不直接装 agent。
       </p>
 
       {tokens.isLoading && <div className="text-text-dim">Loading…</div>}
 
       {tokens.data && tokens.data.length === 0 && (
         <div className="border border-dashed border-border rounded-lg p-6 text-center text-text-dim">
-          还没有连接任何电脑。点击“+ 添加”接入本地 Claude Code 或 Codex。
+          还没有接入任何电脑。点击「+ 添加」拿到接入命令。
         </div>
       )}
 
@@ -83,12 +82,7 @@ export function SettingsTokensPage() {
         </table>
       )}
 
-      {openNew && (
-        <NewTokenDialog
-          onCreate={(input) => createToken.mutateAsync(input)}
-          onClose={() => setOpenNew(false)}
-        />
-      )}
+      {openNew && <ConnectAgentDialog onClose={() => setOpenNew(false)} />}
     </div>
   );
 }

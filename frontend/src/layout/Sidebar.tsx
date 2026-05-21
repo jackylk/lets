@@ -1,11 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { useAllAgents } from "../api/queries";
 import type { TopicDTO } from "../api/types";
 import { cn } from "../lib/cn";
 
 interface SidebarProps {
-  projectName: string;
-  projectRepo: string;
   topics: TopicDTO[];
   activeTopicId: number | null;
   attentionCount?: number;
@@ -16,8 +14,6 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-  projectName,
-  projectRepo,
   topics,
   activeTopicId,
   attentionCount = 0,
@@ -29,33 +25,27 @@ export function Sidebar({
   const agents = useAllAgents();
   const agentList = agents.data ?? [];
   const onlineCount = agentList.filter((a) => a.is_online).length;
-  const [composing, setComposing] = useState(false);
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-5 pt-5 pb-4 border-b border-border-soft flex items-center gap-3">
-        <div className="w-7 h-7 rounded-lg bg-text text-bg grid place-items-center font-bold text-sm font-[var(--font-display)]">
-          {projectName[0] ?? "L"}
+      <div className="px-5 pt-5 pb-5 border-b border-border-soft">
+        <div className="font-[var(--font-display)] font-semibold text-[34px] leading-none tracking-tight text-text">
+          Lets
         </div>
-        <div className="leading-tight min-w-0">
-          <div className="font-[var(--font-display)] font-semibold text-[15px] truncate">
-            {projectName}
-          </div>
-          <div className="text-text-dim text-[11px] font-mono mt-px truncate">
-            {projectRepo}
-          </div>
+        <div className="text-text-dim text-[11.5px] italic mt-2 leading-snug">
+          a board for humans + agents
         </div>
       </div>
 
       <div className="p-3">
         <button
-          className="w-full flex items-center justify-between px-3 py-2 rounded text-xs font-semibold text-text-dim hover:bg-surface-hover hover:text-text"
+          className="w-full flex items-center justify-between px-3 py-2 rounded text-xs font-semibold text-text-dim hover:text-text hover:shadow-[inset_2px_0_0_var(--color-accent)]"
           type="button"
           onClick={onClickAttention}
         >
           <span>待处理</span>
           {attentionCount > 0 && (
-            <span className="bg-accent-soft text-accent-text px-2 py-px rounded-full text-[10px] font-mono">
+            <span className="bg-accent-soft text-accent-text border border-accent-border px-2 py-px rounded-[3px] text-[10px] font-mono">
               {attentionCount}
             </span>
           )}
@@ -72,24 +62,18 @@ export function Sidebar({
             title="新建话题"
             onClick={(e) => {
               e.stopPropagation();
-              setComposing(true);
+              void onCreateTopic?.({
+                slug: `topic-${Date.now().toString(36)}`,
+                title: "新对话",
+              });
             }}
-            className="w-5 h-5 grid place-items-center rounded text-text-dim hover:bg-surface-hover hover:text-text text-[14px] leading-none"
+            className="w-5 h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text text-[14px] leading-none"
           >
             +
           </button>
         }
       >
-        {composing && onCreateTopic && (
-          <NewTopicRow
-            onCancel={() => setComposing(false)}
-            onSubmit={async (input) => {
-              await onCreateTopic(input);
-              setComposing(false);
-            }}
-          />
-        )}
-        {topics.length === 0 && !composing ? (
+        {topics.length === 0 ? (
           <div className="px-3 py-1 text-[11px] text-text-dim italic">
             还没有话题
           </div>
@@ -114,7 +98,7 @@ export function Sidebar({
       >
         {agentList.length === 0 ? (
           <div className="px-3 py-1 text-[11px] text-text-dim italic leading-relaxed">
-            还没有 agent。运行 <span className="font-mono">scripts/connect_local_agents.sh</span> 给你的本地 CC / Codex 发 token。
+            还没有 agent。在主区按提示运行那条 <span className="font-mono">curl … /install</span> 命令把这台电脑接上来。
           </div>
         ) : (
           agentList.map((a) => (
@@ -133,8 +117,7 @@ export function Sidebar({
       <div className="flex-1 min-h-3" />
 
       <div className="border-t border-border-soft px-4 py-3 flex flex-col gap-0.5">
-        <FooterLink>项目设置</FooterLink>
-        <FooterLink onClick={onClickSettings}>个人设置</FooterLink>
+        <FooterLink onClick={onClickSettings}>设置</FooterLink>
       </div>
     </div>
   );
@@ -171,7 +154,7 @@ function Section({
             className="text-[9px] text-text-dim transition-transform"
             style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
           >
-            ▶
+            ›
           </span>
           <span>{label}</span>
           <span className="font-mono font-medium">{count}</span>
@@ -204,10 +187,10 @@ function ChannelRow({
       type="button"
       onClick={onClick}
       className={cn(
-        "w-full flex items-center gap-2 px-3 py-1 rounded text-[12px] text-left",
+        "w-full flex items-center gap-2 px-3 py-1 rounded text-[12.5px] text-left",
         active
-          ? "bg-surface-hover text-text"
-          : "text-text-muted hover:bg-surface-hover hover:text-text",
+          ? "bg-surface-elev text-text shadow-[inset_0_0_0_1px_var(--color-border)]"
+          : "text-text-muted hover:text-text hover:shadow-[inset_2px_0_0_var(--color-accent)]",
       )}
     >
       <span className="font-mono text-[11px] text-text-dim w-12 flex-shrink-0">{tag}</span>
@@ -253,73 +236,6 @@ function AgentRow({
         {role} · {deviceLabel}
       </span>
     </div>
-  );
-}
-
-function NewTopicRow({
-  onCancel,
-  onSubmit,
-}: {
-  onCancel: () => void;
-  onSubmit: (input: { slug: string; title: string }) => Promise<void> | void;
-}) {
-  const [title, setTitle] = useState("");
-  const [slug, setSlug] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const finalSlug =
-      slug.trim() ||
-      title
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 24) ||
-      `topic-${Date.now()}`;
-    setBusy(true);
-    Promise.resolve(onSubmit({ slug: finalSlug, title: title.trim() })).finally(() =>
-      setBusy(false),
-    );
-  }
-
-  return (
-    <form
-      onSubmit={submit}
-      className="mx-3 px-2 py-2 mb-1 rounded border border-border bg-surface-elev flex flex-col gap-1.5"
-    >
-      <input
-        autoFocus
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="话题标题"
-        className="text-[12px] bg-transparent outline-none"
-      />
-      <input
-        value={slug}
-        onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, "-"))}
-        placeholder="slug (留空自动生成)"
-        className="text-[11px] font-mono bg-transparent outline-none text-text-muted"
-      />
-      <div className="flex justify-end gap-2 mt-0.5">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-[11px] text-text-dim hover:text-text px-2 py-0.5"
-        >
-          取消
-        </button>
-        <button
-          type="submit"
-          disabled={!title.trim() || busy}
-          className="text-[11px] bg-text text-bg px-2 py-0.5 rounded disabled:opacity-40"
-        >
-          {busy ? "…" : "创建"}
-        </button>
-      </div>
-    </form>
   );
 }
 

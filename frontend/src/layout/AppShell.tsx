@@ -1,22 +1,129 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 interface AppShellProps {
   sidebar: ReactNode;
+  /** Slim rail shown when the sidebar is collapsed (a couple of icons / vertical label). */
+  sidebarRail?: ReactNode;
   main: ReactNode;
   context: ReactNode;
   bottomTabs?: ReactNode;
 }
 
-export function AppShell({ sidebar, main, context, bottomTabs }: AppShellProps) {
+const COLLAPSED_KEY = "lets:sidebar-collapsed";
+const CONTEXT_W_KEY = "lets:context-w";
+const SIDEBAR_W_EXPANDED = 296;
+const SIDEBAR_W_COLLAPSED = 48;
+const CONTEXT_W_DEFAULT = 360;
+const CONTEXT_W_MIN = 260;
+const CONTEXT_W_MAX = 640;
+
+function loadCollapsed(): boolean {
+  try { return window.localStorage.getItem(COLLAPSED_KEY) === "1"; } catch { return false; }
+}
+function loadContextW(): number {
+  try {
+    const raw = window.localStorage.getItem(CONTEXT_W_KEY);
+    if (!raw) return CONTEXT_W_DEFAULT;
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n)) return Math.max(CONTEXT_W_MIN, Math.min(CONTEXT_W_MAX, n));
+  } catch { /* ignore */ }
+  return CONTEXT_W_DEFAULT;
+}
+
+export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: AppShellProps) {
+  const [collapsed, setCollapsed] = useState<boolean>(loadCollapsed);
+  const [contextW, setContextW] = useState<number>(loadContextW);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* ignore */ }
+  }, [collapsed]);
+  useEffect(() => {
+    try { window.localStorage.setItem(CONTEXT_W_KEY, String(contextW)); } catch { /* ignore */ }
+  }, [contextW]);
+
+  // Drag-to-resize the context pane.
+  const dragStart = useRef<{ x: number; startW: number } | null>(null);
+  function onResizerDown(e: React.MouseEvent) {
+    dragStart.current = { x: e.clientX, startW: contextW };
+    document.body.classList.add("select-none", "cursor-col-resize");
+    const onMove = (ev: MouseEvent) => {
+      if (!dragStart.current) return;
+      const dx = dragStart.current.x - ev.clientX;       // drag left ⇒ wider context
+      const next = Math.max(
+        CONTEXT_W_MIN,
+        Math.min(CONTEXT_W_MAX, dragStart.current.startW + dx),
+      );
+      setContextW(next);
+    };
+    const onUp = () => {
+      dragStart.current = null;
+      document.body.classList.remove("select-none", "cursor-col-resize");
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+  function resetContextW() {
+    setContextW(CONTEXT_W_DEFAULT);
+  }
+
+  const sideW = collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W_EXPANDED;
+  // On narrow screens the resizer + context column collapse out of view
+  // (Tailwind `hidden xl:block` on the right side). Resizer mirrors that.
+
   return (
     <div
       data-testid="app-shell"
       className="grid h-[100dvh]"
-      style={{ gridTemplateColumns: "var(--side-w, 296px) 1fr var(--context-w, 360px)" }}
+      style={{
+        gridTemplateColumns: `${sideW}px 1fr 6px ${contextW}px`,
+        transition: "grid-template-columns .18s ease",
+      }}
     >
-      <aside className="border-r border-border-soft bg-surface overflow-y-auto">{sidebar}</aside>
+      <aside
+        data-testid="app-sidebar"
+        data-collapsed={collapsed || undefined}
+        className="relative border-r border-border-soft bg-surface overflow-hidden"
+      >
+        <button
+          type="button"
+          aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+          title={collapsed ? "展开侧栏" : "收起侧栏"}
+          onClick={() => setCollapsed((v) => !v)}
+          className="absolute top-2 right-2 z-10 w-6 h-6 grid place-items-center rounded text-text-dim hover:text-text bg-bg/80 border border-border-soft text-[13px]"
+        >
+          {collapsed ? "›" : "‹"}
+        </button>
+        {collapsed ? (
+          <div className="h-full overflow-hidden">{sidebarRail}</div>
+        ) : (
+          <div className="h-full overflow-y-auto">{sidebar}</div>
+        )}
+      </aside>
+
       <main className="flex flex-col min-w-0 overflow-hidden pb-14 md:pb-0">{main}</main>
-      <aside className="border-l border-border-soft bg-surface overflow-y-auto hidden xl:block">{context}</aside>
+
+      {/* Resizer column — a hairline draggable strip between main and context */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        title="拖动调整右栏宽度 · 双击重置"
+        onMouseDown={onResizerDown}
+        onDoubleClick={resetContextW}
+        className="hidden xl:block cursor-col-resize relative bg-transparent group"
+      >
+        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[2px] h-10 bg-border group-hover:bg-accent-border rounded-full transition-colors" />
+        <span className="absolute inset-y-0 left-0 right-0 border-l border-r border-border-soft" />
+      </div>
+
+      <aside
+        data-testid="app-context"
+        className="border-l border-border-soft bg-surface overflow-y-auto hidden xl:block"
+      >
+        {context}
+      </aside>
+
       {bottomTabs}
     </div>
   );
