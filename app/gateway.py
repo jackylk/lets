@@ -28,10 +28,14 @@ will trigger a real local CLI invocation.
 from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -191,13 +195,27 @@ def _list_topics(host: str, token: str) -> list[dict]:
 
 
 def _read_topic(host: str, token: str, topic_id: int, after_id: int | None) -> list[dict]:
-    args: dict = {"topic_id": topic_id}
+    """Read messages in chronological (oldest-first) order.
+
+    When ``after_id`` is given we use the natural incremental path. Without
+    it we still need the *latest* N messages (for prompt-building) — so we
+    pull ``order=desc`` to get the newest first and then reverse so callers
+    keep seeing oldest-first. Without this, topics longer than ``limit``
+    silently drop the tail and the gateway logs "trigger msg vanished".
+    """
+    args: dict = {"topic_id": topic_id, "limit": 500}
     if after_id is not None:
         args["after_id"] = after_id
+    else:
+        args["order"] = "desc"
     raw = _mcp_call(host, token, "read_topic", args)
     if raw is None:
         return []
-    return raw if isinstance(raw, list) else [raw]
+    msgs = raw if isinstance(raw, list) else [raw]
+    if after_id is None:
+        # We asked for newest-first; restore chronological order for the caller.
+        msgs = list(reversed(msgs))
+    return msgs
 
 
 def _post(host: str, token: str, topic_id: int, type_: str, body: str, **metadata) -> dict:
@@ -217,31 +235,606 @@ def _addressed_to_me(msg: dict, my_human_id: int) -> bool:
     return str(my_human_id) in parts
 
 
+# Compact pane-updates spec — same parser, fraction of the tokens.
+# "headline" is a ≤30-char one-liner the UI shows when the agent's full
+# reply is folded ("AI 折叠" view mode). Should capture the essence of this
+# turn so the human can decide whether to expand.
+_PANE_UPDATE_INSTRUCTIONS = (
+    "After the reply, optionally append:\n"
+    "<pane_updates>{\"headline\":\"≤30字 中文一句话本轮要点\","
+    "\"decisions\":[{\"body\":\"…\"}],"
+    "\"options\":[{\"title\":\"…\",\"body\":\"…\",\"pros\":[\"…\"],\"cons\":[\"…\"]}],"
+    "\"constraints\":[{\"body\":\"…\"}],"
+    "\"open_questions\":[{\"body\":\"…\"}],"
+    "\"blind_spots\":[{\"body\":\"…\"}],"
+    "\"critiques\":[{\"body\":\"…\"}],"
+    "\"extensions\":[{\"body\":\"…\"}]}</pane_updates>\n"
+    "Valid JSON, omit keys you have nothing for, one line per item, "
+    "no duplicates with prior items, no mention in prose. "
+    "Always include headline — it's what the human sees when your reply is folded.\n"
+    "open_questions are EXPENSIVE — they pile up in the human's right pane "
+    "and demand attention. Emit ONLY when there is a real, blocking, "
+    "undecided choice that the human (not you) must answer. At most 1 per "
+    "reply. If you can take a position, do that instead — put it in "
+    "decisions or just say it in prose.\n"
+    "blind_spots: things the human is NOT considering but should — risks, "
+    "missing stakeholders, second-order effects, scope creep. Only emit when "
+    "you have a concrete one (≤25 字 中文)，not every turn. At most 2 per reply.\n"
+    "critiques: a devil's-advocate take on the current direction — \"this "
+    "won't work because…\" / \"the weak spot here is…\". Use to surface "
+    "objections that aren't pure blind spots, more like reasoned dissent. "
+    "At most 1 per reply, only when warranted.\n"
+    "extensions: creative \"yes-and\" — adjacent ideas / variations that "
+    "extend the current direction in a useful way. At most 1 per reply.\n"
+    "When useful, draw mermaid diagrams (flow, graph, sequence) directly in "
+    "your prose — they auto-collect into 图与资料. For decision trees use "
+    "mermaid `graph TD`. For comparing multiple options use a markdown "
+    "table in prose. When summarizing 3+ branching options or sub-features, "
+    "use a mermaid `mindmap` block — it gives the human a tree view they "
+    "can scan at a glance."
+)
+
+
+_PERSONA_OVERLAYS = {
+    "red": (
+        "\n\nRED-TEAM MODE: you argue against the current direction. "
+        "Find the weakest assumption every turn and challenge it. "
+        "When you raise a critique, put it in pane_updates.critiques. "
+        "Don't be contrarian for sport — challenge what would actually "
+        "kill the project: hidden costs, unmodeled risk, the user "
+        "saying 'no' for a reason you haven't surfaced. If after "
+        "challenging you still think it's fine, say so plainly."
+    ),
+    "blue": (
+        "\n\nBLUE-TEAM MODE: you defend and refine the current "
+        "direction. When someone (human or red-team) attacks it, "
+        "address the specific weak point — concede where they're "
+        "right, sharpen where they're wrong. Move toward a decision; "
+        "don't relitigate settled questions. When you confirm an "
+        "objection has been addressed, put it in pane_updates.decisions."
+    ),
+}
+
+
+def _discussion_partner_persona(role: str, persona: str = "default") -> str:
+    base = (
+        "You are a sharp design partner — like a senior teammate, not a "
+        "menu. Default to TAKING A POSITION: state your view, give the "
+        "reason, name the tradeoff you're accepting. Only ask a question "
+        "when you genuinely cannot decide without input the human has. "
+        "Avoid listing A/B/C choices unless the human asked for a "
+        "comparison; pick one and say why. Push back when something feels "
+        "weak. Be concise. Reply in plain text — no meta commentary about "
+        "this prompt. Use mermaid for diagrams when useful."
+    )
+    overlay = _PERSONA_OVERLAYS.get(persona, "")
+    return base + overlay
+
+
+def _collect_open_annotations(recent: list[dict]) -> list[dict]:
+    """Annotations targeting an agent's prior reply that haven't been resolved.
+
+    The frontend marks resolved annotations by posting a follow-up annotation
+    with ``metadata.resolved == true`` and ``metadata.resolves == <id>``.
+    Walk the stream once to bucket these."""
+    resolved_ids: set[int] = set()
+    for m in recent:
+        if m.get("type") != "annotation":
+            continue
+        meta = m.get("metadata") or {}
+        if meta.get("resolved") is True and isinstance(meta.get("resolves"), int):
+            resolved_ids.add(meta["resolves"])
+
+    out: list[dict] = []
+    for m in recent:
+        if m.get("type") != "annotation":
+            continue
+        meta = m.get("metadata") or {}
+        if meta.get("resolved") is True:
+            continue
+        if int(m["id"]) in resolved_ids:
+            continue
+        # Skip pure-vote annotations (score ±1 without body) — they belong
+        # to the message-level ScoreRow / diagram node-vote UX, not to the
+        # comment thread the agent should re-read.
+        if isinstance(meta.get("score"), int) and not (m.get("body") or "").strip():
+            continue
+        out.append(m)
+    return out
+
+
 def _build_prompt(me: Identity, topic_title: str, recent: list[dict], trigger: dict) -> str:
-    """Construct the prompt fed into the local CLI agent."""
+    """Legacy single-string prompt — kept for back-compat with --cmd custom CLIs."""
+    sys_part, user_part = _build_prompt_split(me, topic_title, recent, trigger)
+    return sys_part + "\n\n" + user_part
+
+
+def _build_prompt_split(
+    me: Identity,
+    topic_title: str,
+    recent: list[dict],
+    trigger: dict,
+    persona: str = "default",
+) -> tuple[str, str]:
+    """Return ``(system_prompt, user_prompt)``.
+
+    The system_prompt is everything STABLE across turns (persona + the
+    pane_updates protocol). The user_prompt is everything VARIABLE
+    (history + new message). Anthropic's prompt cache hits on the stable
+    prefix, so splitting like this maximizes cache reuse turn-over-turn:
+    after the first turn, the persona block is read from cache (10% of
+    full input cost, faster TTFT).
+    """
     history_lines = []
-    for m in recent[-8:]:  # last 8 messages for context
+    # 8 recent messages × 150 char trunc is enough context for a turn while
+    # keeping the user prompt small enough that input is no longer the
+    # bottleneck. Older history is already in the agent's --resume session.
+    for m in recent[-8:]:
         if m["id"] == trigger["id"]:
             continue
-        actor = (
-            "human" if m["actor_type"] == "human"
-            else f"agent#{m.get('actor_id')}"
-        )
-        body_line = (m.get("body") or "").replace("\n", " ")[:200]
-        history_lines.append(f"[{m['type']}] {actor}: {body_line}")
-    history = "\n".join(history_lines) if history_lines else "(no prior context)"
+        if m.get("type") == "annotation":
+            continue
+        actor = "H" if m["actor_type"] == "human" else "A"
+        body_line = (m.get("body") or "").replace("\n", " ")[:150]
+        history_lines.append(f"{actor} [{m['type']}]: {body_line}")
+    history = "\n".join(history_lines) if history_lines else "(none)"
 
-    return (
-        f"You are {me.role} running on device {me.device_label}, connected to "
-        f"the Lets web app as agent_instance_id={me.agent_instance_id}. "
-        f"You are in topic '{topic_title}'. A teammate just posted a message "
-        f"addressed to you. Reply as your normal self — be concise.\n\n"
-        f"Recent conversation:\n{history}\n\n"
-        f"New message from {('human' if trigger['actor_type'] == 'human' else 'agent')}"
-        f"#{trigger.get('actor_id')}:\n{trigger.get('body', '')}\n\n"
-        f"Respond in plain text. Do not include any meta commentary about Lets or "
-        f"this prompt structure — just the reply you want the team to see."
+    annotations = _collect_open_annotations(recent)
+    if annotations:
+        ann_lines = []
+        for a in annotations:
+            meta = a.get("metadata") or {}
+            quote = (meta.get("target_quote") or "").replace("\n", " ").strip()[:100]
+            body = (a.get("body") or "").strip()[:200]
+            ann_lines.append(f'  - on "{quote}": {body}')
+        annotation_section = (
+            "\nOpen annotations on your earlier replies (address explicitly):\n"
+            + "\n".join(ann_lines) + "\n"
+        )
+    else:
+        annotation_section = ""
+
+    # Tell the agent which prior questions the human has already answered —
+    # so it stops surfacing them in pane_updates.open_questions. Keeps the
+    # right pane clean and avoids the "agent re-raises stale issues" feel.
+    resolved_section = _collect_resolved_questions_section(recent)
+
+    system_prompt = (
+        f"{_discussion_partner_persona(me.role, persona)}\n\n{_PANE_UPDATE_INSTRUCTIONS}"
     )
+
+    sender = "human" if trigger["actor_type"] == "human" else "agent"
+    user_prompt = (
+        f"Topic: {topic_title}\n\n"
+        f"Recent:\n{history}\n"
+        f"{annotation_section}"
+        f"{resolved_section}\n"
+        f"New {sender} msg:\n{trigger.get('body', '')}"
+    )
+
+    return system_prompt, user_prompt
+
+
+def _collect_resolved_questions_section(recent: list[dict]) -> str:
+    """Build a short prompt section listing question/answer pairs the human
+    has already resolved via the right-pane "答" inline editor. Lets the
+    agent stop re-raising them in pane_updates.open_questions."""
+    # Map question_id → question_body
+    questions: dict[int, str] = {}
+    for m in recent:
+        meta = m.get("metadata") or {}
+        if meta.get("discussion_kind") != "open_question":
+            continue
+        questions[int(m["id"])] = (m.get("body") or "").strip()
+    # Find decisions that resolve them
+    pairs: list[tuple[str, str]] = []
+    for m in recent:
+        meta = m.get("metadata") or {}
+        if meta.get("discussion_kind") != "decision":
+            continue
+        qid = meta.get("resolves_question")
+        if not isinstance(qid, int):
+            continue
+        q = questions.get(qid)
+        if not q:
+            continue
+        pairs.append((q[:80], (m.get("body") or "").strip()[:120]))
+    if not pairs:
+        return ""
+    lines = "\n".join(f'  - Q: "{q}" → A: {a}' for q, a in pairs)
+    return (
+        "\nQuestions the human already answered (do not re-list these as "
+        "open_questions):\n" + lines + "\n"
+    )
+
+
+# ─── Pane-update parsing & posting ───────────────────────────────────────
+
+_PANE_FENCE_RE = re.compile(
+    r"<pane_updates>\s*([\s\S]*?)\s*</pane_updates>",
+    re.IGNORECASE,
+)
+
+
+def _parse_pane_updates(output: str) -> tuple[str, dict]:
+    """Pull a <pane_updates> JSON block out of the agent's reply, if any.
+
+    Returns ``(chat_body, updates)`` where ``chat_body`` is the agent's prose
+    with the entire fence removed (even if the JSON inside was malformed) and
+    ``updates`` is the parsed dict (empty on parse failure)."""
+    m = _PANE_FENCE_RE.search(output)
+    if not m:
+        return output, {}
+    chat_body = (output[: m.start()] + output[m.end() :]).rstrip()
+    inner = (m.group(1) or "").strip()
+    if not inner:
+        return chat_body, {}
+    try:
+        updates = json.loads(inner)
+    except json.JSONDecodeError:
+        print(
+            f"  WARN: pane_updates JSON malformed, ignoring: {inner[:200]}",
+            file=sys.stderr,
+        )
+        return chat_body, {}
+    if not isinstance(updates, dict):
+        return chat_body, {}
+    return chat_body, updates
+
+
+_KIND_TO_TYPE = {
+    "decision":      "decision",
+    "option":        "proactive_finding",
+    "constraint":    "finding",
+    "open_question": "question",
+    "blind_spot":    "proactive_finding",
+    "critique":      "proactive_finding",
+    "extension":     "proactive_finding",
+}
+_KIND_TO_ARRAY = {
+    "decision":      "decisions",
+    "option":        "options",
+    "constraint":    "constraints",
+    "open_question": "open_questions",
+    "blind_spot":    "blind_spots",
+    "critique":      "critiques",
+    "extension":     "extensions",
+}
+
+
+def _post_pane_updates(host: str, token: str, topic_id: int, updates: dict, source_msg_id: int | None = None) -> int:
+    """Post each pane_update item as its own typed message. Returns count posted."""
+    posted = 0
+    for kind, type_ in _KIND_TO_TYPE.items():
+        items = updates.get(_KIND_TO_ARRAY[kind]) or []
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            body = (item.get("body") or item.get("title") or "").strip()
+            if not body:
+                continue
+            metadata: dict[str, Any] = {"discussion_kind": kind}
+            if source_msg_id is not None:
+                metadata["promoted_from"] = source_msg_id
+            if kind == "option":
+                if isinstance(item.get("title"), str) and item["title"].strip():
+                    metadata["title"] = item["title"].strip()
+                if isinstance(item.get("pros"), list):
+                    metadata["pros"] = [str(p) for p in item["pros"] if p]
+                if isinstance(item.get("cons"), list):
+                    metadata["cons"] = [str(c) for c in item["cons"] if c]
+            try:
+                _post(host, token, topic_id, type_, body, **metadata)
+                posted += 1
+            except Exception as e:
+                print(f"  WARN: failed to post pane_update {kind}: {e}", file=sys.stderr)
+    return posted
+
+
+def _default_session_dir() -> str:
+    home = os.path.expanduser(os.environ.get("LETS_HOME", "~/.lets"))
+    return os.path.join(home, "sessions")
+
+
+def _session_path(session_dir: str, host: str, topic_id: int, engine: str) -> str:
+    key = json.dumps(
+        {
+            "host": host.rstrip("/"),
+            "topic_id": int(topic_id),
+            "engine": engine,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
+    return os.path.join(session_dir, f"{digest}.json")
+
+
+def _load_session(session_dir: str, host: str, topic_id: int, engine: str) -> dict | None:
+    path = _session_path(session_dir, host, topic_id, engine)
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if not data.get("session_id"):
+        return None
+    return data
+
+
+def _save_session(
+    session_dir: str,
+    host: str,
+    topic_id: int,
+    engine: str,
+    session_id: str,
+    *,
+    last_message_id: int | None = None,
+) -> None:
+    os.makedirs(session_dir, exist_ok=True)
+    path = _session_path(session_dir, host, topic_id, engine)
+    now = time.time()
+    prior = _load_session(session_dir, host, topic_id, engine) or {}
+    data = {
+        "host": host.rstrip("/"),
+        "topic_id": int(topic_id),
+        "engine": engine,
+        "session_id": session_id,
+        "created_at": prior.get("created_at") or now,
+        "updated_at": now,
+    }
+    if last_message_id is not None:
+        data["last_message_id"] = int(last_message_id)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.chmod(path, 0o600)
+
+
+def _find_session_id(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("session_id", "sessionId"):
+            found = value.get(key)
+            if isinstance(found, str) and found.strip():
+                return found.strip()
+        session = value.get("session")
+        if isinstance(session, dict):
+            found = session.get("id")
+            if isinstance(found, str) and found.strip():
+                return found.strip()
+        for child in value.values():
+            found = _find_session_id(child)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _find_session_id(child)
+            if found:
+                return found
+    return None
+
+
+def _text_from_value(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            text = _text_from_value(item)
+            if text:
+                parts.append(text)
+        return "\n".join(parts).strip() or None
+    if not isinstance(value, dict):
+        return None
+
+    for key in ("result", "output", "text", "content", "message"):
+        if key not in value:
+            continue
+        candidate = value[key]
+        if isinstance(candidate, dict) and key == "message":
+            role = candidate.get("role")
+            if role and role not in ("assistant", "agent"):
+                continue
+        text = _text_from_value(candidate)
+        if text:
+            return text
+
+    # OpenAI/Codex-style content blocks.
+    parts = []
+    for child in value.values():
+        if isinstance(child, (dict, list)):
+            text = _text_from_value(child)
+            if text:
+                parts.append(text)
+    return "\n".join(parts).strip() or None
+
+
+def _parse_agent_output(stdout: str) -> tuple[str, str | None]:
+    raw = stdout.strip()
+    if not raw:
+        return "", None
+
+    records: list[Any] = []
+    try:
+        records.append(json.loads(raw))
+    except json.JSONDecodeError:
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                records = []
+                break
+
+    if not records:
+        return raw, None
+
+    session_id = None
+    texts: list[str] = []
+    for record in records:
+        session_id = _find_session_id(record) or session_id
+        text = _text_from_value(record)
+        if text:
+            texts.append(text)
+    return ("\n".join(texts).strip() or raw), session_id
+
+
+def _with_arg(cmd: list[str], *args: str) -> list[str]:
+    out = list(cmd)
+    for arg in args:
+        if arg not in out:
+            out.append(arg)
+    return out
+
+
+def _agent_command(
+    cmd: list[str],
+    engine: str,
+    session_id: str | None,
+    system_prompt: str | None = None,
+) -> list[str]:
+    if engine == "claude":
+        out = list(cmd)
+        if "--output-format" not in out:
+            out.extend(["--output-format", "json"])
+        if session_id and "--resume" not in out and "-r" not in out:
+            out.extend(["--resume", session_id])
+        # Stable persona / pane_updates instructions go in --append-system-prompt
+        # so Anthropic's prompt cache hits this prefix on subsequent turns.
+        if system_prompt and "--append-system-prompt" not in out:
+            out.extend(["--append-system-prompt", system_prompt])
+        return out
+    if engine == "codex":
+        if len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec":
+            out = [cmd[0], cmd[1]]
+            if session_id:
+                out.extend(["resume", session_id])
+            out.extend(cmd[2:])
+            return _with_arg(out, "--json")
+        return cmd
+    return cmd
+
+
+def _error_for_cli(engine: str, cmd: list[str], returncode: int, stderr: str) -> str:
+    name = "Claude CLI" if engine == "claude" else "Codex CLI" if engine == "codex" else "local CLI"
+    probe = "claude --print 'hi'" if engine == "claude" else "codex exec 'hi'" if engine == "codex" else "the CLI"
+    return (
+        f"{name} 调用失败。\n\n"
+        f"command: {' '.join(cmd)}\n"
+        f"exit: {returncode}\n"
+        f"stderr:\n{(stderr.strip() or '(no stderr)')[:2000]}\n\n"
+        f"在终端运行 `{probe}` 验证本机非交互模式可用后，再重试这条消息。"
+    )
+
+
+def _timeout_for_cli(engine: str, timeout: int) -> str:
+    name = "Claude CLI" if engine == "claude" else "Codex CLI" if engine == "codex" else "local CLI"
+    probe = "claude --print 'hi'" if engine == "claude" else "codex exec 'hi'" if engine == "codex" else "the CLI"
+    return (
+        f"{name} 超过 {timeout}s 没有返回。\n\n"
+        f"在终端运行 `{probe}` 验证本机非交互模式可用；"
+        "如果它也卡住，需要先修复本机 CLI 的登录/网络环境。"
+    )
+
+
+def _invoke_agent_turn(
+    *,
+    cmd: list[str],
+    prompt: str,
+    timeout: int,
+    me: Identity,
+    host: str,
+    topic_id: int,
+    session_dir: str,
+    trigger_message_id: int | None = None,
+    system_prompt: str | None = None,
+) -> tuple[bool, str]:
+    """Invoke the local agent CLI with session-resume support.
+
+    If the saved session_id is unknown to the CLI (`claude` deletes its local
+    session DB on upgrade, the user removes ~/.claude, etc.), `claude --resume`
+    can either error out fast (`No conversation found`) or — in non-tty stdin
+    mode — hang waiting for a confirmation. Either way we drop the stale
+    session_id, delete the cache file, and retry once without `--resume`.
+
+    ``system_prompt`` is the stable part of the prompt (persona, output format
+    spec). Passing it separately via --append-system-prompt lets Anthropic's
+    prompt cache hit it on subsequent turns, cutting input cost and TTFT.
+    """
+    session = _load_session(session_dir, host, topic_id, me.role)
+    session_id = str(session["session_id"]) if session else None
+
+    def _run(use_session_id: str | None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            _agent_command(cmd, me.role, use_session_id, system_prompt) + [prompt],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+        )
+
+    def _stale_session(returncode: int, stderr: str) -> bool:
+        if returncode == 0:
+            return False
+        lowered = (stderr or "").lower()
+        return (
+            "no conversation found" in lowered
+            or "session not found" in lowered
+            or "unknown session" in lowered
+        )
+
+    try:
+        try:
+            proc = _run(session_id)
+        except subprocess.TimeoutExpired:
+            # Could be a hung --resume on a stale session — retry fresh.
+            if not session_id:
+                return False, _timeout_for_cli(me.role, timeout)
+            _forget_session(session_dir, host, topic_id, me.role)
+            proc = _run(None)
+
+        if session_id and _stale_session(proc.returncode, proc.stderr):
+            _forget_session(session_dir, host, topic_id, me.role)
+            proc = _run(None)
+
+        if proc.returncode != 0:
+            return False, _error_for_cli(
+                me.role,
+                _agent_command(cmd, me.role, None, system_prompt),
+                proc.returncode,
+                proc.stderr,
+            )
+        text, next_session_id = _parse_agent_output(proc.stdout)
+        if next_session_id:
+            _save_session(
+                session_dir,
+                host,
+                topic_id,
+                me.role,
+                next_session_id,
+                last_message_id=trigger_message_id,
+            )
+        if not text:
+            return False, "local CLI produced no output"
+        return True, text
+    except subprocess.TimeoutExpired:
+        return False, _timeout_for_cli(me.role, timeout)
+    except FileNotFoundError as e:
+        return False, f"local CLI not found: {e}"
+
+
+def _forget_session(session_dir: str, host: str, topic_id: int, engine: str) -> None:
+    path = _session_path(session_dir, host, topic_id, engine)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
 
 
 def _invoke_local_cli(cmd: list[str], prompt: str, timeout: int) -> tuple[bool, str]:
@@ -255,24 +848,105 @@ def _invoke_local_cli(cmd: list[str], prompt: str, timeout: int) -> tuple[bool, 
             timeout=timeout,
         )
         if proc.returncode != 0:
-            return False, f"local CLI exited {proc.returncode}\nSTDERR:\n{proc.stderr[:2000]}"
+            return False, _error_for_cli("local", cmd, proc.returncode, proc.stderr)
         out = proc.stdout.strip()
         if not out:
             return False, "local CLI produced no output"
         return True, out
     except subprocess.TimeoutExpired:
-        return False, f"local CLI timed out after {timeout}s"
+        return False, _timeout_for_cli("local", timeout)
     except FileNotFoundError as e:
         return False, f"local CLI not found: {e}"
 
 
+def _lets_home() -> str:
+    return os.environ.get("LETS_HOME", os.path.expanduser("~/.lets"))
+
+
 def _token_paths() -> tuple[str, str]:
-    home = os.environ.get("LETS_HOME", os.path.expanduser("~/.lets"))
+    """Legacy single-token slot (back-compat). New installs use _agent_token_path."""
+    home = _lets_home()
     return os.path.join(home, "token"), os.path.join(home, "token.json")
 
 
+def _agent_token_path(role: str) -> str:
+    """Per-agent token file. Enables `lets add claude` + `lets add codex` to
+    coexist instead of clobbering each other."""
+    return os.path.join(_lets_home(), "tokens", f"{role}.json")
+
+
+def _list_agent_tokens() -> list[dict]:
+    """Return all per-agent token records (legacy single + new per-role)."""
+    out: list[dict] = []
+    tokens_dir = os.path.join(_lets_home(), "tokens")
+    if os.path.isdir(tokens_dir):
+        for name in sorted(os.listdir(tokens_dir)):
+            if not name.endswith(".json"):
+                continue
+            path = os.path.join(tokens_dir, name)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                data["_path"] = path
+                data["_role"] = data.get("agent_instance", {}).get("role") or name[:-5]
+                out.append(data)
+            except (json.JSONDecodeError, OSError):
+                continue
+    # Legacy fallback: include ~/.lets/token.json if no per-role file covers it.
+    legacy = _load_token_meta()
+    if legacy:
+        role = (legacy.get("agent_instance") or {}).get("role") or "claude"
+        if not any(r.get("_role") == role for r in out):
+            legacy = dict(legacy)
+            legacy["_path"] = _token_paths()[1]
+            legacy["_role"] = role
+            out.append(legacy)
+    return out
+
+
+def _load_token_for_agent(role: str | None) -> dict | None:
+    """Resolve which token to use. If role given, look at tokens/<role>.json
+    first, fall back to legacy. If role omitted, prefer legacy (single-agent
+    install), else the first per-role token."""
+    if role:
+        path = _agent_token_path(role)
+        if os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError):
+                pass
+        legacy = _load_token_meta()
+        if legacy and (legacy.get("agent_instance") or {}).get("role") == role:
+            return legacy
+        return None
+    legacy = _load_token_meta()
+    if legacy:
+        return legacy
+    all_tokens = _list_agent_tokens()
+    return all_tokens[0] if all_tokens else None
+
+
+def _save_agent_token(role: str, host: str, token: str, agent_instance: dict | None) -> str:
+    path = _agent_token_path(role)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "host": host.rstrip("/"),
+                "token": token,
+                "agent_instance": agent_instance,
+            },
+            f,
+            indent=2,
+        )
+        f.write("\n")
+    os.chmod(path, 0o600)
+    return path
+
+
 def _login(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="lets-gateway login")
+    parser = argparse.ArgumentParser(prog="lets login")
     parser.add_argument(
         "--host",
         default=os.environ.get("LETS_HOST", "https://lets.up.railway.app"),
@@ -329,6 +1003,14 @@ def _login(argv: list[str]) -> int:
         data = _http_public(args.host, "GET", f"/auth/device-flow/poll?{poll_params}")
         if data.get("status") == "authorized":
             token = data["token"]
+            agent_instance = data.get("agent_instance") or {}
+            # New per-role slot — supports multi-agent.
+            role_for_storage = agent_instance.get("role") or args.role
+            role_path = _save_agent_token(
+                role_for_storage, args.host, token, agent_instance,
+            )
+            # Legacy single-token slot is kept in sync so existing tooling
+            # (`lets gateway` with no --agent, old install scripts) still works.
             token_path, token_json_path = _token_paths()
             os.makedirs(os.path.dirname(token_path), exist_ok=True)
             with open(token_path, "w", encoding="utf-8") as f:
@@ -339,15 +1021,15 @@ def _login(argv: list[str]) -> int:
                     {
                         "host": args.host.rstrip("/"),
                         "token": token,
-                        "agent_instance": data.get("agent_instance"),
+                        "agent_instance": agent_instance,
                     },
                     f,
                     indent=2,
                 )
                 f.write("\n")
             os.chmod(token_json_path, 0o600)
-            print(f"Saved token to {token_path}")
-            print("Run: lets-gateway run")
+            print(f"Saved token to {role_path}")
+            print("Next: lets gateway")
             return 0
         time.sleep(interval)
 
@@ -394,6 +1076,264 @@ def _status(argv: list[str]) -> int:
     return 0
 
 
+def _topics(argv: list[str]) -> int:
+    """List the user's recent topics with ids so they can `lets spec <id>`."""
+    parser = argparse.ArgumentParser(prog="lets topics")
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--agent", default=None)
+    parser.add_argument("--limit", type=int, default=20)
+    args = parser.parse_args(argv)
+
+    rec = _load_token_for_agent(args.agent)
+    if not rec or not rec.get("token"):
+        print("Missing token. Run: lets login", file=sys.stderr)
+        return 2
+    host = args.host or rec.get("host") or "http://127.0.0.1:8000"
+    token = rec["token"]
+
+    try:
+        topics = _mcp_call(host, token, "list_my_topics", {"limit": args.limit}) or []
+    except Exception as e:
+        print(f"Failed to list topics: {e}", file=sys.stderr)
+        return 1
+    if not isinstance(topics, list):
+        topics = [topics] if topics else []
+
+    if not topics:
+        print("no topics yet.")
+        return 0
+    # Column widths sized for readable output.
+    for t in topics:
+        tid = t.get("id", "?")
+        title = (t.get("title") or "").strip() or "(untitled)"
+        if len(title) > 60:
+            title = title[:57] + "…"
+        print(f"  {tid:>4}  {title}")
+    return 0
+
+
+def _spec(argv: list[str]) -> int:
+    """Pull a topic from the blackboard and render it as a handoff spec.
+
+    Usage: lets spec <topic-id> [--out spec.md] [--limit 500] [--host …]
+
+    Designed so the human can throw it at a weaker agent (codex+deepseek
+    etc.) on another machine and have enough context to actually build the
+    thing without seeing the original chat.
+    """
+    parser = argparse.ArgumentParser(prog="lets spec")
+    parser.add_argument("topic_id", type=int, help="Topic id to export")
+    parser.add_argument(
+        "--out", default="-",
+        help="Output file path. Default '-' writes to stdout.",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=500,
+        help="Max messages to pull from the topic (default 500).",
+    )
+    parser.add_argument(
+        "--host", default=None,
+        help="Lets backend URL. Defaults to the host stored at login.",
+    )
+    parser.add_argument(
+        "--agent", default=None,
+        help="Which agent's token to use (claude/codex). Defaults to "
+             "first available.",
+    )
+    parser.add_argument(
+        "--polish", action="store_true",
+        help="Run claude --print over the raw spec to derive 设计目标 + "
+             "实施步骤 sections. Adds ~30-60s but makes the spec materially "
+             "more useful for handoff. Requires `claude` CLI on PATH.",
+    )
+    parser.add_argument(
+        "--polish-model", default="sonnet",
+        help="Model alias for --polish (default: sonnet, the balance of "
+             "quality vs speed for a single-shot transform).",
+    )
+    parser.add_argument(
+        "--self-test", action="store_true",
+        help="After rendering (and optional polish), have an agent read "
+             "the spec as if it were a weaker dev about to ship — appends "
+             "a「自检」section listing concrete blockers the agent would "
+             "hit. Useful for finding gaps before handoff.",
+    )
+    args = parser.parse_args(argv)
+
+    rec = _load_token_for_agent(args.agent)
+    if not rec or not rec.get("token"):
+        print("Missing token. Run: lets login", file=sys.stderr)
+        return 2
+    host = args.host or rec.get("host") or "http://127.0.0.1:8000"
+    token = rec["token"]
+
+    try:
+        msgs = _mcp_call(host, token, "read_topic", {
+            "topic_id": args.topic_id,
+            "limit": args.limit,
+            "order": "asc",
+        }) or []
+    except Exception as e:
+        print(f"Failed to read topic {args.topic_id}: {e}", file=sys.stderr)
+        return 1
+    if not isinstance(msgs, list):
+        msgs = [msgs] if msgs else []
+
+    from app.spec import render_spec_markdown
+    text = render_spec_markdown(args.topic_id, msgs)
+
+    if args.polish:
+        try:
+            text = _polish_spec(text, model=args.polish_model)
+        except Exception as e:
+            print(f"polish failed (keeping raw spec): {e}", file=sys.stderr)
+
+    if args.self_test:
+        try:
+            text = _append_self_test(text, model=args.polish_model)
+        except Exception as e:
+            print(f"self-test failed (keeping spec as-is): {e}", file=sys.stderr)
+
+    if args.out == "-":
+        print(text)
+    else:
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"wrote {args.out} ({len(text)} chars, {len(msgs)} messages)",
+              file=sys.stderr)
+    return 0
+
+
+_SPEC_POLISH_SYSTEM = (
+    "You polish a design-discussion spec for handoff to a weaker dev agent "
+    "(codex+deepseek-tier). The raw spec below comes from a discussion "
+    "blackboard. Tasks, in order:\n"
+    "1. Preserve the very first line verbatim (it is the `# Topic #N — title` "
+    "header). Never rewrite or drop it.\n"
+    "2. If 设计目标 is missing, infer one from the discussion and add it "
+    "right after the masthead blockquote. 2-3 lines max.\n"
+    "3. Keep EVERY existing [#nnn] citation exactly where it is — they are "
+    "load-bearing back-references.\n"
+    "4. Don't delete any existing bullet. You may reorder within a section.\n"
+    "5. Append a new section `## 实施步骤 (v1)` at the bottom: 5-8 "
+    "concrete, ordered, build-able steps for a weak agent to ship v1. "
+    "Each step: 1 line action + 1 line acceptance criterion. Cite the "
+    "relevant [#nnn] where applicable.\n"
+    "6. Append a new section `## 风险与未决` summarizing what could still "
+    "go wrong + which open_questions actually block v1.\n"
+    "OUTPUT FORMAT: the very first character of your reply must be `#` "
+    "(the topic header). No preamble like \"以下是…\" or \"Here is…\", no "
+    "leading code fences, no trailing commentary."
+)
+
+
+_POLISH_PREAMBLE_RES = [
+    re.compile(r"^\s*(以下是|这是|下面是)[^\n]*?[:：]?\s*\n+", re.IGNORECASE),
+    re.compile(r"^\s*(here(?:'s| is)|below is)[^\n]*?[:]?\s*\n+", re.IGNORECASE),
+    re.compile(r"^\s*```(?:markdown|md)?\s*\n"),
+    re.compile(r"^\s*---\s*\n"),
+]
+
+
+def _strip_polish_preamble(text: str, expected_header: str | None = None) -> str:
+    """Strip common LLM preambles ("以下是…", code fences, leading ---).
+
+    Repeats until no known preamble pattern matches. If the first line isn't
+    the expected topic header, prepend it back."""
+    out = text
+    changed = True
+    while changed:
+        changed = False
+        for rx in _POLISH_PREAMBLE_RES:
+            new = rx.sub("", out, count=1)
+            if new != out:
+                out = new
+                changed = True
+                break
+    out = out.lstrip()
+    if expected_header and not out.startswith(expected_header.rstrip()):
+        out = expected_header.rstrip() + "\n\n" + out
+    # Strip trailing code fence if claude wrapped the whole thing.
+    out = re.sub(r"\n```\s*$", "", out)
+    return out
+
+
+_SPEC_SELFTEST_SYSTEM = (
+    "You're a junior backend engineer about to start coding from the spec "
+    "below. Your tooling is weak: codex CLI + deepseek-flash. Read every "
+    "section, then list the top 5-10 concrete blockers you'd hit before "
+    "you could write meaningful code. A blocker is: a missing decision, "
+    "an ambiguous term, an implicit assumption only an insider would "
+    "know, or an underspecified interface. Format strictly:\n"
+    "- One bullet per blocker, ≤25 字 中文 per bullet.\n"
+    "- End each bullet with the most relevant [#nnn] citation if there is "
+    "one, otherwise omit it.\n"
+    "- Skip nice-to-haves; focus on what literally blocks `npm i` to MVP.\n"
+    "- No preamble like \"以下是\". First character of output is `-`."
+)
+
+
+def _append_self_test(spec_text: str, model: str = "sonnet") -> str:
+    """Append a 「自检」section to the spec by asking the agent to find gaps.
+
+    Runs ``claude --print`` once over the spec with the self-test prompt;
+    inserts the result as a markdown section so the human can see what a
+    weak downstream agent would trip over before actually handing off."""
+    import subprocess
+    proc = subprocess.run(
+        ["claude", "--print", "--model", model,
+         "--append-system-prompt", _SPEC_SELFTEST_SYSTEM, spec_text],
+        capture_output=True, text=True, timeout=180,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"claude returned {proc.returncode}: {proc.stderr[:300]}")
+    report = (proc.stdout or "").strip()
+    if not report:
+        raise RuntimeError("claude returned empty report")
+    # Strip the same wrappers the polish path handles.
+    report = _strip_polish_preamble(report)
+    section = (
+        "\n\n## 自检 (gaps a weak agent would hit)\n\n"
+        "> 由 `lets spec --self-test` 自动生成 — agent 站在弱开发者角度，"
+        "列出他在动手前必须先问的问题。每条都是动手前需补的洞。\n\n"
+        + report.rstrip() + "\n"
+    )
+    return spec_text.rstrip() + section
+
+
+def _polish_spec(raw: str, model: str = "sonnet") -> str:
+    """Run claude --print over the raw spec to add 设计目标 + 实施步骤.
+
+    Uses --append-system-prompt so the polish instructions are stable and
+    cache-friendly; the variable raw spec goes on stdin. Falls back to the
+    raw spec on any failure (caller handles the exception)."""
+    import subprocess
+    proc = subprocess.run(
+        ["claude", "--print", "--model", model,
+         "--append-system-prompt", _SPEC_POLISH_SYSTEM, raw],
+        capture_output=True, text=True, timeout=300,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"claude returned {proc.returncode}: {proc.stderr[:300]}")
+    out = (proc.stdout or "").strip()
+    if not out:
+        raise RuntimeError("claude returned empty output")
+    # Preserve the topic header — claude sometimes drops it when restructuring.
+    header = raw.splitlines()[0] if raw else None
+    cleaned = _strip_polish_preamble(out, expected_header=header)
+    return cleaned + "\n"
+
+
+def _render_spec_markdown(topic_id: int, msgs: list[dict]) -> str:
+    """Back-compat shim — real implementation lives in ``app.spec``.
+
+    Tests import ``gateway._render_spec_markdown`` directly; we keep the
+    name so they don't break, but delegate to the shared module.
+    """
+    from app.spec import render_spec_markdown
+    return render_spec_markdown(topic_id, msgs)
+
+
 def _logout(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lets logout")
     parser.parse_args(argv)
@@ -417,6 +1357,20 @@ def _launchd_plist_path() -> str:
     return os.path.expanduser(
         f"~/Library/LaunchAgents/{_launchd_label()}.plist"
     )
+
+
+def _log_paths(role: str | None = None) -> tuple[str, str]:
+    home = os.path.expanduser(os.environ.get("LETS_HOME", "~/.lets"))
+    log_dir = os.path.join(home, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    stem = f"gateway-{role}" if role else "gateway"
+    return os.path.join(log_dir, f"{stem}.out.log"), os.path.join(log_dir, f"{stem}.err.log")
+
+
+def _script_invocation() -> tuple[str, list[str], str]:
+    """Return a concrete invocation for both repo and standalone installs."""
+    script = str(Path(__file__).resolve())
+    return sys.executable, [script], str(Path(script).parent)
 
 
 def _install(argv: list[str]) -> int:
@@ -444,12 +1398,13 @@ def _install(argv: list[str]) -> int:
     meta = _load_token_meta() or {}
     host = args.host or meta.get("host") or "http://127.0.0.1:8000"
 
-    python_exec = sys.executable
-    module = "app.gateway"
-    repo_root = str(Path(__file__).resolve().parent.parent)
+    python_exec, argv_prefix, workdir = _script_invocation()
     home = os.path.expanduser(os.environ.get("LETS_HOME", "~/.lets"))
-    log_dir = os.path.join(home, "logs")
-    os.makedirs(log_dir, exist_ok=True)
+    out_log, err_log = _log_paths()
+    program_args = "\n".join(
+        f"    <string>{arg}</string>"
+        for arg in [python_exec, *argv_prefix, "run", "--host", host]
+    )
 
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -460,23 +1415,20 @@ def _install(argv: list[str]) -> int:
   <string>{_launchd_label()}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{python_exec}</string>
-    <string>-m</string>
-    <string>{module}</string>
-    <string>gateway</string>
-    <string>--host</string>
-    <string>{host}</string>
+{program_args}
   </array>
   <key>WorkingDirectory</key>
-  <string>{repo_root}</string>
+  <string>{workdir}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key>
-  <string>{log_dir}/gateway.out.log</string>
+  <string>{out_log}</string>
   <key>StandardErrorPath</key>
-  <string>{log_dir}/gateway.err.log</string>
+  <string>{err_log}</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>LETS_HOME</key>
+    <string>{home}</string>
     <key>PATH</key>
     <string>{os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin')}</string>
   </dict>
@@ -501,9 +1453,9 @@ def _install(argv: list[str]) -> int:
     if res.returncode != 0:
         print(f"launchctl load failed: {res.stderr.strip()}", file=sys.stderr)
         return res.returncode
-    print(f"launchctl loaded {_launchd_label()} — gateway will run at login.")
-    print(f"  out: {log_dir}/gateway.out.log")
-    print(f"  err: {log_dir}/gateway.err.log")
+    print(f"launchctl loaded {_launchd_label()} — gateway is running in the background and will run at login.")
+    print(f"  out: {out_log}")
+    print(f"  err: {err_log}")
     print("To check status now: launchctl list | grep lets")
     return 0
 
@@ -524,6 +1476,196 @@ def _uninstall(argv: list[str]) -> int:
     return 0
 
 
+def _spawn_background_for(role: str, host: str, extra: list[str]) -> int:
+    python_exec, argv_prefix, workdir = _script_invocation()
+    out_log, err_log = _log_paths(role=role)
+    # `-u` keeps stdout/stderr unbuffered so the log file is useful while the
+    # daemon is running (otherwise prints sit in Python's buffer forever).
+    cmd = [
+        python_exec, "-u", *argv_prefix, "run",
+        "--host", host, "--agent", role,
+        *extra,
+    ]
+    with open(out_log, "ab") as out, open(err_log, "ab") as err:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=workdir,
+            stdin=subprocess.DEVNULL,
+            stdout=out,
+            stderr=err,
+            start_new_session=True,
+        )
+    print(f"gateway[{role}] started in background (pid {proc.pid})")
+    print(f"  out: {out_log}")
+    print(f"  err: {err_log}")
+    return proc.pid
+
+
+def _start_background(argv: list[str]) -> int:
+    """`lets gateway` — start background daemon(s).
+
+    With `--agent <role>`: starts that single agent (singleton lock will
+    take over any prior instance with the same agent_instance_id).
+    With no `--agent`: starts every registered agent token.
+    """
+    parser = argparse.ArgumentParser(prog="lets gateway")
+    parser.add_argument(
+        "--host", default=None,
+        help="Override host for the daemon (default: from saved token)",
+    )
+    parser.add_argument(
+        "--agent", default=None,
+        help="Role to start (claude / codex). Omit to start every registered agent.",
+    )
+    args, passthrough = parser.parse_known_args(argv)
+
+    if args.agent:
+        tok = _load_token_for_agent(args.agent)
+        if not tok:
+            print(
+                f"no token for agent '{args.agent}'. Run: lets add {args.agent}",
+                file=sys.stderr,
+            )
+            return 1
+        host = args.host or tok.get("host") or os.environ.get("LETS_HOST", "http://127.0.0.1:8000")
+        _spawn_background_for(args.agent, host, passthrough)
+        return 0
+
+    # No --agent: start every registered agent. Useful one-liner after a reboot.
+    records = _list_agent_tokens()
+    if not records:
+        print("no agents registered. Run: lets add claude", file=sys.stderr)
+        return 1
+    for rec in records:
+        role = rec.get("_role") or "claude"
+        host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "http://127.0.0.1:8000")
+        _spawn_background_for(role, host, passthrough)
+    return 0
+
+
+def _add_agent(argv: list[str]) -> int:
+    """`lets add <role>` — device-flow login for a new agent + background daemon.
+
+    Combines the two-step flow (login → start gateway) into one command. Safe
+    to re-run: re-authorizes the device and the singleton lock causes the new
+    background daemon to replace any prior one for the same role.
+    """
+    parser = argparse.ArgumentParser(prog="lets add")
+    parser.add_argument(
+        "role",
+        nargs="?",
+        choices=["claude", "codex"],
+        default="claude",
+        help="Agent role to add (default: claude)",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("LETS_HOST", "https://lets.up.railway.app"),
+        help="Lets backend base URL",
+    )
+    parser.add_argument(
+        "--device-label",
+        default=os.environ.get("LETS_DEVICE_LABEL", socket.gethostname()),
+        help="Human-readable device label",
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Print the authorization URL but don't open a browser",
+    )
+    parser.add_argument(
+        "--no-start",
+        action="store_true",
+        help="Just authorize; don't start the background gateway",
+    )
+    args = parser.parse_args(argv)
+
+    print(f"Adding agent: {args.role} on {args.device_label}")
+    login_args = [
+        "--host", args.host,
+        "--role", args.role,
+        "--device-label", args.device_label,
+    ]
+    if args.no_open:
+        login_args.append("--no-open")
+    rc = _login(login_args)
+    if rc != 0:
+        return rc
+
+    if args.no_start:
+        print(f"agent '{args.role}' registered. Start later with: lets gateway --agent {args.role}")
+        return 0
+
+    print()
+    _spawn_background_for(args.role, args.host, [])
+    print()
+    print(f"agent '{args.role}' is live. Manage with:")
+    print(f"  lets gateway --agent {args.role}    # restart")
+    print(f"  lets status                         # see all agents")
+    return 0
+
+
+def _singleton_lock_path(agent_instance_id: int) -> str:
+    home = os.path.expanduser(os.environ.get("LETS_HOME", "~/.lets"))
+    locks_dir = os.path.join(home, "locks")
+    os.makedirs(locks_dir, exist_ok=True)
+    return os.path.join(locks_dir, f"agent-{agent_instance_id}.lock")
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _acquire_singleton(agent_instance_id: int):
+    """Acquire a per-agent_instance file lock; if another gateway already
+    holds it, SIGTERM that process and take over. Returns the open file
+    handle (caller keeps it alive). Returns None only if we couldn't
+    dislodge the previous holder after several retries."""
+    lock_path = _singleton_lock_path(agent_instance_id)
+    # Open in r+ so concurrent processes share the same inode for flock.
+    if not os.path.exists(lock_path):
+        with open(lock_path, "w"):
+            pass
+    f = open(lock_path, "r+")
+    for attempt in range(6):
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # Acquired — write our pid and return.
+            f.seek(0)
+            f.truncate()
+            f.write(f"{os.getpid()}\n")
+            f.flush()
+            return f
+        except BlockingIOError:
+            # Someone else owns it. Identify them, SIGTERM, wait, retry.
+            f.seek(0)
+            content = f.read().strip()
+            try:
+                prev_pid = int(content.splitlines()[0]) if content else 0
+            except ValueError:
+                prev_pid = 0
+            if attempt == 0 and prev_pid and prev_pid != os.getpid() and _pid_alive(prev_pid):
+                print(
+                    f"replacing previous gateway pid={prev_pid} for "
+                    f"agent_instance_id={agent_instance_id}…"
+                )
+                try:
+                    os.kill(prev_pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            time.sleep(0.5)
+    f.close()
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     # Subcommand dispatch — kept additive so existing entry-points (bare
@@ -538,11 +1680,19 @@ def main(argv: list[str] | None = None) -> int:
         return _install(argv[1:])
     if argv and argv[0] in ("uninstall",):
         return _uninstall(argv[1:])
-    # "gateway" + "run" both mean "start the daemon" (and so does bare invocation)
-    if argv and argv[0] in ("gateway", "run"):
+    if argv and argv[0] in ("gateway",):
+        return _start_background(argv[1:])
+    if argv and argv[0] in ("add",):
+        return _add_agent(argv[1:])
+    if argv and argv[0] in ("spec",):
+        return _spec(argv[1:])
+    if argv and argv[0] in ("topics",):
+        return _topics(argv[1:])
+    # "run" means foreground daemon for debugging/backward compatibility.
+    if argv and argv[0] in ("run",):
         argv = argv[1:]
 
-    parser = argparse.ArgumentParser(prog="lets-gateway")
+    parser = argparse.ArgumentParser(prog="lets run")
     parser.add_argument(
         "--token",
         default=os.environ.get("LETS_TOKEN"),
@@ -567,8 +1717,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--cli-timeout",
-        type=int, default=120,
-        help="Seconds to wait for the local CLI invocation (default 120)",
+        type=int, default=240,
+        help="Seconds to wait for the local CLI invocation (default 240). "
+             "claude --print on the long discussion-partner prompts routinely "
+             "takes 60-180s on a real conversation; 120 used to clip the tail.",
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("LETS_MODEL", "haiku"),
+        help="Model alias to pass to the local CLI (haiku/sonnet/opus or full "
+             "model id). Defaults to haiku because typical discussion turns "
+             "are 30s vs opus 60s+ — large for-each-message latency hurts "
+             "conversational feel. Set LETS_MODEL env to override.",
+    )
+    parser.add_argument(
+        "--session-dir",
+        default=os.environ.get("LETS_SESSION_DIR", _default_session_dir()),
+        help="Directory for local CLI session metadata (default: ~/.lets/sessions)",
     )
     parser.add_argument(
         "--dry-run",
@@ -576,21 +1741,39 @@ def main(argv: list[str] | None = None) -> int:
         help="Print the would-be CLI invocation but don't actually run it. "
              "Useful for testing the routing logic without burning CLI time.",
     )
-    token_path, token_json_path = _token_paths()
-    parser.set_defaults(
-        token=(
-            os.environ.get("LETS_TOKEN")
-            or (
-                open(token_path, encoding="utf-8").read().strip()
-                if os.path.exists(token_path)
-                else None
-            )
-        )
+    parser.add_argument(
+        "--agent",
+        default=None,
+        help="Role to run (claude / codex). Picks the matching token from "
+             "~/.lets/tokens/<role>.json; falls back to the legacy single "
+             "token file when omitted.",
+    )
+    parser.add_argument(
+        "--persona",
+        default=os.environ.get("LETS_PERSONA", "default"),
+        choices=["default", "red", "blue"],
+        help="Discussion persona overlay (default=balanced, red=challenges "
+             "the direction, blue=defends/converges). Run two gateways on "
+             "the same topic with red+blue to get a critique loop. Set "
+             "LETS_PERSONA env to persist across restarts.",
     )
     args = parser.parse_args(argv)
 
     if not args.token:
-        print("Missing --token (or LETS_TOKEN env). See scripts/connect_local_agents.sh", file=sys.stderr)
+        # Prefer per-agent token if --agent was given; otherwise use the
+        # legacy single-file slot (or LETS_TOKEN env).
+        rec = _load_token_for_agent(args.agent)
+        if rec and rec.get("token"):
+            args.token = rec["token"]
+            # Honor token's host if user didn't override.
+            if args.host == "http://127.0.0.1:8000" and rec.get("host"):
+                args.host = rec["host"]
+
+    if not args.token:
+        print(
+            "Missing token. Run: lets add claude  (or set LETS_TOKEN)",
+            file=sys.stderr,
+        )
         return 2
 
     me = _whoami(args.host, args.token)
@@ -599,12 +1782,28 @@ def main(argv: list[str] | None = None) -> int:
         f"(human={me.human_name}, agent_instance_id={me.agent_instance_id})"
     )
 
-    if args.cmd:
+    # Ensure only one gateway runs per agent_instance on this machine.
+    # If a previous gateway is running, SIGTERM it and take over — this is
+    # what users expect when they re-run `lets gateway` (or re-install).
+    lock_handle = _acquire_singleton(me.agent_instance_id)
+    if lock_handle is None:
+        print(
+            f"could not acquire singleton lock for agent_instance_id={me.agent_instance_id}. "
+            f"Another gateway is wedged; kill it manually (ps -ef | grep gateway.py).",
+            file=sys.stderr,
+        )
+        return 1
+
+    custom_cmd = bool(args.cmd)
+    if custom_cmd:
         cli_cmd = shlex.split(args.cmd)
     elif me.role == "claude":
         cli_cmd = ["claude", "--print"]
+        if args.model:
+            cli_cmd.extend(["--model", args.model])
     elif me.role == "codex":
         cli_cmd = ["codex", "exec"]
+        # codex model passthrough TBD when we wire it up
     else:
         print(f"unknown role '{me.role}' — pass --cmd explicitly", file=sys.stderr)
         return 2
@@ -622,59 +1821,163 @@ def main(argv: list[str] | None = None) -> int:
         f"(will respond to messages newer than current head)"
     )
 
+    # Pending state: messages addressed-to-me that I haven't replied to yet.
+    # Burst coalescing — wait until the topic has been quiet for a few seconds
+    # before invoking the LLM, so multi-message bursts collapse into one reply.
+    #   pending[tid] = { trigger_ids: list[int], last_msg_at: float, urgent: bool }
+    pending: dict[int, dict] = {}
+    QUIET_WINDOW_URGENT = 2.0  # @-mentioned messages: short window
+    QUIET_WINDOW_NORMAL = 6.0  # otherwise: longer, so user can keep typing
+
     while True:
         try:
             topics = _list_topics(args.host, args.token)
-            for t in topics:
-                tid = int(t["id"])
+            topic_by_id = {int(t["id"]): t for t in topics}
+
+            # ── Phase 1: poll for new messages and accumulate pending state ──
+            for tid, t in topic_by_id.items():
                 cur = last_seen_per_topic.get(tid, 0)
                 new_msgs = _read_topic(args.host, args.token, tid, cur)
                 if not new_msgs:
                     continue
-                # Advance cursor to the max id we just observed
                 last_seen_per_topic[tid] = max(
                     last_seen_per_topic.get(tid, 0),
                     max(int(m["id"]) for m in new_msgs),
                 )
                 for m in new_msgs:
-                    if m.get("actor_type") == "agent" and int(m.get("actor_id") or 0) == me.agent_instance_id:
-                        # Don't respond to my own messages
-                        continue
+                    if (m.get("actor_type") == "agent"
+                            and int(m.get("actor_id") or 0) == me.agent_instance_id):
+                        continue  # own posts
                     if not _addressed_to_me(m, me.human_id):
                         continue
-                    # Build prompt from topic context
-                    recent = _read_topic(args.host, args.token, tid, None)
-                    prompt = _build_prompt(
-                        me=me,
-                        topic_title=t.get("title", f"topic#{tid}"),
-                        recent=recent,
-                        trigger=m,
+                    p = pending.setdefault(
+                        tid,
+                        {"trigger_ids": [], "last_msg_at": 0.0, "urgent": False},
                     )
-                    print(
-                        f"[topic {tid}] picked up msg#{m['id']} "
-                        f"({m['type']} from actor#{m.get('actor_id')}): "
-                        f"{(m.get('body') or '')[:80]}"
-                    )
-                    # Post status while we run
+                    p["trigger_ids"].append(int(m["id"]))
+                    p["last_msg_at"] = time.time()
+                    # @ in body means the user wants a fast reply
+                    body_lc = (m.get("body") or "").lower()
+                    if "@" in body_lc:
+                        p["urgent"] = True
+
+            # ── Phase 2: fire on any topic that's been quiet long enough ──
+            now = time.time()
+            for tid in list(pending.keys()):
+                p = pending[tid]
+                window = QUIET_WINDOW_URGENT if p["urgent"] else QUIET_WINDOW_NORMAL
+                if now - p["last_msg_at"] < window:
+                    continue  # still typing — wait
+
+                t = topic_by_id.get(tid)
+                if t is None:
+                    pending.pop(tid)
+                    continue
+
+                trigger_ids = p["trigger_ids"]
+                pending.pop(tid)  # consume before potentially long CLI call
+
+                # Build prompt using the latest trigger message; the earlier
+                # burst entries are already inside `recent` (last 8 messages).
+                recent = _read_topic(args.host, args.token, tid, None)
+                trigger = next((m for m in reversed(recent) if int(m["id"]) == trigger_ids[-1]), None)
+                if trigger is None:
+                    print(f"[topic {tid}] trigger msg {trigger_ids[-1]} vanished; skipping")
+                    continue
+
+                system_prompt, user_prompt = _build_prompt_split(
+                    me=me,
+                    topic_title=t.get("title", f"topic#{tid}"),
+                    recent=recent,
+                    trigger=trigger,
+                    persona=args.persona,
+                )
+                print(
+                    f"[topic {tid}] firing on {len(trigger_ids)} message(s) "
+                    f"(burst {trigger_ids[0]}→{trigger_ids[-1]}, urgent={p['urgent']})"
+                )
+
+                # Post a "thinking" status so the human sees something happening
+                # during the 30-60s LLM call. Stream.tsx auto-hides this once
+                # the actual chat reply arrives (status + reply collapse to one
+                # bubble, like WhatsApp's typing indicator).
+                if not args.dry_run:
                     try:
-                        _post(args.host, args.token, tid, "status",
-                              f"active · 接到任务，本地 {me.role} 处理中…",
-                              agent_status="active")
+                        _post(
+                            args.host, args.token, tid, "status",
+                            "思考中…",
+                            phase="thinking",
+                            cites=trigger_ids,
+                        )
                     except Exception as e:
                         print(f"  (status post failed: {e})")
 
-                    if args.dry_run:
-                        print(f"  DRY RUN — would run: {' '.join(cli_cmd)}")
-                        print(f"  prompt:\n{prompt}\n")
-                        ok, output = True, "[dry-run] not actually invoked"
-                    else:
-                        ok, output = _invoke_local_cli(cli_cmd, prompt, args.cli_timeout)
+                if args.dry_run:
+                    print(f"  DRY RUN — would run: {' '.join(cli_cmd)}")
+                    print(f"  system:\n{system_prompt}\n")
+                    print(f"  user:\n{user_prompt}\n")
+                    ok, output = True, "[dry-run] not actually invoked"
+                elif custom_cmd:
+                    # Custom CLI gets the legacy single-string prompt — we
+                    # don't know if it supports a separate system prompt.
+                    ok, output = _invoke_local_cli(
+                        cli_cmd, system_prompt + "\n\n" + user_prompt, args.cli_timeout,
+                    )
+                else:
+                    ok, output = _invoke_agent_turn(
+                        cmd=cli_cmd,
+                        prompt=user_prompt,
+                        timeout=args.cli_timeout,
+                        me=me,
+                        host=args.host,
+                        topic_id=tid,
+                        session_dir=args.session_dir,
+                        trigger_message_id=trigger_ids[-1],
+                        system_prompt=system_prompt,
+                    )
 
-                    msg_type = "chat" if ok else "finding"
-                    suffix = "" if ok else " · ERROR"
+                if ok:
+                    chat_body, updates = _parse_pane_updates(output)
+                    # Pull out headline (separate from the array fields the
+                    # right pane consumes). It lives on the chat message
+                    # metadata so the frontend's folded view can show it.
+                    headline = None
+                    if isinstance(updates.get("headline"), str):
+                        headline = updates["headline"].strip()[:60] or None
+                    chat_meta: dict[str, Any] = {"cites": trigger_ids}
+                    if headline:
+                        chat_meta["headline"] = headline
                     try:
-                        _post(args.host, args.token, tid, msg_type, output + suffix)
-                        print(f"  posted reply ({'ok' if ok else 'error'}, {len(output)} chars)")
+                        chat_msg = _post(
+                            args.host, args.token, tid, "chat",
+                            chat_body or output,
+                            **chat_meta,
+                        )
+                        chat_id = chat_msg.get("id") if isinstance(chat_msg, dict) else None
+                        print(
+                            f"  posted reply ({len(chat_body or output)} chars, "
+                            f"cites={trigger_ids}"
+                            f"{', headline=' + repr(headline) if headline else ''})"
+                        )
+                    except Exception as e:
+                        print(f"  reply post failed: {e}")
+                        chat_id = None
+                    if updates:
+                        try:
+                            n = _post_pane_updates(
+                                args.host, args.token, tid, updates, source_msg_id=chat_id,
+                            )
+                            print(f"  posted {n} pane update(s)")
+                        except Exception as e:
+                            print(f"  pane_updates post failed: {e}")
+                else:
+                    try:
+                        _post(
+                            args.host, args.token, tid, "finding",
+                            output + " · ERROR",
+                            cites=trigger_ids,
+                        )
+                        print(f"  posted error ({len(output)} chars)")
                     except Exception as e:
                         print(f"  reply post failed: {e}")
         except Exception as e:

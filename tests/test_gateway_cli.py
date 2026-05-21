@@ -72,3 +72,794 @@ def test_gateway_login_no_open(monkeypatch, tmp_path):
     assert rc == 0
     assert opened == []
     assert polls == 1
+
+
+def test_gateway_turn_reuses_claude_session_by_topic_and_engine(monkeypatch, tmp_path):
+    from app import gateway
+
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout: str):
+            self.stdout = stdout
+
+    outputs = [
+        Result('{"type":"result","session_id":"sess-1","result":"在"}'),
+        Result('{"type":"result","session_id":"sess-1","result":"还在"}'),
+    ]
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return outputs.pop(0)
+
+    monkeypatch.setattr(gateway.subprocess, "run", fake_run)
+    me = gateway.Identity(
+        human_id=1,
+        human_name="Jacky Li",
+        agent_instance_id=7,
+        role="claude",
+        device_label="mac16",
+    )
+
+    ok, text = gateway._invoke_agent_turn(
+        cmd=["claude", "--print"],
+        prompt="CC在吗",
+        timeout=30,
+        me=me,
+        host="http://localhost:8000",
+        topic_id=42,
+        session_dir=str(tmp_path),
+        trigger_message_id=100,
+    )
+    assert ok is True
+    assert text == "在"
+    assert calls[0] == ["claude", "--print", "--output-format", "json", "CC在吗"]
+
+    ok, text = gateway._invoke_agent_turn(
+        cmd=["claude", "--print"],
+        prompt="继续",
+        timeout=30,
+        me=me,
+        host="http://localhost:8000",
+        topic_id=42,
+        session_dir=str(tmp_path),
+        trigger_message_id=101,
+    )
+    assert ok is True
+    assert text == "还在"
+    assert calls[1] == [
+        "claude",
+        "--print",
+        "--output-format",
+        "json",
+        "--resume",
+        "sess-1",
+        "继续",
+    ]
+
+
+def test_gateway_session_key_ignores_agent_instance_id(monkeypatch, tmp_path):
+    from app import gateway
+
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout: str):
+            self.stdout = stdout
+
+    outputs = [
+        Result('{"session_id":"shared-topic-session","result":"first"}'),
+        Result('{"session_id":"shared-topic-session","result":"second"}'),
+    ]
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return outputs.pop(0)
+
+    monkeypatch.setattr(gateway.subprocess, "run", fake_run)
+    first = gateway.Identity(1, "Jacky Li", 7, "claude", "mac16")
+    second = gateway.Identity(1, "Jacky Li", 8, "claude", "mac16-new-token")
+
+    gateway._invoke_agent_turn(
+        cmd=["claude", "--print"],
+        prompt="first",
+        timeout=30,
+        me=first,
+        host="http://localhost:8000",
+        topic_id=42,
+        session_dir=str(tmp_path),
+    )
+    gateway._invoke_agent_turn(
+        cmd=["claude", "--print"],
+        prompt="second",
+        timeout=30,
+        me=second,
+        host="http://localhost:8000",
+        topic_id=42,
+        session_dir=str(tmp_path),
+    )
+
+    assert "--resume" in calls[1]
+    assert "shared-topic-session" in calls[1]
+
+
+def test_lets_add_writes_per_role_token_and_starts_background(monkeypatch, tmp_path, capsys):
+    """`lets add codex` should save tokens/codex.json (keeping any existing
+    claude.json) and spawn a background gateway for that role."""
+    from app import gateway
+    import json
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+
+    # Pre-seed a claude token so we can assert it is NOT clobbered.
+    (tmp_path / "tokens").mkdir()
+    (tmp_path / "tokens" / "claude.json").write_text(
+        json.dumps({"host": "https://h", "token": "lets_claude_existing",
+                    "agent_instance": {"id": 1, "role": "claude", "device_label": "mac"}})
+    )
+
+    def fake_http(host, method, path):
+        if path.startswith("/auth/device-flow/start"):
+            return {"device_code": "dc", "user_code": "X-Y",
+                    "verification_url": "https://h/verify", "interval": 0}
+        if path.startswith("/auth/device-flow/poll"):
+            return {"status": "authorized", "token": "lets_codex_new",
+                    "agent_instance": {"id": 2, "role": "codex", "device_label": "mac"}}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(gateway, "_http_public", fake_http)
+    monkeypatch.setattr(gateway.webbrowser, "open", lambda url: True)
+
+    spawns: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        gateway,
+        "_spawn_background_for",
+        lambda role, host, extra: spawns.append((role, host)) or 12345,
+    )
+
+    rc = gateway.main(["add", "codex", "--host", "https://h", "--device-label", "mac"])
+    assert rc == 0
+
+    # Claude token preserved
+    claude = json.loads((tmp_path / "tokens" / "claude.json").read_text())
+    assert claude["token"] == "lets_claude_existing"
+    # New codex token written
+    codex = json.loads((tmp_path / "tokens" / "codex.json").read_text())
+    assert codex["token"] == "lets_codex_new"
+    assert codex["agent_instance"]["role"] == "codex"
+    # Background gateway spawned for codex
+    assert spawns == [("codex", "https://h")]
+
+
+def test_lets_gateway_with_agent_picks_per_role_token(monkeypatch, tmp_path):
+    """`lets gateway --agent codex` should resolve tokens/codex.json and
+    spawn one background gateway for that role only."""
+    from app import gateway
+    import json
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    (tmp_path / "tokens").mkdir()
+    (tmp_path / "tokens" / "claude.json").write_text(
+        json.dumps({"host": "https://h", "token": "lets_c",
+                    "agent_instance": {"id": 1, "role": "claude", "device_label": "mac"}})
+    )
+    (tmp_path / "tokens" / "codex.json").write_text(
+        json.dumps({"host": "https://h", "token": "lets_x",
+                    "agent_instance": {"id": 2, "role": "codex", "device_label": "mac"}})
+    )
+
+    spawns: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        gateway,
+        "_spawn_background_for",
+        lambda role, host, extra: spawns.append((role, host)) or 1,
+    )
+
+    rc = gateway.main(["gateway", "--agent", "codex"])
+    assert rc == 0
+    assert spawns == [("codex", "https://h")]
+
+
+def test_lets_gateway_no_agent_starts_all(monkeypatch, tmp_path):
+    from app import gateway
+    import json
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    (tmp_path / "tokens").mkdir()
+    for role, tok in (("claude", "lets_c"), ("codex", "lets_x")):
+        (tmp_path / "tokens" / f"{role}.json").write_text(
+            json.dumps({"host": "https://h", "token": tok,
+                        "agent_instance": {"id": 1, "role": role, "device_label": "mac"}})
+        )
+
+    spawns: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        gateway,
+        "_spawn_background_for",
+        lambda role, host, extra: spawns.append((role, host)) or 1,
+    )
+    rc = gateway.main(["gateway"])
+    assert rc == 0
+    assert set(spawns) == {("claude", "https://h"), ("codex", "https://h")}
+
+
+def test_gateway_turn_retries_without_resume_when_session_is_stale(monkeypatch, tmp_path):
+    """If `claude --resume <sid>` fails with 'No conversation found', the
+    gateway should drop the stale session and retry without --resume."""
+    from app import gateway
+    import json
+
+    # Pre-seed a saved session that the local CLI will reject.
+    sess_dir = tmp_path
+    me = gateway.Identity(
+        human_id=1, human_name="Jacky",
+        agent_instance_id=7, role="claude",
+        device_label="mac",
+    )
+    gateway._save_session(
+        str(sess_dir), "http://h", 42, "claude", "stale-sid",
+        last_message_id=99,
+    )
+
+    class R:
+        def __init__(self, code, out="", err=""):
+            self.returncode = code; self.stdout = out; self.stderr = err
+
+    outputs = [
+        R(1, "", "No conversation found with session ID: stale-sid"),
+        R(0, '{"type":"result","session_id":"fresh-sid","result":"pong"}', ""),
+    ]
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return outputs.pop(0)
+
+    monkeypatch.setattr(gateway.subprocess, "run", fake_run)
+
+    ok, text = gateway._invoke_agent_turn(
+        cmd=["claude", "--print"],
+        prompt="ping",
+        timeout=30,
+        me=me,
+        host="http://h",
+        topic_id=42,
+        session_dir=str(sess_dir),
+    )
+    assert ok, text
+    assert text == "pong"
+    # First call had --resume stale-sid; second did not.
+    assert "--resume" in calls[0] and "stale-sid" in calls[0]
+    assert "--resume" not in calls[1]
+    # Stale cache file was removed, and fresh session saved.
+    saved = gateway._load_session(str(sess_dir), "http://h", 42, "claude")
+    assert saved and saved["session_id"] == "fresh-sid"
+
+
+# ─── Slice 2c: pane_updates parsing & posting ─────────────────────────
+
+
+def test_parse_pane_updates_strips_fence_and_returns_dict():
+    from app.gateway import _parse_pane_updates
+
+    raw = """那大致两条路：
+- SAML 复用现有 IdP
+- OIDC + 新建 IdP
+
+<pane_updates>
+{
+  "options": [
+    {"title": "A. SAML 接入", "body": "成熟、可复用 IdP",
+     "pros": ["桌面成熟"], "cons": ["移动弱"]}
+  ],
+  "constraints": [{"body": "用户规模 2 万"}]
+}
+</pane_updates>
+"""
+    chat, updates = _parse_pane_updates(raw)
+    assert "<pane_updates>" not in chat
+    assert "SAML 复用现有 IdP" in chat
+    assert updates["options"][0]["title"] == "A. SAML 接入"
+    assert updates["constraints"][0]["body"] == "用户规模 2 万"
+
+
+def test_parse_pane_updates_no_fence_passes_through():
+    from app.gateway import _parse_pane_updates
+
+    chat, updates = _parse_pane_updates("just a reply, no JSON")
+    assert chat == "just a reply, no JSON"
+    assert updates == {}
+
+
+def test_parse_pane_updates_malformed_json_degrades_gracefully(capsys):
+    from app.gateway import _parse_pane_updates
+
+    chat, updates = _parse_pane_updates(
+        "prose\n<pane_updates>{ this is not json </pane_updates>"
+    )
+    # Fence still stripped; updates empty.
+    assert "<pane_updates>" not in chat
+    assert updates == {}
+
+
+def test_post_pane_updates_posts_one_typed_message_per_item(monkeypatch):
+    from app import gateway
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        gateway, "_post",
+        lambda host, token, topic_id, type_, body, **meta:
+            calls.append((type_, body, meta)) or {"id": len(calls)},
+    )
+
+    updates = {
+        "decisions": [{"body": "三端都要 SSO"}],
+        "options": [
+            {"title": "A. SAML", "body": "成熟、可复用",
+             "pros": ["桌面 ok"], "cons": ["移动差"]}
+        ],
+        "constraints": [{"body": "Java/Spring"}],
+        "open_questions": [{"body": "离线模式？"}],
+    }
+    n = gateway._post_pane_updates("h", "t", 7, updates, source_msg_id=123)
+    assert n == 4
+
+    types = [c[0] for c in calls]
+    assert "decision" in types
+    assert "proactive_finding" in types
+    assert "finding" in types
+    assert "question" in types
+
+    # Look at the option call: must carry title + pros + cons metadata.
+    opt = next(c for c in calls if c[0] == "proactive_finding")
+    assert opt[2]["title"] == "A. SAML"
+    assert opt[2]["pros"] == ["桌面 ok"]
+    assert opt[2]["cons"] == ["移动差"]
+    assert opt[2]["discussion_kind"] == "option"
+    assert opt[2]["promoted_from"] == 123
+
+
+def test_post_pane_updates_skips_empty_items(monkeypatch):
+    from app import gateway
+
+    calls = []
+    monkeypatch.setattr(
+        gateway, "_post",
+        lambda host, token, topic_id, type_, body, **meta:
+            calls.append((type_, body)) or {"id": 1},
+    )
+    n = gateway._post_pane_updates("h", "t", 1, {
+        "decisions": [{"body": "  "}, {"body": "real one"}, {}],
+        "open_questions": [],
+    })
+    assert n == 1
+    assert calls == [("decision", "real one")]
+
+
+# ─── Slice 5d: annotations feed into the next prompt ─────────────────────
+
+
+def test_build_prompt_surfaces_unresolved_annotations():
+    from app import gateway
+
+    me = gateway.Identity(
+        human_id=1, human_name="Jacky",
+        agent_instance_id=4, role="claude", device_label="mac",
+    )
+    recent = [
+        {"id": 10, "type": "chat", "actor_type": "agent", "actor_id": 4,
+         "body": "可以考虑 SAML 或 OIDC"},
+        {"id": 11, "type": "annotation", "actor_type": "human", "actor_id": 1,
+         "body": "iOS Safari 真的能跳回来吗？",
+         "metadata": {"target_message_id": 10,
+                      "target_quote": "SAML 桌面成熟但移动弱"}},
+        {"id": 12, "type": "chat", "actor_type": "human", "actor_id": 1,
+         "body": "另外，离线模式呢？"},
+    ]
+    trigger = recent[-1]
+    prompt = gateway._build_prompt(me, "登录改造", recent, trigger)
+    assert "SAML 桌面成熟但移动弱" in prompt
+    assert "iOS Safari 真的能跳回来吗" in prompt
+    # The annotation should NOT also appear in the regular history block
+    # (we surface it in a dedicated section instead).
+    assert prompt.count("iOS Safari") == 1
+
+
+def test_build_prompt_drops_resolved_annotations():
+    from app import gateway
+
+    me = gateway.Identity(
+        human_id=1, human_name="J", agent_instance_id=4,
+        role="claude", device_label="mac",
+    )
+    recent = [
+        {"id": 10, "type": "chat", "actor_type": "agent", "actor_id": 4,
+         "body": "..."},
+        {"id": 11, "type": "annotation", "actor_type": "human", "actor_id": 1,
+         "body": "first comment",
+         "metadata": {"target_message_id": 10, "target_quote": "X"}},
+        {"id": 12, "type": "annotation", "actor_type": "human", "actor_id": 1,
+         "body": "(resolved)",
+         "metadata": {"target_message_id": 10, "target_quote": "X",
+                      "resolved": True, "resolves": 11}},
+        {"id": 13, "type": "chat", "actor_type": "human", "actor_id": 1,
+         "body": "继续聊"},
+    ]
+    trigger = recent[-1]
+    prompt = gateway._build_prompt(me, "T", recent, trigger)
+    # The resolved annotation should NOT be surfaced.
+    assert "first comment" not in prompt
+
+
+# ─── Bug fix tests: read_topic ordering + default timeout ─────────────
+
+
+def test_gateway_default_cli_timeout_is_240():
+    """Long discussion prompts take 60-180s; 120 used to clip the tail.
+    Lock the new default so it doesn't silently regress."""
+    import argparse
+    from app import gateway
+    # Probe the default by parsing an empty `run` argv. Simplest way is to
+    # look at the parser definition's default — but the parser is built
+    # inside main(). Easier: spot-check the default by re-parsing.
+    src = open(gateway.__file__).read()
+    assert 'type=int, default=240' in src
+
+
+def test_read_topic_no_after_id_uses_descending_then_reverses(monkeypatch):
+    """When pulled without after_id, the gateway should ask for newest-first
+    (so the tail isn't dropped by LIMIT) and then reverse for callers."""
+    from app import gateway
+
+    called: dict = {}
+    # Server returns 5 messages newest-first (id 100, 99, 98, 97, 96)
+    def fake_call(host, token, name, args):
+        called["args"] = args
+        return [
+            {"id": 100, "type": "chat", "actor_type": "human"},
+            {"id": 99,  "type": "chat", "actor_type": "human"},
+            {"id": 98,  "type": "chat", "actor_type": "human"},
+            {"id": 97,  "type": "chat", "actor_type": "human"},
+            {"id": 96,  "type": "chat", "actor_type": "human"},
+        ]
+    monkeypatch.setattr(gateway, "_mcp_call", fake_call)
+
+    msgs = gateway._read_topic("h", "t", 9, None)
+    # Asked for desc
+    assert called["args"]["order"] == "desc"
+    # Returned in ascending order to the caller
+    assert [m["id"] for m in msgs] == [96, 97, 98, 99, 100]
+
+
+def test_read_topic_with_after_id_keeps_ascending(monkeypatch):
+    """Incremental polling (after_id given) must NOT flip to desc — that
+    would break the cursor advancement logic."""
+    from app import gateway
+
+    called: dict = {}
+    def fake_call(host, token, name, args):
+        called["args"] = args
+        return [
+            {"id": 11, "type": "chat", "actor_type": "human"},
+            {"id": 12, "type": "chat", "actor_type": "human"},
+        ]
+    monkeypatch.setattr(gateway, "_mcp_call", fake_call)
+    msgs = gateway._read_topic("h", "t", 9, 10)
+    assert called["args"]["after_id"] == 10
+    assert "order" not in called["args"]
+    assert [m["id"] for m in msgs] == [11, 12]
+
+
+def test_build_prompt_split_isolates_stable_persona():
+    """The new split separates stable persona+protocol (cacheable) from
+    variable history+message (per-turn). Cache-hit rate depends on the
+    stable prefix being byte-identical across turns."""
+    from app import gateway
+
+    me = gateway.Identity(
+        human_id=1, human_name="J", agent_instance_id=4,
+        role="claude", device_label="mac",
+    )
+    recent_a = [
+        {"id": 1, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "A"},
+        {"id": 2, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "B"},
+    ]
+    recent_b = recent_a + [
+        {"id": 3, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "C"},
+    ]
+    sys_a, user_a = gateway._build_prompt_split(me, "T", recent_a, recent_a[-1])
+    sys_b, user_b = gateway._build_prompt_split(me, "T", recent_b, recent_b[-1])
+
+    # System prompt must be byte-identical across turns (cache-key).
+    assert sys_a == sys_b
+    # User prompt obviously differs (history grew).
+    assert user_a != user_b
+    # Persona content lives in system, not user.
+    assert "design partner" in sys_a
+    assert "design partner" not in user_a
+    # pane_updates spec lives in system.
+    assert "<pane_updates>" in sys_a
+
+
+def test_claude_command_injects_append_system_prompt_when_given():
+    from app.gateway import _agent_command
+    cmd = _agent_command(["claude", "--print"], "claude", None, "PERSONA")
+    assert "--append-system-prompt" in cmd
+    assert "PERSONA" in cmd
+
+
+def test_claude_command_omits_system_prompt_when_none():
+    from app.gateway import _agent_command
+    cmd = _agent_command(["claude", "--print"], "claude", None, None)
+    assert "--append-system-prompt" not in cmd
+
+
+def test_build_prompt_includes_resolved_questions_section():
+    """When the human has resolved a question via the right-pane 答 button,
+    the gateway should surface the Q+A pair so the agent stops re-raising it."""
+    from app import gateway
+
+    me = gateway.Identity(
+        human_id=1, human_name="J", agent_instance_id=4,
+        role="claude", device_label="mac",
+    )
+    recent = [
+        # Agent posted a question
+        {"id": 10, "type": "question", "actor_type": "agent", "actor_id": 4,
+         "body": "MVP 是同时支持港大+UCAS 还是先收窄？",
+         "metadata": {"discussion_kind": "open_question"}},
+        # Human resolved it via inline answer
+        {"id": 11, "type": "decision", "actor_type": "human", "actor_id": 1,
+         "body": "先收窄到 UCAS 走的英港国际部学生",
+         "metadata": {"discussion_kind": "decision",
+                      "resolves_question": 10,
+                      "promoted_from": 10}},
+        # New human message
+        {"id": 12, "type": "chat", "actor_type": "human", "actor_id": 1,
+         "body": "下一步谈数据来源"},
+    ]
+    trigger = recent[-1]
+    sys_p, user_p = gateway._build_prompt_split(me, "T", recent, trigger)
+    assert "already answered" in user_p
+    assert "MVP" in user_p and "收窄到 UCAS" in user_p
+    # Should NOT live in the system prompt (which must stay cache-stable).
+    assert "已 already answered" not in sys_p
+
+
+def test_post_pane_updates_routes_blind_spots(monkeypatch):
+    """blind_spots in pane_updates must be posted as proactive_finding
+    typed messages tagged with discussion_kind=blind_spot. Right pane
+    projects them into the「可能漏掉」panel."""
+    from app import gateway
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        gateway, "_post",
+        lambda host, token, topic_id, type_, body, **meta:
+            calls.append((type_, body, meta)) or {"id": len(calls)},
+    )
+
+    n = gateway._post_pane_updates("h", "t", 1, {
+        "blind_spots": [
+            {"body": "没考虑香港本地学生中文需求"},
+            {"body": "  "},  # empty — should be skipped
+        ],
+    }, source_msg_id=42)
+    assert n == 1
+    type_, body, meta = calls[0]
+    assert type_ == "proactive_finding"
+    assert body == "没考虑香港本地学生中文需求"
+    assert meta["discussion_kind"] == "blind_spot"
+    assert meta["promoted_from"] == 42
+
+
+def test_render_spec_markdown_groups_by_discussion_kind():
+    """lets spec must group typed messages by discussion_kind so the
+    downstream weak agent sees decisions / constraints / blind spots /
+    critiques as separate sections, not as a chronological pile."""
+    from app import gateway
+
+    msgs = [
+        {"id": 1, "type": "chat", "actor_type": "human", "actor_id": 1,
+         "body": "we want to support hk + ucas students",
+         "metadata": None},
+        {"id": 2, "type": "decision", "actor_type": "agent", "actor_id": 5,
+         "body": "MVP 收窄到 UCAS 国际部学生",
+         "metadata": {"discussion_kind": "decision"}},
+        {"id": 3, "type": "finding", "actor_type": "agent", "actor_id": 5,
+         "body": "数据源限 UCAS 公开 API",
+         "metadata": {"discussion_kind": "constraint"}},
+        {"id": 4, "type": "proactive_finding", "actor_type": "agent", "actor_id": 5,
+         "body": "没考虑香港本地学生中文需求",
+         "metadata": {"discussion_kind": "blind_spot"}},
+        {"id": 5, "type": "proactive_finding", "actor_type": "agent", "actor_id": 5,
+         "body": "纯线上工具竞品已多，差异化弱",
+         "metadata": {"discussion_kind": "critique"}},
+        {"id": 6, "type": "proactive_finding", "actor_type": "agent", "actor_id": 5,
+         "body": "可加家长 portal 抓住付费决策者",
+         "metadata": {"discussion_kind": "extension"}},
+        # An open_question that gets resolved — must NOT appear in 待解决
+        {"id": 7, "type": "question", "actor_type": "agent", "actor_id": 5,
+         "body": "客户端是 GUI 还是 CLI？",
+         "metadata": {"discussion_kind": "open_question"}},
+        {"id": 8, "type": "decision", "actor_type": "human", "actor_id": 1,
+         "body": "GUI",
+         "metadata": {"discussion_kind": "decision", "resolves_question": 7}},
+        # An open_question that does NOT have a resolution — must appear
+        {"id": 9, "type": "question", "actor_type": "agent", "actor_id": 5,
+         "body": "数据更新频率？",
+         "metadata": {"discussion_kind": "open_question"}},
+        # A mermaid in chat — collected into 图与资料
+        {"id": 10, "type": "chat", "actor_type": "agent", "actor_id": 5,
+         "body": "整体架构：\n```mermaid\ngraph TD\nA-->B\n```\n",
+         "metadata": None},
+    ]
+
+    out = gateway._render_spec_markdown(42, msgs)
+    assert "# Topic #42" in out
+    # Sections
+    assert "共识 (decisions)" in out
+    assert "MVP 收窄到 UCAS 国际部学生" in out
+    assert "GUI" in out  # the resolving decision
+    assert "约束 (constraints)" in out
+    assert "数据源限 UCAS 公开 API" in out
+    assert "盲点" in out
+    assert "没考虑香港本地学生中文需求" in out
+    assert "反方观点" in out
+    assert "纯线上工具竞品已多" in out
+    assert "延展想法" in out
+    assert "家长 portal" in out
+    # Open question that got resolved should NOT show up under "待解决"
+    assert "客户端是 GUI 还是 CLI" not in out.split("## 待解决问题")[-1].split("## ")[0] \
+        if "## 待解决问题" in out else True
+    # Open question without resolution must show up
+    assert "数据更新频率" in out
+    # Mermaid collected
+    assert "```mermaid" in out
+    assert "graph TD" in out
+    # Tail chats — last 12 chats with id markers
+    assert "关键讨论 (tail)" in out
+
+
+def test_render_spec_markdown_includes_msg_id_citations_and_score_sort():
+    """Each spec line should carry a [#id] back-reference so a downstream
+    agent can grep the chat for context, and items must be sorted by
+    aggregate ±1 score so human-curated priorities rise to the top."""
+    from app import gateway
+
+    msgs = [
+        # Two decisions; the second is +2 voted, should sort first.
+        {"id": 1, "type": "decision", "actor_type": "agent", "actor_id": 5,
+         "body": "decision A",
+         "metadata": {"discussion_kind": "decision"}},
+        {"id": 2, "type": "decision", "actor_type": "agent", "actor_id": 5,
+         "body": "decision B",
+         "metadata": {"discussion_kind": "decision"}},
+        # Two humans +1 each on msg 2
+        {"id": 100, "type": "annotation", "actor_type": "human", "actor_id": 1,
+         "body": "", "metadata": {"target_message_id": 2, "score": 1}},
+        {"id": 101, "type": "annotation", "actor_type": "human", "actor_id": 7,
+         "body": "", "metadata": {"target_message_id": 2, "score": 1}},
+        # Same actor re-vote — only latest counts (re-vote to 0 cancels).
+        {"id": 102, "type": "annotation", "actor_type": "human", "actor_id": 1,
+         "body": "", "metadata": {"target_message_id": 2, "score": 1}},
+    ]
+    out = gateway._render_spec_markdown(7, msgs)
+    # Citations present
+    assert "[#1]" in out
+    assert "[#2]" in out
+    # Score badge on msg 2
+    assert "`+2`" in out
+    # Sort: decision B (+2) appears before decision A in 共识 section.
+    dec_section = out.split("## 共识")[1].split("## ")[0]
+    assert dec_section.index("decision B") < dec_section.index("decision A")
+
+
+def test_strip_polish_preamble_removes_common_wrappers():
+    """When claude prepends '以下是…' or '```markdown' the postprocessor
+    must strip those so the spec starts cleanly with '# Topic …'."""
+    from app import gateway
+
+    header = "# Topic #9 — PS service"
+    raw_outputs = [
+        # Case 1: 「以下是」 preamble + horizontal rule + body
+        "以下是完整增强后的 spec：\n\n---\n\n## 设计目标\n…",
+        # Case 2: code-fence wrap + dropped header
+        "```markdown\n## 设计目标\n…\n```",
+        # Case 3: header preserved + clean
+        f"{header}\n\n## 设计目标\n…",
+        # Case 4: english preamble
+        "Here is the polished spec:\n\n## 设计目标\n…",
+    ]
+    for raw in raw_outputs:
+        out = gateway._strip_polish_preamble(raw, expected_header=header)
+        assert out.startswith(header), f"missing header in: {out[:80]!r}"
+        assert "以下是" not in out
+        assert not out.startswith("```")
+
+
+def test_append_self_test_inserts_section_with_citations_preserved(monkeypatch):
+    """--self-test should append a「自检」section while leaving the rest of
+    the spec (including [#nnn] citations) untouched."""
+    from app import gateway
+
+    class FakeProc:
+        returncode = 0
+        stderr = ""
+        stdout = (
+            "- 状态机的「完成」分支没定义验收 [#207]\n"
+            "- KB schema 字段未列 [#218]\n"
+            "- Reviewer 路由策略未定 [#222]\n"
+        )
+
+    monkeypatch.setattr(
+        gateway.subprocess if hasattr(gateway, "subprocess") else __import__("subprocess"),
+        "run",
+        lambda cmd, **kw: FakeProc(),
+    )
+
+    spec = (
+        "# Topic #9\n\n"
+        "## 共识\n"
+        "- MVP 切 PS [#187]\n"
+    )
+    out = gateway._append_self_test(spec)
+    # Spec body preserved
+    assert "# Topic #9" in out
+    assert "MVP 切 PS [#187]" in out
+    # Self-test section appended with citations intact
+    assert "## 自检" in out
+    assert "状态机的「完成」分支没定义验收 [#207]" in out
+    assert "KB schema" in out
+
+
+def test_persona_red_appends_red_team_overlay_to_system_prompt():
+    """--persona=red must add the red-team overlay to the system prompt
+    so the agent challenges the direction. Default persona must leave the
+    base prompt untouched."""
+    from app import gateway
+
+    me = gateway.Identity(human_id=1, human_name="J", agent_instance_id=4,
+                          role="claude", device_label="mac")
+    recent = [{"id": 1, "type": "chat", "actor_type": "human", "actor_id": 1,
+               "body": "let's ship X", "metadata": None}]
+    trigger = recent[0]
+
+    sys_default, _ = gateway._build_prompt_split(me, "T", recent, trigger, persona="default")
+    sys_red, _ = gateway._build_prompt_split(me, "T", recent, trigger, persona="red")
+    sys_blue, _ = gateway._build_prompt_split(me, "T", recent, trigger, persona="blue")
+
+    assert "RED-TEAM" not in sys_default
+    assert "BLUE-TEAM" not in sys_default
+    assert "RED-TEAM" in sys_red
+    assert "BLUE-TEAM" in sys_blue
+    # Same base prompt — overlay is additive, not replacement.
+    assert "sharp design partner" in sys_default
+    assert "sharp design partner" in sys_red
+    assert "sharp design partner" in sys_blue
+
+
+def test_collect_open_annotations_skips_pure_score_votes():
+    """+1/-1 vote annotations have empty body — they're a vote affordance,
+    not a comment thread. The prompt context must skip them, otherwise the
+    agent sees ` - on "node": ` empty lines on every turn."""
+    from app import gateway
+    recent = [
+        # Pure vote — should be skipped
+        {"id": 100, "type": "annotation", "actor_type": "human", "actor_id": 1,
+         "body": "", "metadata": {"target_message_id": 50, "target_quote": "GUI",
+                                   "score": 1}},
+        # Real comment — should be kept
+        {"id": 101, "type": "annotation", "actor_type": "human", "actor_id": 1,
+         "body": "这个节点要拆细", "metadata": {"target_message_id": 50,
+                                                 "target_quote": "KB"}},
+    ]
+    out = gateway._collect_open_annotations(recent)
+    assert len(out) == 1
+    assert out[0]["id"] == 101

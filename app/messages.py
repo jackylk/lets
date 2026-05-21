@@ -22,6 +22,7 @@ ALLOWED_TYPES = {
     "project_proposal",
     "goal_proposal",
     "system",
+    "annotation",
 }
 
 MessageType = Literal[
@@ -40,6 +41,7 @@ MessageType = Literal[
     "project_proposal",
     "goal_proposal",
     "system",
+    "annotation",
 ]
 
 ActorType = Literal["human", "agent", "system"]

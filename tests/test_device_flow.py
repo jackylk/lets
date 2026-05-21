@@ -29,7 +29,8 @@ def test_device_flow_authorizes_gateway_token(client):
         cookies={"lets_session": session},
     )
     assert authz.status_code == 200
-    assert "Lets gateway authorized" in authz.text
+    assert "You're connected." in authz.text
+    assert "claude · device-mbp" in authz.text
 
     done = client.get(
         "/auth/device-flow/poll",

@@ -220,7 +220,8 @@ def init_db() -> None:
                     'chat', 'status', 'finding', 'decision', 'question',
                     'handoff', 'review', 'artifact_revision', 'spec_change',
                     'nudge', 'proactive_finding', 'task_tree_proposal',
-                    'project_proposal', 'goal_proposal', 'system'
+                    'project_proposal', 'goal_proposal', 'system',
+                    'annotation'
                 )),
                 actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
                 actor_id INTEGER,
@@ -348,7 +349,11 @@ def init_db() -> None:
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
         ).fetchone()
         sql_text = (msg_sql["sql"] or "") if msg_sql else ""
-        if msg_sql and ("project_proposal" not in sql_text or "goal_proposal" not in sql_text):
+        if msg_sql and (
+            "project_proposal" not in sql_text
+            or "goal_proposal" not in sql_text
+            or "annotation" not in sql_text
+        ):
             pre_cols = {
                 r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()
             }
@@ -362,7 +367,8 @@ def init_db() -> None:
                         'chat', 'status', 'finding', 'decision', 'question',
                         'handoff', 'review', 'artifact_revision', 'spec_change',
                         'nudge', 'proactive_finding', 'task_tree_proposal',
-                        'project_proposal', 'goal_proposal', 'system'
+                        'project_proposal', 'goal_proposal', 'system',
+                        'annotation'
                     )),
                     actor_type TEXT NOT NULL CHECK (actor_type IN ('human', 'agent', 'system')),
                     actor_id INTEGER,

@@ -434,16 +434,21 @@ def read_topic(
     topic_id: int,
     after_id: int | None = None,
     limit: int = 100,
+    order: str = "asc",
 ) -> list[dict]:
     """Read the typed message stream of a topic.
 
     Pass ``after_id`` to fetch only messages with ``id > after_id`` —
-    use this for incremental polling. Returns chronological order (oldest
-    first) so a tail-call appends naturally.
+    use this for incremental polling.
+
+    ``order='asc'`` (default) returns oldest-first, which is what tail
+    polling wants. ``order='desc'`` returns newest-first; combined with
+    ``limit`` this is how callers grab the most recent N messages on a
+    long topic without missing the tail.
     """
     from .messages import topic_stream
 
-    return topic_stream(topic_id, after_id=after_id, limit=limit)
+    return topic_stream(topic_id, after_id=after_id, limit=limit, order=order)
 
 
 @mcp.tool()

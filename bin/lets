@@ -3,12 +3,16 @@
 #
 # This is a wrapper that runs `python -m app.gateway` from the repo's
 # venv, so you can type:
-#   lets login            (instead of: python -m app.gateway login)
-#   lets gateway          (start the local daemon)
-#   lets install          (write launchd plist for autostart on macOS)
+#   lets add claude              (device-flow auth + start gateway in one command)
+#   lets add codex               (add a second agent on the same machine)
+#   lets gateway                 (start every registered agent's gateway)
+#   lets gateway --agent claude  (restart one agent's gateway — replaces old)
+#   lets run                     (foreground daemon for debugging)
+#   lets install                 (write launchd plist for autostart on macOS)
 #   lets uninstall
 #   lets status
 #   lets logout
+#   lets login                   (legacy — `lets add` is preferred)
 #
 # Put this directory on your PATH:
 #   echo 'export PATH="$HOME/code/Lets/bin:$PATH"' >> ~/.zshrc

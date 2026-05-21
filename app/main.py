@@ -165,6 +165,7 @@ MessageTypeStr = Literal[
     "project_proposal",
     "goal_proposal",
     "system",
+    "annotation",
 ]
 
 
@@ -452,36 +453,43 @@ if [ -n "$RC_EDITED" ]; then
   echo "(takes effect in new terminals)"
 fi
 
-# ---- Auto-login unless skipped, so the one-line install IS the onboarding ----
+# ---- One-shot add: device-flow auth + background gateway, all in one ----
 if [ "${{LETS_SKIP_LOGIN:-0}}" = "0" ]; then
   cat <<MSG
 
-Logging this device in to $BASE_URL ...
-(opens your default browser; if you're already logged in to Lets in
- that browser, this auto-confirms in a couple of seconds)
+Adding your first agent (${{LETS_AGENT_ROLE:-claude}}) on this machine ...
+(opens your default browser to authorize; the gateway then starts in the
+ background. Re-running this is safe — the new gateway replaces the old.)
 
 MSG
-  "$LETS_HOME/bin/lets" login \\
-    --host "$BASE_URL" \\
-    --role "${{LETS_AGENT_ROLE:-claude}}" || \\
-    {{ echo "lets login failed — try again with: lets login" >&2; exit 1; }}
+  LETS_HOST="$BASE_URL" "$LETS_HOME/bin/lets" add "${{LETS_AGENT_ROLE:-claude}}" \\
+    --host "$BASE_URL" || \\
+    {{ echo "lets add failed — try again with: lets add ${{LETS_AGENT_ROLE:-claude}}" >&2; exit 1; }}
+
+  # launchd autostart is optional; if it fails the gateway is already running
+  # for this session.
+  if "$LETS_HOME/bin/lets" install --host "$BASE_URL" >/dev/null 2>&1; then
+    AUTOSTART_MSG="Will also auto-start on login (launchd)."
+  else
+    AUTOSTART_MSG="(launchd autostart not configured — gateway runs for this session only.)"
+  fi
 
   cat <<MSG
 
-✓ Logged in. Token saved to $LETS_HOME/token
+$AUTOSTART_MSG
 
-Next:
-  lets gateway        # start the daemon now (this terminal)
-  lets install        # OR: register a launchd job so it auto-starts on login
-                      #     and survives reboot
+Add another agent on this machine:
+  lets add codex             # second agent — independent token + gateway
+Manage:
+  lets status                # see all agents
+  lets gateway --agent <r>   # restart one agent's gateway
 
 MSG
 else
   cat <<MSG
 
 To finish onboarding:
-  lets login          # device-flow OAuth via your browser
-  lets gateway        # start the daemon
+  lets add claude     # authorize + start the gateway in one command
 MSG
 fi
 """
@@ -887,6 +895,66 @@ def list_activity() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+_GENERIC_TOPIC_TITLES = {"主频道", "新对话", "general", "untitled", "new", "topic"}
+
+
+def _maybe_rename_topic_from_first_chat(topic_id: int, body: str) -> str | None:
+    """If the topic is still on its auto-created generic name ("主频道" etc.)
+    and the current message body is a real user chat, derive a short title
+    from the body and persist it. Returns the new title if it was changed,
+    else None."""
+    if not body:
+        return None
+    snippet = body.strip()
+    # Drop leading @mention so titles aren't "@cc ..." everywhere.
+    import re as _re
+    snippet = _re.sub(r"^@[\w一-鿿-]+\s*", "", snippet)
+    snippet = snippet.split("\n", 1)[0].strip()
+    if not snippet:
+        return None
+    if len(snippet) > 28:
+        snippet = snippet[:28] + "…"
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT title FROM topics WHERE id = ?", (topic_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        current = (row["title"] or "").strip()
+        if current.lower() not in _GENERIC_TOPIC_TITLES:
+            return None
+        conn.execute(
+            "UPDATE topics SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (snippet, topic_id),
+        )
+    return snippet
+
+
+def _default_addressee_for(actor_id: int | None) -> str | None:
+    """If the poster owns exactly one currently-online agent, return their
+    own human_id (the address the gateway matches on). With 0 or 2+ online
+    agents, return None — the user must @ explicitly to avoid ambiguity."""
+    if actor_id is None:
+        return None
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT ai.id) AS n, MIN(ai.human_id) AS human_id
+            FROM tokens t
+            JOIN agent_instances ai ON ai.id = t.agent_instance_id
+            WHERE ai.human_id = ?
+              AND t.revoked_at IS NULL
+              AND t.last_used_at IS NOT NULL
+              AND t.last_used_at >= datetime('now', '-5 minutes')
+            """,
+            (actor_id,),
+        ).fetchone()
+    if row is None or row["n"] != 1:
+        return None
+    return str(row["human_id"])
+
+
 @app.post("/api/messages")
 async def post_message_endpoint(
     payload: MessageCreate,
@@ -894,6 +962,24 @@ async def post_message_endpoint(
 ) -> dict:
     from .messages import post_message
     from .sse import broadcaster
+
+    addressed_to = payload.addressed_to
+    # Auto-address rule: when a human types a chat without @mentioning anyone
+    # and they have exactly ONE online agent, treat the message as addressed
+    # to that agent — no need to type @cc every turn. With 2+ online agents
+    # we stay quiet, forcing the user to disambiguate.
+    if (
+        not addressed_to
+        and payload.actor_type == "human"
+        and payload.type == "chat"
+    ):
+        addressed_to = _default_addressee_for(payload.actor_id)
+
+    # First-chat-renames-topic: replace the auto-created "主频道" with a
+    # short snippet of the first human message so the sidebar + header
+    # immediately reflect what the topic is actually about.
+    if payload.actor_type == "human" and payload.type == "chat":
+        _maybe_rename_topic_from_first_chat(payload.topic_id, payload.body)
 
     message_id = post_message(
         topic_id=payload.topic_id,
@@ -903,7 +989,7 @@ async def post_message_endpoint(
         body=payload.body,
         metadata=payload.metadata,
         ref_event_id=payload.ref_event_id,
-        addressed_to=payload.addressed_to,
+        addressed_to=addressed_to,
     )
     with connect() as conn:
         row = conn.execute("SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
@@ -1599,6 +1685,36 @@ def get_topic(
     return t
 
 
+@app.get("/api/topics/{topic_id}/spec", response_class=PlainTextResponse)
+def get_topic_spec(
+    topic_id: int,
+    limit: int = 500,
+    principal: dict = Depends(get_api_principal),
+) -> PlainTextResponse:
+    """Render the topic's blackboard as a handoff spec (markdown).
+
+    Same projection as `lets spec <id>` so CLI and UI always agree. The
+    optional `--polish` polish step lives only in the CLI for now — it
+    needs a working `claude` CLI on the host, which the server can't
+    assume.
+    """
+    from .messages import topic_stream
+    from .topics import get_topic_by_id
+    from .spec import render_spec_markdown
+
+    if not get_topic_by_id(topic_id):
+        raise HTTPException(status_code=404, detail="topic not found")
+    msgs = topic_stream(topic_id, limit=limit, order="asc")
+    body = render_spec_markdown(topic_id, msgs)
+    return PlainTextResponse(
+        content=body,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="topic-{topic_id}-spec.md"',
+        },
+    )
+
+
 @app.get("/api/topics/{topic_id}/stream")
 async def stream_topic(
     topic_id: int,
@@ -1817,31 +1933,38 @@ from fastapi import Cookie
 from fastapi.responses import Response
 
 
-_OAUTH_STATES: dict[str, float] = {}
+_OAUTH_STATES: dict[str, tuple[float, str]] = {}
 _OAUTH_TTL_S = 600.0
 
 
-def _new_state() -> str:
+def _safe_next(next_url: str | None) -> str:
+    if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
+        return "/app"
+    return next_url
+
+
+def _new_state(next_url: str = "/app") -> str:
     now = _time.time()
     # Lazy cleanup of expired states.
-    for k, ts in list(_OAUTH_STATES.items()):
+    for k, (ts, _n) in list(_OAUTH_STATES.items()):
         if now - ts > _OAUTH_TTL_S:
             _OAUTH_STATES.pop(k, None)
     s = _secrets.token_urlsafe(24)
-    _OAUTH_STATES[s] = now
+    _OAUTH_STATES[s] = (now, _safe_next(next_url))
     return s
 
 
-def _consume_state(s: str) -> bool:
-    return _OAUTH_STATES.pop(s, None) is not None
+def _consume_state(s: str) -> str | None:
+    rec = _OAUTH_STATES.pop(s, None)
+    return rec[1] if rec is not None else None
 
 
 @app.get("/auth/github/start")
-def auth_github_start() -> RedirectResponse:
+def auth_github_start(next: str = "/app") -> RedirectResponse:
     client_id = os.environ.get("GITHUB_CLIENT_ID")
     if not client_id:
         raise HTTPException(status_code=500, detail="GITHUB_CLIENT_ID not configured")
-    state = _new_state()
+    state = _new_state(next)
     params = {
         "client_id": client_id,
         "redirect_uri": os.environ.get(
@@ -1883,7 +2006,8 @@ async def _gh_fetch_user(access_token: str):
 
 @app.get("/auth/github/callback")
 async def auth_github_callback(code: str, state: str) -> RedirectResponse:
-    if not _consume_state(state):
+    next_url = _consume_state(state)
+    if next_url is None:
         raise HTTPException(status_code=400, detail="invalid state")
 
     tok = await _gh_exchange_code(code)
@@ -1940,7 +2064,7 @@ async def auth_github_callback(code: str, state: str) -> RedirectResponse:
     from .auth import issue_session
 
     session_value = issue_session(human_id)
-    res = RedirectResponse(url="/app", status_code=307)
+    res = RedirectResponse(url=next_url, status_code=307)
     res.set_cookie(
         "lets_session",
         session_value,
@@ -2073,15 +2197,22 @@ def device_flow_start(
 def device_flow_authorize(
     user_code: str,
     lets_session: str | None = Cookie(default=None, alias="lets_session"),
-) -> HTMLResponse:
+):
     from .auth import issue_token, verify_session
     from .identity import ensure_agent_instance
 
-    if not lets_session:
-        raise HTTPException(status_code=401, detail="login in the browser first")
-    principal = verify_session(lets_session)
+    next_url = f"/auth/device-flow/authorize?user_code={user_code}"
+    principal = verify_session(lets_session) if lets_session else None
     if principal is None:
-        raise HTTPException(status_code=401, detail="invalid session")
+        # Send the user through whichever login flow is configured, then bring
+        # them right back here so the token can be minted in one round-trip.
+        if os.environ.get("GITHUB_CLIENT_ID"):
+            login_url = "/auth/github/start?next=" + _urllib_parse.quote(next_url, safe="")
+        elif os.environ.get("LETS_DEV_SESSIONS") == "1":
+            login_url = "/auth/dev/login?next=" + _urllib_parse.quote(next_url, safe="")
+        else:
+            raise HTTPException(status_code=401, detail="login in the browser first")
+        return RedirectResponse(url=login_url, status_code=307)
 
     normalized = user_code.strip().upper()
     with connect() as conn:
@@ -2126,17 +2257,79 @@ def device_flow_authorize(
             (human_id, agent_instance_id, token_id, token_value, row["id"]),
         )
 
-    return HTMLResponse(
-        """
-        <!doctype html>
-        <meta charset="utf-8">
-        <title>Lets gateway authorized</title>
-        <body style="font-family: system-ui; padding: 32px">
-          <h1>Lets gateway authorized</h1>
-          <p>You can close this tab and return to your terminal.</p>
-        </body>
-        """
-    )
+    return HTMLResponse(_device_authorized_page(role=role, device_label=device_label))
+
+
+def _device_authorized_page(role: str, device_label: str) -> str:
+    safe_role = role.replace("<", "&lt;")
+    safe_device = device_label.replace("<", "&lt;")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lets connected</title>
+  <style>
+    :root {{
+      --bg: oklch(0.985 0.006 75);
+      --surface: oklch(0.995 0.004 75);
+      --border: oklch(0.88 0.010 75);
+      --text: oklch(0.22 0.010 240);
+      --muted: oklch(0.46 0.010 240);
+      --accent: oklch(0.62 0.16 55);
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --bg: oklch(0.18 0.012 75);
+        --surface: oklch(0.22 0.012 75);
+        --border: oklch(0.32 0.012 75);
+        --text: oklch(0.94 0.010 75);
+        --muted: oklch(0.72 0.012 75);
+      }}
+    }}
+    html, body {{ height: 100%; margin: 0; }}
+    body {{
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", system-ui, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      padding: 32px;
+      -webkit-font-smoothing: antialiased;
+    }}
+    main {{
+      max-width: 560px; width: 100%;
+      text-align: center;
+    }}
+    h1 {{
+      font-size: 56px; line-height: 1.05; margin: 0 0 24px;
+      font-weight: 600; letter-spacing: -0.02em;
+    }}
+    .lede {{ font-size: 20px; color: var(--muted); line-height: 1.5; margin: 0 0 32px; }}
+    .pill {{
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px;
+      background: var(--surface); font-size: 14px; color: var(--muted);
+    }}
+    .dot {{
+      width: 8px; height: 8px; border-radius: 50%;
+      background: oklch(0.62 0.14 145);
+      box-shadow: 0 0 0 4px color-mix(in oklch, oklch(0.62 0.14 145) 25%, transparent);
+    }}
+    @media (max-width: 480px) {{
+      h1 {{ font-size: 40px; }}
+      .lede {{ font-size: 17px; }}
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>You're connected.</h1>
+    <p class="lede">Your terminal is set up. You can close this window and head back to it.</p>
+    <span class="pill"><span class="dot"></span>{safe_role} · {safe_device}</span>
+  </main>
+</body>
+</html>
+"""
 
 
 @app.get("/auth/device-flow/poll")

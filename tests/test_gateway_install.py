@@ -11,13 +11,16 @@ def test_gateway_install_script_uses_public_base_url(client):
     body = res.text
     assert 'BASE_URL="${LETS_HOST:-https://lets.up.railway.app}"' in body
     assert 'curl -fsSL "$BASE_URL/install/gateway.py"' in body
-    assert "run-gateway.sh" in body
-    assert "gateway.py login" in body
-    assert "Open the printed URL" in body
+    # The script writes a `lets` shim and runs `lets add <role>` so a fresh
+    # user is fully authorized AND has a background gateway after one
+    # curl-bash run (no second manual step needed).
+    assert '"$LETS_HOME/bin/lets" add' in body
+    assert '"$LETS_HOME/bin/lets" install --host "$BASE_URL"' in body
+    assert "$LETS_HOME/bin/lets" in body
 
 
 def test_gateway_source_download(client):
     res = client.get("/install/gateway.py")
     assert res.status_code == 200
     assert "def main(" in res.text
-    assert 'parser = argparse.ArgumentParser(prog="lets-gateway")' in res.text
+    assert 'parser = argparse.ArgumentParser(prog="lets run")' in res.text
