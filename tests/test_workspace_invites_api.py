@@ -89,3 +89,26 @@ def test_accept_invite_revoked_token_404(temp_db, client):
     _login(client, "bob", "b@b")
     r = client.post(f"/api/invites/{inv['token']}/accept")
     assert r.status_code == 404
+
+
+def test_join_token_unauthenticated_redirects_to_login(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+    client.post("/api/auth/logout")
+    r = client.get(f"/join/{inv['token']}", follow_redirects=False)
+    assert r.status_code in (302, 303, 307)
+    assert "/login" in r.headers["location"]
+    assert f"/join/{inv['token']}" in r.headers["location"]
+
+
+def test_join_token_authenticated_adds_and_redirects(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+    r = client.get(f"/join/{inv['token']}", follow_redirects=False)
+    assert r.status_code in (302, 303, 307)
+    bobs_ws = client.get("/api/workspaces").json()
+    assert ws["id"] in [w["id"] for w in bobs_ws]
