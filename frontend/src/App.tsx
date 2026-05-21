@@ -16,11 +16,13 @@ import {
 import {
   useWorkspaces, useTopicsInWorkspace, useWorkspaceMembers,
   useCreateWorkspace, useAttention, useSessionMe, useAllAgents,
+  useCreateInvite,
 } from "./api/queries";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "./api/client";
 import { useIdentity } from "./identity/useIdentity";
-import type { TopicDTO, Workspace } from "./api/types";
+import type { TopicDTO, Workspace, WorkspaceInvite } from "./api/types";
+import { InviteDialog } from "./workspace/InviteDialog";
 
 type DesktopView =
   | { kind: "topic"; id: number }
@@ -118,9 +120,14 @@ function Workspace() {
     });
   };
 
+  const [activeInvite, setActiveInvite] = useState<WorkspaceInvite | null>(null);
+  const createInvite = useCreateInvite();
+
   const handleInviteMember = () => {
-    // Task 15 builds InviteDialog — placeholder for now
-    console.log("invite TODO");
+    if (!activeWorkspace) return;
+    createInvite.mutate(activeWorkspace.id, {
+      onSuccess: (inv) => setActiveInvite(inv),
+    });
   };
 
   const sidebar = (
@@ -202,12 +209,21 @@ function Workspace() {
   );
 
   return (
-    <AppShell
-      sidebar={sidebar}
-      sidebarRail={sidebarRail}
-      main={main}
-      context={context}
-      bottomTabs={<BottomTabs active={mobileTab} onSelect={setMobileTab} />}
-    />
+    <>
+      <AppShell
+        sidebar={sidebar}
+        sidebarRail={sidebarRail}
+        main={main}
+        context={context}
+        bottomTabs={<BottomTabs active={mobileTab} onSelect={setMobileTab} />}
+      />
+      {activeInvite && (
+        <InviteDialog
+          workspaceName={activeWorkspace?.name ?? ""}
+          joinUrl={activeInvite.join_url}
+          onClose={() => setActiveInvite(null)}
+        />
+      )}
+    </>
   );
 }
