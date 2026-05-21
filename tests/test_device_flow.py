@@ -62,3 +62,45 @@ def test_device_flow_authorize_requires_session(client):
         params={"user_code": start.json()["user_code"]},
     )
     assert res.status_code == 401
+
+
+def _login_or_seed_alice(client) -> int:
+    """Log in as alice via the dev-login API and return the human_id."""
+    import os
+    os.environ.setdefault("LETS_DEV_SESSIONS", "1")
+    r = client.post("/api/auth/dev-login", json={"name": "alice"})
+    assert r.status_code == 200, r.text
+    return r.json()["human_id"]
+
+
+def test_device_flow_with_workspace(temp_db, client, monkeypatch):
+    monkeypatch.setenv("LETS_DEV_SESSIONS", "1")
+    alice_id = _login_or_seed_alice(client)
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    r = client.post(
+        "/api/auth/device-flow/start",
+        params={"role": "claude", "workspace_id": ws["id"]},
+    )
+    assert r.status_code == 200
+    device_code = r.json()["device_code"]
+    user_code = r.json()["user_code"]
+    # Authorize via the JSON test endpoint
+    auth = client.post(f"/api/auth/device-flow/authorize/{user_code}")
+    assert auth.status_code == 200
+    poll = client.get(f"/api/auth/device-flow/poll/{device_code}")
+    assert poll.status_code == 200
+    agent = poll.json()["agent"]
+    assert agent["workspace_id"] == ws["id"]
+
+
+def test_device_flow_defaults_to_caller_first_workspace(temp_db, client, monkeypatch):
+    monkeypatch.setenv("LETS_DEV_SESSIONS", "1")
+    alice_id = _login_or_seed_alice(client)
+    ws = client.post("/api/workspaces", json={"name": "MyWS"}).json()
+    r = client.post(
+        "/api/auth/device-flow/start", params={"role": "claude"}
+    )
+    user_code = r.json()["user_code"]
+    client.post(f"/api/auth/device-flow/authorize/{user_code}")
+    poll = client.get(f"/api/auth/device-flow/poll/{r.json()['device_code']}")
+    assert poll.json()["agent"]["workspace_id"] == ws["id"]

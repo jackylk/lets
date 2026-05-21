@@ -1392,11 +1392,19 @@ def identity_me(
         "human": {"id": human_id, "name": x_lets_human},
     }
     if x_lets_agent_role and x_lets_device:
+        from .workspaces import list_workspaces_for_human, create_workspace as _cw
+        _idme_mine = list_workspaces_for_human(human_id)
+        if _idme_mine:
+            _idme_ws_id = _idme_mine[0]["id"]
+        else:
+            _idme_ws = _cw(name="我的工作区", owner_human_id=human_id)
+            _idme_ws_id = _idme_ws["id"]
         try:
             agent_instance_id = ensure_agent_instance(
                 role=x_lets_agent_role,
                 human_id=human_id,
                 device_label=x_lets_device,
+                workspace_id=int(_idme_ws_id),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2609,12 +2617,12 @@ def _new_user_code() -> str:
     )
 
 
-@app.get("/auth/device-flow/start")
-def device_flow_start(
+def _device_flow_start_impl(
     request: Request,
-    role: str = Query(default="claude"),
-    device_label: str = Query(default="local"),
-    model: str | None = Query(default=None),
+    role: str,
+    device_label: str,
+    model: str | None,
+    workspace_id: int | None,
 ) -> dict:
     if role not in ("claude", "codex"):
         raise HTTPException(status_code=400, detail="role must be claude or codex")
@@ -2634,10 +2642,10 @@ def device_flow_start(
         conn.execute(
             """
             INSERT INTO device_auth_flows
-                (device_code, user_code, role, device_label, model, expires_at)
-            VALUES (?, ?, ?, ?, ?, datetime('now', '+10 minutes'))
+                (device_code, user_code, role, device_label, model, workspace_id, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+10 minutes'))
             """,
-            (device_code, user_code, role, device_label, model),
+            (device_code, user_code, role, device_label, model, workspace_id),
         )
     base_url = _public_base_url(request)
     return {
@@ -2647,6 +2655,39 @@ def device_flow_start(
         "expires_in": 600,
         "interval": 3,
     }
+
+
+@app.get("/auth/device-flow/start")
+def device_flow_start(
+    request: Request,
+    role: str = Query(default="claude"),
+    device_label: str = Query(default="local"),
+    model: str | None = Query(default=None),
+) -> dict:
+    return _device_flow_start_impl(
+        request=request,
+        role=role,
+        device_label=device_label,
+        model=model,
+        workspace_id=None,
+    )
+
+
+@app.post("/api/auth/device-flow/start")
+def api_device_flow_start(
+    request: Request,
+    role: str = Query(default="claude"),
+    device_label: str = Query(default="local"),
+    model: str | None = Query(default=None),
+    workspace_id: int | None = Query(default=None),
+) -> dict:
+    return _device_flow_start_impl(
+        request=request,
+        role=role,
+        device_label=device_label,
+        model=model,
+        workspace_id=workspace_id,
+    )
 
 
 @app.get("/auth/device-flow/authorize")
@@ -2692,10 +2733,20 @@ def device_flow_authorize(
     human_id = int(principal["human_id"])
     role = str(row["role"])
     device_label = str(row["device_label"])
+    ws_id = row["workspace_id"]
+    if ws_id is None:
+        from .workspaces import list_workspaces_for_human, create_workspace
+        mine = list_workspaces_for_human(human_id)
+        if mine:
+            ws_id = mine[0]["id"]
+        else:
+            ws = create_workspace(name="我的工作区", owner_human_id=human_id)
+            ws_id = ws["id"]
     agent_instance_id = ensure_agent_instance(
         role=role,
         human_id=human_id,
         device_label=device_label,
+        workspace_id=int(ws_id),
         model=str(row["model"]).strip() if row["model"] else None,
     )
     token_value, token_id = issue_token(
@@ -2818,7 +2869,7 @@ def device_flow_poll(device_code: str) -> dict:
         )
         agent = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label, ai.model
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.workspace_id
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
             WHERE ai.id = ?
@@ -2829,6 +2880,122 @@ def device_flow_poll(device_code: str) -> dict:
         "status": "authorized",
         "token": token_value,
         "agent_instance": dict(agent) if agent else None,
+    }
+
+
+@app.post("/api/auth/device-flow/authorize/{user_code}")
+def api_device_flow_authorize(
+    user_code: str,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    """JSON-friendly authorize endpoint for test clients and the SPA.
+
+    Requires an active session cookie. Returns JSON instead of HTML.
+    """
+    from .auth import issue_token, verify_session
+    from .identity import ensure_agent_instance
+
+    principal = verify_session(lets_session) if lets_session else None
+    if principal is None:
+        raise HTTPException(status_code=401, detail="login required")
+
+    normalized = user_code.strip().upper()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM device_auth_flows
+            WHERE user_code = ? AND consumed_at IS NULL
+            """,
+            (normalized,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="device flow not found")
+        if row["authorized_at"] is not None:
+            return {"status": "already_authorized"}
+        expired = conn.execute(
+            "SELECT CURRENT_TIMESTAMP > ? AS expired", (row["expires_at"],)
+        ).fetchone()["expired"]
+        if expired:
+            raise HTTPException(status_code=410, detail="device flow expired")
+
+    human_id = int(principal["human_id"])
+    role = str(row["role"])
+    device_label = str(row["device_label"])
+    ws_id = row["workspace_id"]
+    if ws_id is None:
+        from .workspaces import list_workspaces_for_human, create_workspace
+        mine = list_workspaces_for_human(human_id)
+        if mine:
+            ws_id = mine[0]["id"]
+        else:
+            ws = create_workspace(name="我的工作区", owner_human_id=human_id)
+            ws_id = ws["id"]
+    agent_instance_id = ensure_agent_instance(
+        role=role,
+        human_id=human_id,
+        device_label=device_label,
+        workspace_id=int(ws_id),
+        model=str(row["model"]).strip() if row["model"] else None,
+    )
+    token_value, token_id = issue_token(
+        human_id=human_id,
+        agent_instance_id=agent_instance_id,
+        label=f"{role} on {device_label}",
+    )
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE device_auth_flows
+            SET human_id = ?, agent_instance_id = ?, token_id = ?,
+                token_value = ?, authorized_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (human_id, agent_instance_id, token_id, token_value, row["id"]),
+        )
+    return {"status": "authorized", "role": role, "device_label": device_label}
+
+
+@app.get("/api/auth/device-flow/poll/{device_code}")
+def api_device_flow_poll(device_code: str) -> dict:
+    """JSON poll endpoint (path param variant) for test clients and the SPA."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM device_auth_flows WHERE device_code = ?",
+            (device_code,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="device flow not found")
+        expired = conn.execute(
+            "SELECT CURRENT_TIMESTAMP > ? AS expired", (row["expires_at"],)
+        ).fetchone()["expired"]
+        if expired and row["authorized_at"] is None:
+            raise HTTPException(status_code=410, detail="device flow expired")
+        if row["authorized_at"] is None:
+            return {"status": "pending"}
+        if row["consumed_at"] is not None or row["token_value"] is None:
+            raise HTTPException(status_code=410, detail="device token already consumed")
+        token_value = row["token_value"]
+        conn.execute(
+            """
+            UPDATE device_auth_flows
+            SET consumed_at = CURRENT_TIMESTAMP, token_value = NULL
+            WHERE id = ?
+            """,
+            (row["id"],),
+        )
+        agent = conn.execute(
+            """
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.workspace_id
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            WHERE ai.id = ?
+            """,
+            (row["agent_instance_id"],),
+        ).fetchone()
+    return {
+        "status": "authorized",
+        "token": token_value,
+        "agent": dict(agent) if agent else None,
     }
 
 
@@ -2846,6 +3013,7 @@ class TokenCreate(BaseModel):
     role: str
     device_label: str
     model: str | None = None
+    workspace_id: int | None = None
 
 
 class AgentModelUpdate(BaseModel):
@@ -2906,10 +3074,20 @@ def create_my_token(
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
 
+    _token_ws_id = payload.workspace_id
+    if _token_ws_id is None:
+        from .workspaces import list_workspaces_for_human, create_workspace
+        _mine = list_workspaces_for_human(principal["human_id"])
+        if _mine:
+            _token_ws_id = _mine[0]["id"]
+        else:
+            _ws = create_workspace(name="我的工作区", owner_human_id=principal["human_id"])
+            _token_ws_id = _ws["id"]
     agent_instance_id = ensure_agent_instance(
         role=payload.role,
         human_id=principal["human_id"],
         device_label=payload.device_label,
+        workspace_id=int(_token_ws_id),
         model=payload.model,
     )
     raw_value, token_id = issue_token(

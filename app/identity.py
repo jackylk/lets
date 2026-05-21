@@ -26,9 +26,13 @@ def ensure_agent_instance(
     role: str,
     human_id: int,
     device_label: str,
+    workspace_id: int,
     model: str | None = None,
 ) -> int:
-    """Return agent_instances.id. Create if missing. Idempotent. Raises ValueError if role unknown."""
+    """Return agent_instances.id. Create if missing. Idempotent. Raises ValueError if role unknown.
+
+    workspace_id is required; uniqueness is keyed on (role, human, device, workspace).
+    """
     with connect() as conn:
         role_row = conn.execute(
             "SELECT id FROM agent_roles WHERE name = ?", (role,)
@@ -40,9 +44,9 @@ def ensure_agent_instance(
         existing = conn.execute(
             """
             SELECT id FROM agent_instances
-            WHERE role_id = ? AND human_id = ? AND device_label = ?
+            WHERE role_id = ? AND human_id = ? AND device_label = ? AND workspace_id = ?
             """,
-            (role_id, human_id, device_label),
+            (role_id, human_id, device_label, workspace_id),
         ).fetchone()
         if existing:
             if model is not None:
@@ -58,9 +62,9 @@ def ensure_agent_instance(
 
         cursor = conn.execute(
             """
-            INSERT INTO agent_instances (role_id, human_id, device_label, model)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO agent_instances (role_id, human_id, workspace_id, device_label, model)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (role_id, human_id, device_label, model),
+            (role_id, human_id, workspace_id, device_label, model),
         )
         return int(cursor.lastrowid)

@@ -367,6 +367,7 @@ CREATE TABLE IF NOT EXISTS device_auth_flows (
     role TEXT NOT NULL,
     device_label TEXT NOT NULL,
     model TEXT,
+    workspace_id BIGINT REFERENCES workspaces(id),
     human_id BIGINT REFERENCES humans(id),
     agent_instance_id BIGINT REFERENCES agent_instances(id),
     token_id BIGINT REFERENCES tokens(id),
