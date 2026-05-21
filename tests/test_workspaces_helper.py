@@ -74,3 +74,45 @@ def test_generate_invite_token_unique(temp_db):
     assert len(tokens) == 50
     for t in tokens:
         assert len(t) == 22
+
+
+def test_require_workspace_member_passes_for_member(temp_db):
+    from app.workspaces import require_workspace_member, create_workspace
+    hid = _make_human()
+    ws = create_workspace(name="X", owner_human_id=hid)
+    require_workspace_member(ws["id"], hid)  # no raise
+
+
+def test_require_workspace_member_raises_for_non_member(temp_db):
+    from fastapi import HTTPException
+    from app.workspaces import require_workspace_member, create_workspace
+    owner = _make_human("alice")
+    intruder = _make_human("bob", "b@b")
+    ws = create_workspace(name="X", owner_human_id=owner)
+    with pytest.raises(HTTPException) as exc:
+        require_workspace_member(ws["id"], intruder)
+    assert exc.value.status_code == 403
+
+
+def test_require_workspace_owner_passes_for_owner(temp_db):
+    from app.workspaces import require_workspace_owner, create_workspace
+    hid = _make_human()
+    ws = create_workspace(name="X", owner_human_id=hid)
+    require_workspace_owner(ws["id"], hid)
+
+
+def test_require_workspace_owner_raises_for_member(temp_db):
+    from fastapi import HTTPException
+    from app.workspaces import require_workspace_owner, create_workspace
+    from app.db import connect
+    owner = _make_human("alice")
+    member = _make_human("bob", "b@b")
+    ws = create_workspace(name="X", owner_human_id=owner)
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO workspace_members (workspace_id, human_id, role) VALUES (?, ?, 'member') RETURNING workspace_id",
+            (ws["id"], member),
+        )
+    with pytest.raises(HTTPException) as exc:
+        require_workspace_owner(ws["id"], member)
+    assert exc.value.status_code == 403

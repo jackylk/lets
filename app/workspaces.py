@@ -88,3 +88,24 @@ def list_workspaces_for_human(human_id: int) -> list[dict[str, Any]]:
 
 def generate_invite_token() -> str:
     return secrets.token_urlsafe(16)
+
+
+def require_workspace_member(workspace_id: int, human_id: int) -> None:
+    """Raise 403 if the human is not a member of the workspace."""
+    from fastapi import HTTPException
+    if not is_workspace_member(workspace_id, human_id):
+        raise HTTPException(status_code=403, detail="not a workspace member")
+
+
+def require_workspace_owner(workspace_id: int, human_id: int) -> None:
+    from fastapi import HTTPException
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT role FROM workspace_members
+            WHERE workspace_id = ? AND human_id = ?
+            """,
+            (workspace_id, human_id),
+        ).fetchone()
+    if row is None or row["role"] != "owner":
+        raise HTTPException(status_code=403, detail="not a workspace owner")
