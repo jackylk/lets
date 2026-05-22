@@ -1,6 +1,6 @@
 import { cn } from "../lib/cn";
 
-export type MobileTab = "topic" | "attention" | "context";
+export type MobileTab = "workspace" | "topic" | "attention" | "context";
 
 interface Props {
   active: MobileTab;
@@ -8,25 +8,26 @@ interface Props {
 }
 
 const TABS: Array<{ key: MobileTab; label: string }> = [
-  { key: "topic", label: "Topic" },
-  { key: "attention", label: "Attention" },
-  { key: "context", label: "Context" },
+  { key: "workspace", label: "工作区" },
+  { key: "topic", label: "话题" },
+  { key: "attention", label: "注意" },
+  { key: "context", label: "上下文" },
 ];
 
 export function BottomTabs({ active, onSelect }: Props) {
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 h-14 bg-surface-elev border-t border-border-soft flex">
+    <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 h-[calc(56px+env(safe-area-inset-bottom))] bg-surface-elev border-t border-border-soft flex pb-[env(safe-area-inset-bottom)]">
       {TABS.map((t) => (
         <button
           key={t.key}
           type="button"
           onClick={() => onSelect(t.key)}
           className={cn(
-            "flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px]",
+            "flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 text-[11px]",
             active === t.key ? "text-text font-semibold" : "text-text-dim",
           )}
         >
-          <span>{t.label}</span>
+          <span className="truncate">{t.label}</span>
         </button>
       ))}
     </nav>
