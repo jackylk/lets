@@ -99,7 +99,9 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
         )}
       </aside>
 
-      <main className="flex flex-col min-w-0 overflow-hidden pb-14 md:pb-0">{main}</main>
+      <main className="flex flex-col min-w-0 overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0">
+        {main}
+      </main>
 
       {/* Desktop context panel */}
       <aside

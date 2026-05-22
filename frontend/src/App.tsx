@@ -98,11 +98,7 @@ function Workspace() {
     }
   }, [topicId, view]);
   const [mobileTab, setMobileTab] = useState<MobileTab>("topic");
-
-  const isMobile =
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(max-width: 767px)").matches;
+  const isMobile = useMediaQuery("(max-width: 767px)");
 
   const identity = useIdentity();
   const qc = useQueryClient();
@@ -116,6 +112,7 @@ function Workspace() {
       qc.invalidateQueries({ queryKey: ["workspace-topics", activeWorkspaceId] });
       setView({ kind: "topic", id: created.id });
       setTopicId(created.id);
+      if (isMobile) setMobileTab("topic");
     },
   });
 
@@ -167,6 +164,12 @@ function Workspace() {
     setShowInviteAgent(true);
   };
 
+  const handleSelectTopic = (id: number) => {
+    setView({ kind: "topic", id });
+    setTopicId(id);
+    if (isMobile) setMobileTab("topic");
+  };
+
   const sidebar = (
     <Sidebar
       activeWorkspace={activeWorkspace}
@@ -174,7 +177,7 @@ function Workspace() {
       topics={topics}
       members={members}
       activeTopicId={view.kind === "topic" ? view.id : null}
-      onSelectTopic={(id) => setView({ kind: "topic", id })}
+      onSelectTopic={handleSelectTopic}
       onCreateTopic={
         activeWorkspaceId === null
           ? () => {}
@@ -189,9 +192,18 @@ function Workspace() {
       onRenameTopic={handleRenameTopic}
       onInviteMember={handleInviteMember}
       onInviteAgent={handleInviteAgent}
-      onClickAgents={() => setView({ kind: "agents" })}
-      onClickSettings={() => setView({ kind: "settings-tokens" })}
-      onSelectAgent={(id) => setView({ kind: "agent-detail", id })}
+      onClickAgents={() => {
+        setView({ kind: "agents" });
+        if (isMobile) setMobileTab("workspace");
+      }}
+      onClickSettings={() => {
+        setView({ kind: "settings-tokens" });
+        if (isMobile) setMobileTab("workspace");
+      }}
+      onSelectAgent={(id) => {
+        setView({ kind: "agent-detail", id });
+        if (isMobile) setMobileTab("workspace");
+      }}
     />
   );
 
@@ -214,10 +226,18 @@ function Workspace() {
 
   let main: React.ReactNode;
   if (isMobile) {
-    if (mobileTab === "topic" && activeTopicId)
+    if (mobileTab === "workspace") {
+      if (view.kind === "settings-tokens") main = <SettingsTokensPage />;
+      else if (view.kind === "agents") main = <AgentList onSelectAgent={(id) => setView({ kind: "agent-detail", id })} />;
+      else if (view.kind === "agent-detail") main = <AgentDetail agentId={view.id} onBack={() => setView({ kind: "agents" })} />;
+      else main = <div className="h-full overflow-y-auto bg-surface">{sidebar}</div>;
+    }
+    else if (!activeTopicId)
+      main = <div className="h-full overflow-y-auto bg-surface">{sidebar}</div>;
+    else if (mobileTab === "topic" && activeTopicId)
       main = topicMain(activeTopicId);
     else if (mobileTab === "attention") main = <AttentionView userName={userName} />;
-    else if (activeTopicId)
+    else if (mobileTab === "context" && activeTopicId)
       main = <TopicContext topicId={activeTopicId} projectId={activeWorkspaceId} />;
     else main = <div className="p-6 text-text-dim">加载中…</div>;
   } else if (view.kind === "topic" && view.id > 0) {
@@ -282,4 +302,26 @@ function Workspace() {
       )}
     </>
   );
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mql = window.matchMedia(query);
+    const update = () => setMatches(mql.matches);
+    update();
+    mql.addEventListener("change", update);
+    return () => mql.removeEventListener("change", update);
+  }, [query]);
+
+  return matches;
 }

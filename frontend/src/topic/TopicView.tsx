@@ -196,7 +196,7 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
             </div>
           }
         />
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-4">
           {initial.isLoading && <div className="text-text-dim">加载中…</div>}
           {initial.isError && <div className="text-text-dim">加载失败</div>}
           <Stream messages={merged} directory={directory} topicId={topicId} />
