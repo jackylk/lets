@@ -285,7 +285,10 @@ def _should_proactively_join(recent: list[dict], trigger: dict, my_agent_id: int
 # reply is folded ("AI 折叠" view mode). Should capture the essence of this
 # turn so the human can decide whether to expand.
 _PANE_UPDATE_INSTRUCTIONS = (
-    "After the reply, optionally append:\n"
+    "Maintain the right context pane as a living design memo. After the reply, "
+    "append pane_updates whenever this turn adds or refines a decision, option, "
+    "constraint, open question, blind spot, critique, or extension. Omit only "
+    "when there is truly no durable context to save.\n"
     "<pane_updates>{\"headline\":\"≤30字 中文一句话本轮要点\","
     "\"decisions\":[{\"body\":\"…\"}],"
     "\"options\":[{\"title\":\"…\",\"body\":\"…\",\"pros\":[\"…\"],\"cons\":[\"…\"]}],"

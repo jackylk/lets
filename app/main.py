@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import importlib
 import os
+import secrets
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
@@ -256,6 +258,10 @@ class TopicCreate(BaseModel):
 class TopicUpdate(BaseModel):
     workspace_id: int | None = None
     title: str | None = None
+
+
+class TopicShareCreate(BaseModel):
+    reuse_existing: bool = True
 
 
 def _ensure_onboarded(human_id: int) -> None:
@@ -2407,6 +2413,125 @@ def get_topic_spec(
         headers={
             "Content-Disposition": f'attachment; filename="topic-{topic_id}-spec.md"',
         },
+    )
+
+
+def _render_topic_spec(topic_id: int, limit: int = 500) -> str:
+    from .messages import topic_stream
+    from .spec import render_spec_markdown
+
+    msgs = topic_stream(topic_id, limit=limit, order="asc")
+    return render_spec_markdown(topic_id, msgs)
+
+
+@app.post("/api/topics/{topic_id}/share")
+def create_topic_share_link(
+    topic_id: int,
+    request: Request,
+    payload: TopicShareCreate | None = None,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    """Create or reuse a public read-only design-spec link for this topic."""
+    from .topics import get_topic_by_id
+
+    human_id = int(principal["human_id"])
+    _require_topic_member(topic_id, human_id)
+    if not get_topic_by_id(topic_id):
+        raise HTTPException(status_code=404, detail="topic not found")
+
+    reuse = payload.reuse_existing if payload is not None else True
+    with connect() as conn:
+        row = None
+        if reuse:
+            row = conn.execute(
+                """
+                SELECT token
+                FROM topic_share_links
+                WHERE topic_id = ? AND revoked_at IS NULL
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (topic_id,),
+            ).fetchone()
+        if row is None:
+            token = secrets.token_urlsafe(24)
+            row = conn.execute(
+                """
+                INSERT INTO topic_share_links (topic_id, token, created_by_human_id)
+                VALUES (?, ?, ?)
+                RETURNING token
+                """,
+                (topic_id, token, human_id),
+            ).fetchone()
+    base_url = _public_base_url(request)
+    token = row["token"]
+    return {
+        "token": token,
+        "url": f"{base_url}/s/{token}",
+        "markdown_url": f"{base_url}/s/{token}.md",
+    }
+
+
+def _topic_id_for_share_token(token: str) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT topic_id
+            FROM topic_share_links
+            WHERE token = ? AND revoked_at IS NULL
+            """,
+            (token,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="share link not found")
+    return int(row["topic_id"])
+
+
+@app.get("/s/{token}.md", response_class=PlainTextResponse)
+def read_shared_topic_markdown(token: str) -> PlainTextResponse:
+    topic_id = _topic_id_for_share_token(token)
+    body = _render_topic_spec(topic_id)
+    return PlainTextResponse(
+        content=body,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'inline; filename="topic-{topic_id}-design.md"',
+        },
+    )
+
+
+@app.get("/s/{token}", response_class=HTMLResponse)
+def read_shared_topic_page(token: str) -> HTMLResponse:
+    topic_id = _topic_id_for_share_token(token)
+    body = _render_topic_spec(topic_id)
+    escaped = html.escape(body)
+    markdown_url = f"/s/{html.escape(token)}.md"
+    return HTMLResponse(
+        f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Topic #{topic_id} design spec</title>
+  <style>
+    body {{ margin: 0; background: #f8f5ef; color: #24211d; font-family: ui-serif, Georgia, serif; }}
+    main {{ max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; }}
+    header {{ display: flex; justify-content: space-between; gap: 16px; align-items: baseline; border-bottom: 1px solid #ddd4c5; padding-bottom: 16px; margin-bottom: 28px; }}
+    h1 {{ font-size: 28px; margin: 0; }}
+    a {{ color: #6f3328; }}
+    pre {{ white-space: pre-wrap; overflow-wrap: anywhere; font: 15px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; background: #fffdf8; border: 1px solid #ddd4c5; border-radius: 6px; padding: 20px; }}
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Design Spec</h1>
+      <a href="{markdown_url}">下载 Markdown</a>
+    </header>
+    <pre>{escaped}</pre>
+  </main>
+</body>
+</html>"""
     )
 
 

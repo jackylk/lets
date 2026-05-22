@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ContextPane, ContextBlock } from "../layout/ContextPane";
 import { GoalAutoPanel } from "./GoalAutoPanel";
 import {
@@ -12,6 +13,8 @@ import {
   ExtensionsPanel,
 } from "./DiscussionPanes";
 import { useTopicMessages } from "../api/queries";
+import { apiRequest } from "../api/client";
+import { useIdentity } from "../identity/useIdentity";
 
 interface Props {
   topicId: number;
@@ -24,6 +27,10 @@ export function TopicContext({ topicId }: Props) {
 
   return (
     <ContextPane>
+      <ContextBlock label="方案输出" hint="导出或分享 agent 持续维护的设计方案">
+        <SpecActions topicId={topicId} />
+      </ContextBlock>
+
       <ContextBlock label="正在讨论">
         <GoalAutoPanel topicId={topicId} />
       </ContextBlock>
@@ -92,5 +99,89 @@ export function TopicContext({ topicId }: Props) {
         <ReferencesPanel messages={messages.data?.messages ?? []} topicId={topicId} />
       </ContextBlock>
     </ContextPane>
+  );
+}
+
+function SpecActions({ topicId }: { topicId: number }) {
+  const identity = useIdentity();
+  const [busy, setBusy] = useState<"download" | "share" | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function downloadSpec() {
+    setBusy("download");
+    setError(null);
+    try {
+      const res = await fetch(`/api/topics/${topicId}/spec`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `topic-${topicId}-design.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function shareSpec() {
+    setBusy("share");
+    setError(null);
+    try {
+      const data = await apiRequest<{ url: string }>("/api/topics/" + topicId + "/share", {
+        method: "POST",
+        body: { reuse_existing: true },
+        identity,
+      });
+      setShareUrl(data.url);
+      await navigator.clipboard?.writeText(data.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="border border-border-soft bg-surface-elev rounded p-2.5 flex flex-col gap-2">
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={downloadSpec}
+          disabled={busy !== null}
+          title="下载当前设计方案 Markdown"
+          className="flex-1 px-2.5 py-1.5 rounded-[3px] border border-border-soft text-[12px] text-text-dim hover:text-text hover:border-border disabled:opacity-50"
+        >
+          {busy === "download" ? "…" : "导出"}
+        </button>
+        <button
+          type="button"
+          onClick={shareSpec}
+          disabled={busy !== null}
+          title="生成公开只读链接并复制"
+          className="flex-1 px-2.5 py-1.5 rounded-[3px] border border-border-soft text-[12px] text-text-dim hover:text-text hover:border-border disabled:opacity-50"
+        >
+          {busy === "share" ? "…" : "分享"}
+        </button>
+      </div>
+      {shareUrl && (
+        <a
+          href={shareUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[11.5px] font-mono text-text-dim hover:text-text truncate"
+          title={shareUrl}
+        >
+          {shareUrl}
+        </a>
+      )}
+      {error && <div className="text-[11.5px] text-accent-text">失败：{error}</div>}
+    </div>
   );
 }

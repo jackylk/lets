@@ -60,6 +60,79 @@ def test_spec_endpoint_requires_auth(client):
     assert r.status_code == 401
 
 
+def test_share_link_exposes_public_read_only_spec(client, auth):
+    from app.identity import ensure_human
+    from app.db import connect
+
+    me = ensure_human("Share Reviewer")
+    with connect() as conn:
+        c = conn.execute("INSERT INTO topics (slug, title) VALUES ('spec-share', 'Share Spec')")
+        tid = c.lastrowid
+
+    r = client.post("/api/messages", headers=auth, json={
+        "topic_id": tid,
+        "type": "decision",
+        "actor_type": "human",
+        "actor_id": me,
+        "body": "方案以 context pane 为活的设计纪要",
+        "metadata": {"discussion_kind": "decision"},
+    })
+    assert r.status_code == 200, r.text
+
+    r = client.post(
+        f"/api/topics/{tid}/share",
+        headers={**auth, "x-forwarded-proto": "https", "x-forwarded-host": "lets.example"},
+        json={},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["url"].startswith("https://lets.example/s/")
+    assert data["markdown_url"].endswith(".md")
+
+    public_path = data["url"].replace("https://lets.example", "")
+    page = client.get(public_path)
+    assert page.status_code == 200, page.text
+    assert "Design Spec" in page.text
+    assert "方案以 context pane" in page.text
+
+    md_path = data["markdown_url"].replace("https://lets.example", "")
+    md = client.get(md_path)
+    assert md.status_code == 200, md.text
+    assert "text/markdown" in md.headers["content-type"]
+    assert "共识 (decisions)" in md.text
+    assert "方案以 context pane" in md.text
+
+
+def test_share_link_requires_topic_member(client):
+    from app.identity import ensure_human
+    from app.auth import issue_token
+    from app.db import connect
+
+    owner = ensure_human("share-owner")
+    outsider = ensure_human("share-outsider")
+    outsider_token, _ = issue_token(human_id=outsider, label="outsider")
+    with connect() as conn:
+        ws = conn.execute(
+            "INSERT INTO workspaces (slug, name, owner_human_id) VALUES ('share-ws', 'Share WS', ?) RETURNING id",
+            (owner,),
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO workspace_members (workspace_id, human_id, role) VALUES (?, ?, 'owner') RETURNING workspace_id",
+            (ws, owner),
+        )
+        tid = conn.execute(
+            "INSERT INTO topics (slug, title, workspace_id) VALUES ('share-private', 'Private', ?) RETURNING id",
+            (ws,),
+        ).fetchone()["id"]
+
+    r = client.post(
+        f"/api/topics/{tid}/share",
+        headers={"Authorization": f"Bearer {outsider_token}"},
+        json={},
+    )
+    assert r.status_code == 403
+
+
 def test_spec_surfaces_per_node_diagram_annotations(client, auth):
     """Annotations with target_quote = node text should appear under the
     matching diagram in 图与资料 — both ±1 vote aggregates and free-form
@@ -118,4 +191,3 @@ def test_spec_surfaces_per_node_diagram_annotations(client, auth):
     # Comment surfaced
     assert "节点批注" in body
     assert "KB 要包含 tutor preferences" in body
-
