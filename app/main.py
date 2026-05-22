@@ -14,7 +14,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import mcp_server as mcp_server_module
 from .auth import get_api_principal, set_mcp_principal, verify_token
-from .db import connect, init_db
+from .db import connect, init_db, IntegrityError
 
 mcp_server_module = importlib.reload(mcp_server_module)
 
@@ -247,15 +247,33 @@ class ProjectCreate(BaseModel):
     repo_path: str | None = None
 
 
-class ProjectPatch(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    repo_path: str | None = None
-
-
 class TopicCreate(BaseModel):
-    slug: str = Field(min_length=1)
-    title: str = Field(min_length=1)
+    slug: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=200)
+    mode: str = Field(default="exploratory")
+
+
+class TopicUpdate(BaseModel):
+    workspace_id: int | None = None
+    title: str | None = None
+
+
+def _ensure_onboarded(human_id: int) -> None:
+    """Create '我的工作区' + '主频道' on first login if absent. Idempotent."""
+    import secrets as _secrets
+    from .workspaces import list_workspaces_for_human, create_workspace
+    if list_workspaces_for_human(human_id):
+        return
+    ws = create_workspace(name="我的工作区", owner_human_id=human_id)
+    slug = f"general-{_secrets.token_hex(4)}"
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO topics (slug, title, workspace_id, mode)
+            VALUES (?, ?, ?, 'exploratory')
+            """,
+            (slug, "主频道", ws["id"]),
+        )
 
 
 def ensure_agent(name: str, agent_type: str) -> int:
@@ -381,6 +399,10 @@ MODEL_ARGS=()
 if [ -n "${{LETS_MODEL:-}}" ]; then
   MODEL_ARGS=(--model "$LETS_MODEL")
 fi
+WORKSPACE_ARGS=()
+if [ -n "${{LETS_WORKSPACE:-}}" ]; then
+  WORKSPACE_ARGS=(--workspace "$LETS_WORKSPACE")
+fi
 
 mkdir -p "$LETS_HOME" "$LETS_HOME/bin"
 
@@ -471,12 +493,12 @@ Adding your first agent (${{LETS_AGENT_ROLE:-claude}}) on this machine ...
 
 MSG
   LETS_HOST="$BASE_URL" "$LETS_HOME/bin/lets" add "${{LETS_AGENT_ROLE:-claude}}" \\
-    --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} || \\
+    --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} ${{WORKSPACE_ARGS[@]+"${{WORKSPACE_ARGS[@]}}"}} || \\
     {{ echo "lets add failed — try again with: lets add ${{LETS_AGENT_ROLE:-claude}}" >&2; exit 1; }}
 
   # launchd autostart is optional; if it fails the gateway is already running
   # for this session.
-  if "$LETS_HOME/bin/lets" install --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} >/dev/null 2>&1; then
+  if "$LETS_HOME/bin/lets" install --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} ${{WORKSPACE_ARGS[@]+"${{WORKSPACE_ARGS[@]}}"}} >/dev/null 2>&1; then
     AUTOSTART_MSG="Will also auto-start on login (launchd)."
   else
     AUTOSTART_MSG="(launchd autostart not configured — gateway runs for this session only.)"
@@ -1026,6 +1048,8 @@ async def post_message_endpoint(
     from .messages import post_message
     from .sse import broadcaster
 
+    _require_topic_member(payload.topic_id, int(principal["human_id"]))
+
     # Body-required-unless-annotation: keep the old guarantee for all
     # "real" message types so legacy callers don't regress, but allow
     # empty body for annotations (vote-only annotations carry no text).
@@ -1090,6 +1114,8 @@ def get_topic_messages(
     from .drift import compute_drift_context
     from .messages import topic_stream
 
+    _require_topic_member(topic_id, int(principal["human_id"]))
+
     return {
         "messages": topic_stream(
             topic_id, type_filter=type, limit=limit, after_id=after_id,
@@ -1104,6 +1130,7 @@ def get_topic_task_tree(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .task_trees import get_tree_by_topic, list_items
+    _require_topic_member(topic_id, int(principal["human_id"]))
     tree = get_tree_by_topic(topic_id)
     if tree is None:
         return {"tree": None, "items": []}
@@ -1125,6 +1152,8 @@ def adopt_task_tree(
     principal = verify_session(lets_session)
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
+
+    _require_topic_member(topic_id, int(principal["human_id"]))
 
     # Find the proposal message in this topic
     msgs = topic_stream(topic_id, limit=10000)
@@ -1163,6 +1192,8 @@ def adopt_goal(
     principal = verify_session(lets_session)
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
+
+    _require_topic_member(topic_id, int(principal["human_id"]))
 
     artifact_id: int | None = payload.artifact_id
     spec_text: str | None = payload.spec_text
@@ -1267,19 +1298,19 @@ def resolve_drift_nudge(
     if payload.resolved_by == "moved_to_topic":
         if not payload.spinoff_title:
             raise HTTPException(status_code=400, detail="spinoff_title required")
-        # Create the new topic in the same project
+        # Create the new topic in the same workspace
         with connect() as conn:
             src_topic = conn.execute(
-                "SELECT project_id FROM topics WHERE id = ?", (nudge_row["topic_id"],)
+                "SELECT workspace_id FROM topics WHERE id = ?", (nudge_row["topic_id"],)
             ).fetchone()
-            project_id = src_topic["project_id"] if src_topic else None
+            workspace_id = src_topic["workspace_id"] if src_topic else None
             # Generate a slug from the title (lower, replace ws with -)
             import re, time
             slug_base = re.sub(r"\s+", "-", payload.spinoff_title.strip().lower())[:60]
             slug = f"{slug_base}-{int(time.time())}"
             cur = conn.execute(
-                "INSERT INTO topics (slug, title, project_id) VALUES (?, ?, ?)",
-                (slug, payload.spinoff_title, project_id),
+                "INSERT INTO topics (slug, title, workspace_id) VALUES (?, ?, ?)",
+                (slug, payload.spinoff_title, workspace_id),
             )
             new_topic_id = int(cur.lastrowid)
         # Post a system message summarizing the spinoff
@@ -1377,11 +1408,19 @@ def identity_me(
         "human": {"id": human_id, "name": x_lets_human},
     }
     if x_lets_agent_role and x_lets_device:
+        from .workspaces import list_workspaces_for_human, create_workspace as _cw
+        _idme_mine = list_workspaces_for_human(human_id)
+        if _idme_mine:
+            _idme_ws_id = _idme_mine[0]["id"]
+        else:
+            _idme_ws = _cw(name="我的工作区", owner_human_id=human_id)
+            _idme_ws_id = _idme_ws["id"]
         try:
             agent_instance_id = ensure_agent_instance(
                 role=x_lets_agent_role,
                 human_id=human_id,
                 device_label=x_lets_device,
+                workspace_id=int(_idme_ws_id),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1402,6 +1441,8 @@ def post_artifact(
 ) -> dict:
     from .artifacts.registry import get_adapter
     from .artifacts.models import create_artifact_row, record_version, get_artifact_by_id
+
+    _require_topic_member(payload.topic_id, int(principal["human_id"]))
 
     if payload.backend != "git":
         raise HTTPException(status_code=400, detail="only 'git' backend supported in v1.5b")
@@ -1551,200 +1592,352 @@ def read_artifact(
     }
 
 
-@app.post("/api/projects")
-def post_project(
-    payload: ProjectCreate,
-    principal: dict = Depends(get_api_principal),
-) -> dict:
-    from .projects import create_project, get_project_by_id
-    try:
-        pid = create_project(
-            name=payload.name,
-            slug=payload.slug,
-            description=payload.description,
-            owner_human_id=principal["human_id"],
-            repo_path=payload.repo_path,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return get_project_by_id(pid)
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
 
 
-@app.get("/api/projects")
-def get_projects(
+class WorkspaceUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+@app.get("/api/workspaces")
+def list_workspaces(
     principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
-    from .projects import list_projects
-    return list_projects()
+    from .workspaces import list_workspaces_for_human
+    return list_workspaces_for_human(int(principal["human_id"]))
 
 
-@app.get("/api/projects/{project_id}")
-def get_project(
-    project_id: int,
+@app.post("/api/workspaces")
+def create_workspace_endpoint(
+    payload: WorkspaceCreate,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
-    from .projects import get_project_by_id
-    p = get_project_by_id(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="project not found")
-    return p
+    from .workspaces import create_workspace
+    ws = create_workspace(name=payload.name, owner_human_id=int(principal["human_id"]))
+    ws["my_role"] = "owner"
+    return ws
 
 
-@app.patch("/api/projects/{project_id}")
-def patch_project(
-    project_id: int,
-    payload: ProjectPatch,
+@app.get("/api/workspaces/{workspace_id}")
+def get_workspace(
+    workspace_id: int,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
-    from .projects import get_project_by_id, update_project
-    if not get_project_by_id(project_id):
-        raise HTTPException(status_code=404, detail="project not found")
-    update_project(
-        project_id,
-        name=payload.name,
-        description=payload.description,
-        repo_path=payload.repo_path,
-    )
-    return get_project_by_id(project_id)
+    from .workspaces import require_workspace_member
+    require_workspace_member(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, slug, name, description, owner_human_id, is_private, "
+            "created_at, updated_at FROM workspaces WHERE id = ? AND deleted_at IS NULL",
+            (workspace_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    return dict(row)
 
 
-@app.get("/api/projects/{project_id}/spec")
-def get_project_spec(
-    project_id: int,
-    include_content: bool = False,
+@app.patch("/api/workspaces/{workspace_id}")
+def update_workspace(
+    workspace_id: int,
+    payload: WorkspaceUpdate,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
-    """Read-only Spec view: lists CLAUDE.md, .mcp.json, and .claude/** files.
+    from .workspaces import require_workspace_owner
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        conn.execute(
+            "UPDATE workspaces SET name = ?, updated_at = NOW() WHERE id = ?",
+            (payload.name, workspace_id),
+        )
+        row = conn.execute(
+            "SELECT id, slug, name, description FROM workspaces WHERE id = ?",
+            (workspace_id,),
+        ).fetchone()
+    return dict(row)
 
-    Returns each file's relative path, size, and optionally base64-encoded
-    content. Files outside the project's repo_path cannot be reached.
-    """
-    from pathlib import Path
-    from .projects import get_project_by_id
 
-    p = get_project_by_id(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="project not found")
-    if not p.get("repo_path"):
-        raise HTTPException(status_code=404, detail="project has no repo_path configured")
+@app.delete("/api/workspaces/{workspace_id}")
+def delete_workspace(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_owner
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        my_count = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM workspaces w
+            JOIN workspace_members wm ON wm.workspace_id = w.id
+            WHERE wm.human_id = ? AND w.deleted_at IS NULL
+            """,
+            (principal["human_id"],),
+        ).fetchone()["n"]
+        if int(my_count) <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="cannot delete your last workspace",
+            )
+        conn.execute(
+            "UPDATE workspaces SET deleted_at = NOW() WHERE id = ?",
+            (workspace_id,),
+        )
+    return {"ok": True}
 
-    root = Path(p["repo_path"]).resolve()
-    if not root.exists() or not root.is_dir():
-        raise HTTPException(status_code=404, detail="repo_path does not exist or is not a directory")
 
-    # Collect candidate spec files
-    candidates: list[Path] = []
-    for top_name in ("CLAUDE.md", ".mcp.json", ".claude"):
-        p_node = root / top_name
-        if not p_node.exists():
-            continue
-        if p_node.is_file():
-            candidates.append(p_node)
-        elif p_node.is_dir():
-            for f in p_node.rglob("*"):
-                if f.is_file():
-                    candidates.append(f)
+@app.get("/api/workspaces/{workspace_id}/members")
+def list_workspace_members(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    from .workspaces import require_workspace_member
+    require_workspace_member(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        human_rows = conn.execute(
+            """
+            SELECT h.id, h.name, h.email, h.avatar_url, wm.role, wm.joined_at
+            FROM workspace_members wm
+            JOIN humans h ON h.id = wm.human_id
+            WHERE wm.workspace_id = ?
+            ORDER BY wm.joined_at ASC
+            """,
+            (workspace_id,),
+        ).fetchall()
+        agent_rows = conn.execute(
+            """
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
+                   ai.human_id AS started_by_human_id, h.name AS started_by_name
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN humans h ON h.id = ai.human_id
+            WHERE ai.workspace_id = ?
+            ORDER BY ai.created_at ASC
+            """,
+            (workspace_id,),
+        ).fetchall()
+    humans = [{**dict(r), "kind": "human"} for r in human_rows]
+    agents = [{**dict(r), "kind": "agent"} for r in agent_rows]
+    return humans + agents
 
-    files_out: list[dict] = []
-    for f in candidates:
-        try:
-            resolved = f.resolve()
-            # Defense: reject anything that escapes root
-            resolved.relative_to(root)
-        except ValueError:
-            continue
-        rel = resolved.relative_to(root).as_posix()
-        entry: dict = {
-            "path": rel,
-            "size": resolved.stat().st_size,
-        }
-        if include_content:
-            import base64
-            try:
-                entry["content_b64"] = base64.b64encode(resolved.read_bytes()).decode("ascii")
-            except OSError:
-                entry["content_b64"] = None
-        files_out.append(entry)
 
+@app.delete("/api/workspaces/{workspace_id}/members/{human_id}")
+def remove_workspace_member(
+    workspace_id: int,
+    human_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_owner
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT role FROM workspace_members WHERE workspace_id = ? AND human_id = ?",
+            (workspace_id, human_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="member not found")
+        if row["role"] == "owner":
+            raise HTTPException(status_code=400, detail="cannot remove owner")
+        conn.execute(
+            "DELETE FROM workspace_members WHERE workspace_id = ? AND human_id = ?",
+            (workspace_id, human_id),
+        )
+    return {"ok": True}
+
+
+@app.post("/api/workspaces/{workspace_id}/invites")
+def create_workspace_invite(
+    workspace_id: int,
+    request: Request,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .workspaces import require_workspace_owner, generate_invite_token
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    token = generate_invite_token()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO workspace_invites (workspace_id, token, created_by_human_id)
+            VALUES (?, ?, ?)
+            RETURNING id, token, created_at
+            """,
+            (workspace_id, token, principal["human_id"]),
+        ).fetchone()
+    base_url = _public_base_url(request)
     return {
-        "project_id": project_id,
-        "repo_path": p["repo_path"],
-        "files": sorted(files_out, key=lambda x: x["path"]),
+        "id": int(row["id"]),
+        "token": row["token"],
+        "join_url": f"{base_url}/join/{row['token']}",
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
     }
 
 
-class SpecApply(BaseModel):
-    file: str = Field(min_length=1)
-    content: str
+@app.get("/api/workspaces/{workspace_id}/invites")
+def list_workspace_invites(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    from .workspaces import require_workspace_owner
+    require_workspace_owner(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, token, created_by_human_id, used_count,
+                   expires_at, max_uses, created_at
+            FROM workspace_invites
+            WHERE workspace_id = ?
+              AND revoked_at IS NULL
+              AND (expires_at IS NULL OR expires_at > NOW())
+            ORDER BY created_at DESC
+            """,
+            (workspace_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
-@app.post("/api/projects/{project_id}/spec/apply")
-def apply_spec_change(
-    project_id: int,
-    payload: SpecApply,
+@app.delete("/api/invites/{invite_id}")
+def revoke_invite(
+    invite_id: int,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
-    import os
-    from pathlib import Path
-    from .projects import get_project_by_id
-
-    p = get_project_by_id(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="project not found")
-    if not p.get("repo_path"):
-        raise HTTPException(status_code=404, detail="project has no repo_path")
-    root = Path(p["repo_path"]).resolve()
-    if not root.is_dir():
-        raise HTTPException(status_code=404, detail="repo_path missing")
-
-    rel = payload.file
-    # Reject absolute paths and any traversal segment
-    if rel.startswith("/") or ".." in Path(rel).parts:
-        raise HTTPException(status_code=400, detail="invalid file path")
-    # Only allow the managed spec set
-    if not (rel == "CLAUDE.md" or rel == ".mcp.json" or rel.startswith(".claude/")):
-        raise HTTPException(status_code=400, detail="file is not in managed spec set")
-
-    target = (root / rel).resolve()
-    try:
-        target.relative_to(root)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="path escapes repo_path")
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".lets-tmp")
-    tmp.write_text(payload.content, encoding="utf-8")
-    os.replace(tmp, target)
-    return {"ok": True, "file": rel, "bytes": target.stat().st_size}
+    from .workspaces import require_workspace_owner
+    with connect() as conn:
+        inv = conn.execute(
+            "SELECT workspace_id FROM workspace_invites WHERE id = ?",
+            (invite_id,),
+        ).fetchone()
+        if inv is None:
+            raise HTTPException(status_code=404, detail="invite not found")
+    require_workspace_owner(int(inv["workspace_id"]), int(principal["human_id"]))
+    with connect() as conn:
+        conn.execute(
+            "UPDATE workspace_invites SET revoked_at = NOW() WHERE id = ?",
+            (invite_id,),
+        )
+    return {"ok": True}
 
 
-@app.post("/api/projects/{project_id}/topics")
-def post_topic(
-    project_id: int,
+@app.get("/join/{token}", response_model=None)
+def join_by_token(
+    token: str,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> RedirectResponse | FileResponse:
+    """Magic-link landing.
+
+    Unauthenticated → bounce to /login with the join URL as redirect.
+    Authenticated → serve the SPA so `JoinTokenPage` runs the accept call
+    client-side. The accept itself happens via `POST /api/invites/:token/accept`.
+    """
+    from .auth import verify_session
+    if not lets_session or verify_session(lets_session) is None:
+        return RedirectResponse(
+            url=f"/login?redirect=/join/{token}", status_code=303
+        )
+    return home()  # type: ignore[return-value]
+
+
+@app.post("/api/invites/{token}/accept")
+def accept_invite(
+    token: str,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        inv = conn.execute(
+            """
+            SELECT id, workspace_id, max_uses, used_count, expires_at
+            FROM workspace_invites
+            WHERE token = ?
+              AND revoked_at IS NULL
+              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (max_uses IS NULL OR used_count < max_uses)
+            """,
+            (token,),
+        ).fetchone()
+        if inv is None:
+            raise HTTPException(status_code=404, detail="invite not valid")
+        already = conn.execute(
+            """
+            SELECT 1 FROM workspace_members
+            WHERE workspace_id = ? AND human_id = ?
+            """,
+            (inv["workspace_id"], human_id),
+        ).fetchone()
+        if already is None:
+            conn.execute(
+                """
+                INSERT INTO workspace_members (workspace_id, human_id, role)
+                VALUES (?, ?, 'member') RETURNING workspace_id
+                """,
+                (inv["workspace_id"], human_id),
+            )
+            conn.execute(
+                """
+                UPDATE workspace_invites
+                SET used_count = used_count + 1
+                WHERE id = ?
+                """,
+                (inv["id"],),
+            )
+    return {"workspace_id": int(inv["workspace_id"])}
+
+
+@app.get("/api/workspaces/{workspace_id}/topics")
+def list_topics_in_workspace(
+    workspace_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    from .workspaces import require_workspace_member
+    require_workspace_member(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, slug, title, workspace_id, mode, created_at, updated_at
+            FROM topics
+            WHERE workspace_id = ?
+            ORDER BY updated_at DESC
+            """,
+            (workspace_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/workspaces/{workspace_id}/topics")
+def create_topic_in_workspace(
+    workspace_id: int,
     payload: TopicCreate,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
-    from .projects import get_project_by_id
-    from .topics import create_topic, get_topic_by_id
-    if not get_project_by_id(project_id):
-        raise HTTPException(status_code=404, detail="project not found")
-    try:
-        tid = create_topic(slug=payload.slug, title=payload.title, project_id=project_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return get_topic_by_id(tid)
+    from .workspaces import require_workspace_member
+    require_workspace_member(workspace_id, int(principal["human_id"]))
+    with connect() as conn:
+        try:
+            row = conn.execute(
+                """
+                INSERT INTO topics (slug, title, workspace_id, mode)
+                VALUES (?, ?, ?, ?)
+                RETURNING id, slug, title, workspace_id, mode,
+                          created_at, updated_at
+                """,
+                (payload.slug, payload.title, workspace_id, payload.mode),
+            ).fetchone()
+        except IntegrityError as e:
+            if "topics_slug_key" in str(e).lower() or "unique" in str(e).lower():
+                raise HTTPException(status_code=409, detail=f"slug in use: {payload.slug}")
+            raise
+    return dict(row)
 
 
-@app.get("/api/projects/{project_id}/topics")
-def get_topics_in_project(
-    project_id: int,
-    principal: dict = Depends(get_api_principal),
-) -> list[dict]:
-    from .projects import get_project_by_id
-    from .topics import list_topics_by_project
-    if not get_project_by_id(project_id):
-        raise HTTPException(status_code=404, detail="project not found")
-    return list_topics_by_project(project_id)
+def _require_topic_member(topic_id: int, human_id: int) -> int:
+    """Return workspace_id; raise 403 if caller not a member."""
+    from .workspaces import require_workspace_member
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT workspace_id FROM topics WHERE id = ?", (topic_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    require_workspace_member(int(row["workspace_id"]), human_id)
+    return int(row["workspace_id"])
 
 
 @app.get("/api/topics/{topic_id}")
@@ -1753,6 +1946,7 @@ def get_topic(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .topics import get_topic_by_id
+    _require_topic_member(topic_id, int(principal["human_id"]))
     t = get_topic_by_id(topic_id)
     if not t:
         raise HTTPException(status_code=404, detail="topic not found")
@@ -1776,6 +1970,7 @@ def get_topic_spec(
     from .topics import get_topic_by_id
     from .spec import render_spec_markdown
 
+    _require_topic_member(topic_id, int(principal["human_id"]))
     if not get_topic_by_id(topic_id):
         raise HTTPException(status_code=404, detail="topic not found")
     msgs = topic_stream(topic_id, limit=limit, order="asc")
@@ -1802,6 +1997,8 @@ async def stream_topic(
     pass ``Last-Event-ID`` or use ``?after_id=`` on the messages endpoint
     to catch up on missed traffic after a reconnect.
     """
+    _require_topic_member(topic_id, int(principal["human_id"]))
+
     from fastapi.responses import StreamingResponse
     from .sse import broadcaster
     import asyncio
@@ -1842,6 +2039,7 @@ def list_artifacts_by_topic(
     Each artifact row includes a ``versions`` array (chronological) so
     the web UI can render the version chain without N+1 round-trips.
     """
+    _require_topic_member(topic_id, int(principal["human_id"]))
     from .db import connect
     with connect() as conn:
         rows = conn.execute(
@@ -1873,6 +2071,7 @@ def get_topic_participants(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     """Return the distinct humans and agents that have posted on a topic."""
+    _require_topic_member(topic_id, int(principal["human_id"]))
     from .db import connect
     with connect() as conn:
         humans = [dict(r) for r in conn.execute(
@@ -1903,42 +2102,34 @@ def get_topic_participants(
     return {"humans": humans, "agents": agents}
 
 
-@app.get("/api/projects/{project_id}/git-status")
-def get_project_git_status(
-    project_id: int,
+@app.patch("/api/topics/{topic_id}")
+def update_topic(
+    topic_id: int,
+    payload: TopicUpdate,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
-    """Return HEAD commit + dirty-file list for a project's repo_path."""
-    import subprocess
-    from pathlib import Path
-    from .projects import get_project_by_id
-
-    p = get_project_by_id(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="project not found")
-    if not p.get("repo_path"):
-        raise HTTPException(status_code=404, detail="project has no repo_path")
-    repo = Path(p["repo_path"]).resolve()
-    if not (repo / ".git").exists():
-        raise HTTPException(status_code=404, detail="repo_path is not a git repo")
-
-    def _run(args: list[str]) -> str:
-        return subprocess.run(
-            ["git"] + args, cwd=repo, check=True, capture_output=True, text=True
-        ).stdout.strip()
-
-    log = _run(["log", "-1", "--pretty=format:%H|%h|%s|%an|%ai"])
-    parts = log.split("|", 4)
-    head = {
-        "sha": parts[0],
-        "short_sha": parts[1] if len(parts) > 1 else "",
-        "subject": parts[2] if len(parts) > 2 else "",
-        "author": parts[3] if len(parts) > 3 else "",
-        "date": parts[4] if len(parts) > 4 else "",
-    }
-    status = _run(["status", "--short"])
-    dirty = [line for line in status.splitlines() if line.strip()]
-    return {"head": head, "dirty": dirty}
+    human_id = int(principal["human_id"])
+    _require_topic_member(topic_id, human_id)
+    sets, vals = [], []
+    if payload.workspace_id is not None:
+        from .workspaces import require_workspace_member
+        require_workspace_member(payload.workspace_id, human_id)
+        sets.append("workspace_id = ?")
+        vals.append(payload.workspace_id)
+    if payload.title is not None:
+        sets.append("title = ?")
+        vals.append(payload.title)
+    if not sets:
+        raise HTTPException(status_code=400, detail="no fields to update")
+    sets.append("updated_at = NOW()")  # literal, no value appended to vals
+    vals.append(topic_id)
+    with connect() as conn:
+        row = conn.execute(
+            f"UPDATE topics SET {', '.join(sets)} WHERE id = ? "
+            "RETURNING id, slug, title, workspace_id, mode, updated_at",
+            tuple(vals),
+        ).fetchone()
+    return dict(row)
 
 
 # ---------------------------------------------------------------------------
@@ -2137,6 +2328,7 @@ async def auth_github_callback(code: str, state: str) -> RedirectResponse:
 
     from .auth import issue_session
 
+    _ensure_onboarded(human_id)
     session_value = issue_session(human_id)
     res = RedirectResponse(url=next_url, status_code=307)
     res.set_cookie(
@@ -2217,6 +2409,57 @@ def auth_logout(
 
 
 # ---------------------------------------------------------------------------
+# API-facing auth helpers (for test clients and programmatic use)
+# ---------------------------------------------------------------------------
+
+
+class DevLoginPayload(BaseModel):
+    name: str = Field(default="Neo", min_length=1)
+    email: str | None = None
+
+
+@app.post("/api/auth/dev-login")
+def api_dev_login(payload: DevLoginPayload, response: Response) -> dict:
+    """JSON dev-login for test clients. Sets a session cookie and returns human_id.
+
+    Only active when LETS_DEV_SESSIONS=1 (same gate as the browser dev-login).
+    """
+    if os.environ.get("LETS_DEV_SESSIONS") != "1":
+        raise HTTPException(status_code=404, detail="not found")
+
+    from .auth import issue_session
+    from .identity import ensure_human
+
+    human_id = ensure_human(payload.name.strip() or "Neo", email=payload.email)
+    _ensure_onboarded(human_id)
+    session_value = issue_session(human_id)
+    response.set_cookie(
+        "lets_session",
+        session_value,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+    )
+    return {"human_id": human_id}
+
+
+@app.post("/api/auth/logout", status_code=204)
+def api_auth_logout(
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> Response:
+    """JSON-friendly logout alias for test clients and the SPA."""
+    from .auth import revoke_session
+
+    if lets_session:
+        revoke_session(lets_session)
+    res = Response(status_code=204)
+    res.delete_cookie("lets_session", path="/")
+    return res
+
+
+# ---------------------------------------------------------------------------
 # Device flow for local gateway login
 #
 # Minimal GitHub-device-flow style handshake:
@@ -2233,12 +2476,13 @@ def _new_user_code() -> str:
     )
 
 
-@app.get("/auth/device-flow/start")
-def device_flow_start(
+def _device_flow_start_impl(
     request: Request,
-    role: str = Query(default="claude"),
-    device_label: str = Query(default="local"),
-    model: str | None = Query(default=None),
+    role: str,
+    device_label: str,
+    model: str | None,
+    workspace_id: int | None,
+    workspace_slug: str | None = None,
 ) -> dict:
     if role not in ("claude", "codex"):
         raise HTTPException(status_code=400, detail="role must be claude or codex")
@@ -2248,6 +2492,19 @@ def device_flow_start(
         model = None
     if model and any(ch.isspace() for ch in model):
         raise HTTPException(status_code=400, detail="model cannot contain whitespace")
+    # Resolve workspace slug to id when caller can't authenticate to look it up themselves.
+    # If slug doesn't resolve, fall through with workspace_id=None — authorize step
+    # will default to the human's first workspace or auto-create.
+    if workspace_id is None and workspace_slug:
+        ws_slug = workspace_slug.strip().lower()
+        if ws_slug:
+            with connect() as conn:
+                row = conn.execute(
+                    "SELECT id FROM workspaces WHERE slug = ? AND deleted_at IS NULL",
+                    (ws_slug,),
+                ).fetchone()
+            if row:
+                workspace_id = int(row["id"])
     device_code = _secrets.token_urlsafe(32)
     user_code = _new_user_code()
     with connect() as conn:
@@ -2258,10 +2515,10 @@ def device_flow_start(
         conn.execute(
             """
             INSERT INTO device_auth_flows
-                (device_code, user_code, role, device_label, model, expires_at)
-            VALUES (?, ?, ?, ?, ?, datetime('now', '+10 minutes'))
+                (device_code, user_code, role, device_label, model, workspace_id, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+10 minutes'))
             """,
-            (device_code, user_code, role, device_label, model),
+            (device_code, user_code, role, device_label, model, workspace_id),
         )
     base_url = _public_base_url(request)
     return {
@@ -2271,6 +2528,43 @@ def device_flow_start(
         "expires_in": 600,
         "interval": 3,
     }
+
+
+@app.get("/auth/device-flow/start")
+def device_flow_start(
+    request: Request,
+    role: str = Query(default="claude"),
+    device_label: str = Query(default="local"),
+    model: str | None = Query(default=None),
+    workspace: str | None = Query(default=None),
+) -> dict:
+    return _device_flow_start_impl(
+        request=request,
+        role=role,
+        device_label=device_label,
+        model=model,
+        workspace_id=None,
+        workspace_slug=workspace,
+    )
+
+
+@app.post("/api/auth/device-flow/start")
+def api_device_flow_start(
+    request: Request,
+    role: str = Query(default="claude"),
+    device_label: str = Query(default="local"),
+    model: str | None = Query(default=None),
+    workspace_id: int | None = Query(default=None),
+    workspace: str | None = Query(default=None),
+) -> dict:
+    return _device_flow_start_impl(
+        request=request,
+        role=role,
+        device_label=device_label,
+        model=model,
+        workspace_id=workspace_id,
+        workspace_slug=workspace,
+    )
 
 
 @app.get("/auth/device-flow/authorize")
@@ -2316,10 +2610,20 @@ def device_flow_authorize(
     human_id = int(principal["human_id"])
     role = str(row["role"])
     device_label = str(row["device_label"])
+    ws_id = row["workspace_id"]
+    if ws_id is None:
+        from .workspaces import list_workspaces_for_human, create_workspace
+        mine = list_workspaces_for_human(human_id)
+        if mine:
+            ws_id = mine[0]["id"]
+        else:
+            ws = create_workspace(name="我的工作区", owner_human_id=human_id)
+            ws_id = ws["id"]
     agent_instance_id = ensure_agent_instance(
         role=role,
         human_id=human_id,
         device_label=device_label,
+        workspace_id=int(ws_id),
         model=str(row["model"]).strip() if row["model"] else None,
     )
     token_value, token_id = issue_token(
@@ -2442,7 +2746,7 @@ def device_flow_poll(device_code: str) -> dict:
         )
         agent = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label, ai.model
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.workspace_id
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
             WHERE ai.id = ?
@@ -2453,6 +2757,122 @@ def device_flow_poll(device_code: str) -> dict:
         "status": "authorized",
         "token": token_value,
         "agent_instance": dict(agent) if agent else None,
+    }
+
+
+@app.post("/api/auth/device-flow/authorize/{user_code}")
+def api_device_flow_authorize(
+    user_code: str,
+    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+) -> dict:
+    """JSON-friendly authorize endpoint for test clients and the SPA.
+
+    Requires an active session cookie. Returns JSON instead of HTML.
+    """
+    from .auth import issue_token, verify_session
+    from .identity import ensure_agent_instance
+
+    principal = verify_session(lets_session) if lets_session else None
+    if principal is None:
+        raise HTTPException(status_code=401, detail="login required")
+
+    normalized = user_code.strip().upper()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM device_auth_flows
+            WHERE user_code = ? AND consumed_at IS NULL
+            """,
+            (normalized,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="device flow not found")
+        if row["authorized_at"] is not None:
+            return {"status": "already_authorized"}
+        expired = conn.execute(
+            "SELECT CURRENT_TIMESTAMP > ? AS expired", (row["expires_at"],)
+        ).fetchone()["expired"]
+        if expired:
+            raise HTTPException(status_code=410, detail="device flow expired")
+
+    human_id = int(principal["human_id"])
+    role = str(row["role"])
+    device_label = str(row["device_label"])
+    ws_id = row["workspace_id"]
+    if ws_id is None:
+        from .workspaces import list_workspaces_for_human, create_workspace
+        mine = list_workspaces_for_human(human_id)
+        if mine:
+            ws_id = mine[0]["id"]
+        else:
+            ws = create_workspace(name="我的工作区", owner_human_id=human_id)
+            ws_id = ws["id"]
+    agent_instance_id = ensure_agent_instance(
+        role=role,
+        human_id=human_id,
+        device_label=device_label,
+        workspace_id=int(ws_id),
+        model=str(row["model"]).strip() if row["model"] else None,
+    )
+    token_value, token_id = issue_token(
+        human_id=human_id,
+        agent_instance_id=agent_instance_id,
+        label=f"{role} on {device_label}",
+    )
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE device_auth_flows
+            SET human_id = ?, agent_instance_id = ?, token_id = ?,
+                token_value = ?, authorized_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (human_id, agent_instance_id, token_id, token_value, row["id"]),
+        )
+    return {"status": "authorized", "role": role, "device_label": device_label}
+
+
+@app.get("/api/auth/device-flow/poll/{device_code}")
+def api_device_flow_poll(device_code: str) -> dict:
+    """JSON poll endpoint (path param variant) for test clients and the SPA."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM device_auth_flows WHERE device_code = ?",
+            (device_code,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="device flow not found")
+        expired = conn.execute(
+            "SELECT CURRENT_TIMESTAMP > ? AS expired", (row["expires_at"],)
+        ).fetchone()["expired"]
+        if expired and row["authorized_at"] is None:
+            raise HTTPException(status_code=410, detail="device flow expired")
+        if row["authorized_at"] is None:
+            return {"status": "pending"}
+        if row["consumed_at"] is not None or row["token_value"] is None:
+            raise HTTPException(status_code=410, detail="device token already consumed")
+        token_value = row["token_value"]
+        conn.execute(
+            """
+            UPDATE device_auth_flows
+            SET consumed_at = CURRENT_TIMESTAMP, token_value = NULL
+            WHERE id = ?
+            """,
+            (row["id"],),
+        )
+        agent = conn.execute(
+            """
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.workspace_id
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            WHERE ai.id = ?
+            """,
+            (row["agent_instance_id"],),
+        ).fetchone()
+    return {
+        "status": "authorized",
+        "token": token_value,
+        "agent": dict(agent) if agent else None,
     }
 
 
@@ -2470,6 +2890,7 @@ class TokenCreate(BaseModel):
     role: str
     device_label: str
     model: str | None = None
+    workspace_id: int | None = None
 
 
 class AgentModelUpdate(BaseModel):
@@ -2530,10 +2951,20 @@ def create_my_token(
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
 
+    _token_ws_id = payload.workspace_id
+    if _token_ws_id is None:
+        from .workspaces import list_workspaces_for_human, create_workspace
+        _mine = list_workspaces_for_human(principal["human_id"])
+        if _mine:
+            _token_ws_id = _mine[0]["id"]
+        else:
+            _ws = create_workspace(name="我的工作区", owner_human_id=principal["human_id"])
+            _token_ws_id = _ws["id"]
     agent_instance_id = ensure_agent_instance(
         role=payload.role,
         human_id=principal["human_id"],
         device_label=payload.device_label,
+        workspace_id=int(_token_ws_id),
         model=payload.model,
     )
     raw_value, token_id = issue_token(

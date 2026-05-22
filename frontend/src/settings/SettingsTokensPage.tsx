@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { useMyTokens, useRevokeToken, useUpdateAgentModel } from "../api/queries";
+import {
+  useMyTokens, useRevokeToken, useUpdateAgentModel,
+  useSessionMe, useLogout,
+} from "../api/queries";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 
 export function SettingsTokensPage() {
@@ -7,6 +10,8 @@ export function SettingsTokensPage() {
   const tokens = useMyTokens();
   const revoke = useRevokeToken();
   const updateModel = useUpdateAgentModel();
+  const session = useSessionMe();
+  const logout = useLogout();
 
   const agentName = (role?: string | null) => {
     if (role === "claude") return "Claude Code";
@@ -14,8 +19,34 @@ export function SettingsTokensPage() {
     return role ?? "Agent";
   };
 
+  const human = session.data?.human;
+
   return (
-    <div className="flex flex-col gap-4 p-8 overflow-y-auto h-full">
+    <div className="flex flex-col gap-6 p-8 overflow-y-auto h-full">
+      <section className="flex items-center justify-between border-b border-border-soft pb-4">
+        <div className="flex flex-col gap-0.5">
+          <h2 className="font-[var(--font-display)] text-2xl">账户</h2>
+          {human ? (
+            <div className="text-[13px] text-text-muted">
+              <span className="text-text">{human.name}</span>
+              {human.github_login && (
+                <span className="text-text-dim"> · @{human.github_login}</span>
+              )}
+            </div>
+          ) : (
+            <div className="text-[13px] text-text-dim">未登录</div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => logout.mutate()}
+          disabled={logout.isPending}
+          className="px-3 py-1.5 rounded border border-border text-[13px] text-text hover:bg-hover disabled:opacity-50"
+        >
+          {logout.isPending ? "退出中…" : "退出登录"}
+        </button>
+      </section>
+
       <div className="flex items-baseline justify-between">
         <h2 className="font-[var(--font-display)] text-2xl">电脑和 Agent</h2>
         <button

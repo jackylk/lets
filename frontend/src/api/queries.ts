@@ -7,6 +7,7 @@ import type {
   ProjectDTO, ParticipantsDTO, GitStatusDTO, OnlineAgentDTO,
   AgentInstanceRowDTO,
   AttentionDTO, ArtifactDTO,
+  Workspace, WorkspaceMember, WorkspaceInvite,
 } from "./types";
 import type { DriftContextDTO } from "./taskTreeTypes";
 
@@ -194,6 +195,106 @@ export function useUpdateAgentModel() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tokens"] });
       qc.invalidateQueries({ queryKey: ["agent-instances"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Workspace hooks (workspace-membership plan)
+// ---------------------------------------------------------------------------
+
+export function useWorkspaces() {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => apiRequest<Workspace[]>("/api/workspaces", { identity }),
+  });
+}
+
+export function useCreateWorkspace() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiRequest<Workspace>("/api/workspaces", { method: "POST", body: { name }, identity }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspaces"] });
+    },
+  });
+}
+
+export function useRenameWorkspace() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) =>
+      apiRequest<Workspace>(`/api/workspaces/${id}`, { method: "PATCH", body: { name }, identity }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workspaces"] }),
+  });
+}
+
+export function useDeleteWorkspace() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiRequest<null>(`/api/workspaces/${id}`, { method: "DELETE", identity }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workspaces"] }),
+  });
+}
+
+export function useWorkspaceMembers(workspaceId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["workspace-members", workspaceId],
+    enabled: workspaceId != null,
+    queryFn: () =>
+      apiRequest<WorkspaceMember[]>(`/api/workspaces/${workspaceId}/members`, { identity }),
+  });
+}
+
+export function useCreateInvite() {
+  const identity = useIdentity();
+  return useMutation({
+    mutationFn: (workspaceId: number) =>
+      apiRequest<WorkspaceInvite>(`/api/workspaces/${workspaceId}/invites`, {
+        method: "POST", body: {}, identity,
+      }),
+  });
+}
+
+export function useTopicsInWorkspace(workspaceId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["workspace-topics", workspaceId],
+    enabled: workspaceId != null,
+    queryFn: () =>
+      apiRequest<TopicDTO[]>(`/api/workspaces/${workspaceId}/topics`, { identity }),
+  });
+}
+
+export function useMoveTopic() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ topicId, workspaceId }: { topicId: number; workspaceId: number }) =>
+      apiRequest<TopicDTO>(`/api/topics/${topicId}`, {
+        method: "PATCH", body: { workspace_id: workspaceId }, identity,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["workspace-topics"] }),
+  });
+}
+
+export function useLogout() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<null>("/api/auth/logout", { method: "POST", body: {}, identity }),
+    onSuccess: () => {
+      qc.clear();
+      // Send the user back to the public root; SessionGate will surface LoginPage.
+      window.location.href = "/";
     },
   });
 }

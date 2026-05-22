@@ -25,10 +25,18 @@ def cli_issue(
     human_id = ensure_human(human)
     agent_instance_id: int | None = None
     if role and device:
+        from .workspaces import list_workspaces_for_human, create_workspace
+        mine = list_workspaces_for_human(human_id)
+        if mine:
+            ws_id = mine[0]["id"]
+        else:
+            ws = create_workspace(name="我的工作区", owner_human_id=human_id)
+            ws_id = ws["id"]
         agent_instance_id = ensure_agent_instance(
             role=role,
             human_id=human_id,
             device_label=device,
+            workspace_id=int(ws_id),
         )
 
     plaintext, token_id = issue_token(

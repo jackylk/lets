@@ -188,6 +188,50 @@ export const handlers = [
     });
   }),
 
+  // ---- workspace-membership plan (workspaces, members, invites)
+  http.get("/api/workspaces", () =>
+    HttpResponse.json([
+      {
+        id: 1, slug: "my-workspace", name: "我的工作区", description: null,
+        owner_human_id: 1, is_private: true, my_role: "owner",
+        created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]),
+  ),
+  http.post("/api/workspaces", () =>
+    HttpResponse.json({
+      id: 2, slug: "user-auth", name: "User Auth", description: null,
+      owner_human_id: 1, is_private: true, my_role: "owner",
+      created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+    }),
+  ),
+  http.patch("/api/workspaces/:id", async ({ params, request }) => {
+    const body = (await request.json()) as { name?: string };
+    return HttpResponse.json({
+      id: Number(params.id), slug: "my-workspace",
+      name: body.name ?? "我的工作区", description: null,
+      owner_human_id: 1, is_private: true, my_role: "owner",
+      created_at: "2026-01-01T00:00:00Z", updated_at: new Date().toISOString(),
+    });
+  }),
+  http.delete("/api/workspaces/:id", () => new HttpResponse(null, { status: 204 })),
+  http.get("/api/workspaces/:id/members", () =>
+    HttpResponse.json([
+      {
+        kind: "human", id: 1, name: "Neo", email: null, avatar_url: null,
+        role: "owner", joined_at: "2026-01-01T00:00:00Z",
+      },
+    ]),
+  ),
+  http.post("/api/workspaces/:id/invites", ({ params }) =>
+    HttpResponse.json({
+      id: 1, token: "mock-token-abc",
+      join_url: `http://localhost/join/mock-token-abc`,
+      created_at: "2026-01-01T00:00:00Z",
+    }, { status: 201 }),
+  ),
+  http.get("/api/workspaces/:id/topics", () => HttpResponse.json(seed.topics)),
+
   // ---- v1.5 chrome (projects, single topic, participants, artifacts, git, attention)
   http.get("/api/projects", () =>
     HttpResponse.json([
