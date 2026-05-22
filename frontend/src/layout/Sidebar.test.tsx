@@ -45,7 +45,7 @@ describe("<Sidebar />", () => {
   it("renders the active workspace's topics and collapses others", () => {
     renderWithProviders(<Sidebar {...defaultProps} />);
     // Active workspace switcher shows name
-    expect(screen.getByText(/我的工作区/)).toBeInTheDocument();
+    expect(screen.getAllByText(/我的工作区/).length).toBeGreaterThan(0);
     // Active workspace topics rendered
     expect(screen.getByText("新话题")).toBeInTheDocument();
     // Other workspace collapsed section visible (may appear in switcher chips AND section)

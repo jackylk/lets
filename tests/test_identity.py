@@ -112,10 +112,33 @@ def test_ensure_human_idempotent(temp_db):
 
 
 def test_ensure_agent_instance_creates(temp_db):
+    from app.db import connect
     from app.identity import ensure_human, ensure_agent_instance
     hid = ensure_human("Neo")
     iid = ensure_agent_instance(role="claude", human_id=hid, device_label="neo-mbp")
     assert isinstance(iid, int)
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT display_name FROM agent_instances WHERE id = ?",
+            (iid,),
+        ).fetchone()
+    assert row["display_name"] == "Neo"
+
+
+def test_ensure_agent_instance_assigns_distinct_display_names_per_owner(temp_db):
+    from app.db import connect
+    from app.identity import ensure_human, ensure_agent_instance
+
+    hid = ensure_human("Neo")
+    first = ensure_agent_instance(role="claude", human_id=hid, device_label="neo-mbp")
+    second = ensure_agent_instance(role="codex", human_id=hid, device_label="neo-mbp")
+
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT display_name FROM agent_instances WHERE id IN (?, ?) ORDER BY id",
+            (first, second),
+        ).fetchall()
+    assert [r["display_name"] for r in rows] == ["Neo", "Trinity"]
 
 
 def test_ensure_agent_instance_idempotent(temp_db):

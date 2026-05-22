@@ -1,4 +1,5 @@
 import { useMyAgents } from "../api/queries";
+import { agentShortName, agentStatusLabel } from "./display";
 
 interface Props {
   onSelectAgent?: (agentId: number) => void;
@@ -11,8 +12,13 @@ export function AgentList({ onSelectAgent }: Props) {
   if (agents.isError) return <div className="p-6 text-text-dim">加载失败</div>;
 
   return (
-    <div className="mx-auto max-w-2xl p-6">
-      <h1 className="mb-6 text-xl font-semibold">我的 Agents</h1>
+    <div className="mx-auto max-w-3xl p-6">
+      <div className="mb-6">
+        <h1 className="text-xl font-semibold text-text">我的 Agents</h1>
+        <p className="mt-1 text-sm text-text-dim">
+          这里管理你拥有的 agent。本页是全局状态；它们加入哪些 workspace 在下方列出。
+        </p>
+      </div>
       <div className="divide-y divide-border-soft border-y border-border-soft">
         {(agents.data ?? []).map((agent) => (
           <button
@@ -23,12 +29,19 @@ export function AgentList({ onSelectAgent }: Props) {
           >
             <div>
               <div className="text-sm text-text">
-                {agent.display_name || `${agent.role}-${agent.agent_instance_id}`}
+                {agentShortName(agent)}
               </div>
-              <div className="text-xs text-text-dim">{agent.device_label}</div>
+              <div className="text-xs text-text-dim">
+                {agent.role} · {agent.device_label || "unknown device"}
+              </div>
+              <div className="mt-1 text-xs text-text-dim">
+                {(agent.workspaces ?? []).length === 0
+                  ? "尚未加入 workspace"
+                  : `已加入 ${(agent.workspaces ?? []).map((w) => w.name).join("、")}`}
+              </div>
             </div>
             <div className="text-xs text-text-dim">
-              {agent.deleted_at ? "已退役" : agent.paused_at ? "已暂停" : "可用"}
+              {agentStatusLabel(agent)}
             </div>
           </button>
         ))}

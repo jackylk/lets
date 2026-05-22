@@ -52,14 +52,14 @@ describe("<MembersList />", () => {
 
   it("renders agent caption with owner_name", () => {
     render(<MembersList members={[agentMember]} onInvite={vi.fn()} />);
-    expect(screen.getByText("claude-11")).toBeInTheDocument();
-    expect(screen.getByText(/agent · 由 Neo 管理/)).toBeInTheDocument();
+    expect(screen.getByText("Link")).toBeInTheDocument();
+    expect(screen.getByText(/agent · Neo/)).toBeInTheDocument();
   });
 
   it("calls onInvite when invite button is clicked", () => {
     const onInvite = vi.fn();
     render(<MembersList members={[]} onInvite={onInvite} />);
-    fireEvent.click(screen.getByText(/邀请成员/));
+    fireEvent.click(screen.getByText(/邀请人加入这个工作区/));
     expect(onInvite).toHaveBeenCalledOnce();
   });
 
@@ -68,7 +68,25 @@ describe("<MembersList />", () => {
       <MembersList members={[ownerMember, agentMember]} onInvite={vi.fn()} />,
     );
     expect(screen.getByText("Neo")).toBeInTheDocument();
-    expect(screen.getByText("claude-11")).toBeInTheDocument();
+    expect(screen.getByText("Link")).toBeInTheDocument();
+  });
+
+  it("adds owner name when two agents have the same display name", () => {
+    const secondAgent: WorkspaceMember = {
+      ...agentMember,
+      id: 23,
+      display_name: "Link",
+      owner_human_id: 2,
+      owner_name: "Trinity",
+    };
+    render(
+      <MembersList
+        members={[{ ...agentMember, display_name: "Link" }, secondAgent]}
+        onInvite={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Link · Neo")).toBeInTheDocument();
+    expect(screen.getByText("Link · Trinity")).toBeInTheDocument();
   });
 
   it("renders 邀请 agent button only when onInviteAgent is provided", () => {

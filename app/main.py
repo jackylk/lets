@@ -1079,11 +1079,16 @@ def update_agent_instance(
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
 
-    model = payload.model.strip()
-    if not model:
+    model = payload.model.strip() if payload.model is not None else None
+    display_name = payload.display_name.strip() if payload.display_name is not None else None
+    if model is None and display_name is None:
+        raise HTTPException(status_code=400, detail="nothing to update")
+    if model is not None and not model:
         raise HTTPException(status_code=400, detail="model required")
-    if any(ch.isspace() for ch in model):
+    if model is not None and any(ch.isspace() for ch in model):
         raise HTTPException(status_code=400, detail="model cannot contain whitespace")
+    if display_name is not None and not display_name:
+        raise HTTPException(status_code=400, detail="display_name required")
 
     with connect() as conn:
         row = conn.execute(
@@ -1097,19 +1102,28 @@ def update_agent_instance(
         ).fetchone()
         if row is None or int(row["owner_human_id"]) != int(principal["human_id"]):
             raise HTTPException(status_code=404, detail="agent not found")
-        if row["role"] != "claude":
+        if model is not None and row["role"] != "claude":
             raise HTTPException(status_code=400, detail="model setting is only supported for claude")
+        updates: list[str] = []
+        params: list[Any] = []
+        if model is not None:
+            updates.append("model = ?")
+            params.append(model)
+        if display_name is not None:
+            updates.append("display_name = ?")
+            params.append(display_name)
+        params.append(agent_instance_id)
         conn.execute(
-            """
+            f"""
             UPDATE agent_instances
-            SET model = ?, updated_at = CURRENT_TIMESTAMP
+            SET {", ".join(updates)}, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (model, agent_instance_id),
+            params,
         )
         updated = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label, ai.model
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.display_name
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
             WHERE ai.id = ?
@@ -3206,7 +3220,8 @@ class TokenCreate(BaseModel):
 
 
 class AgentModelUpdate(BaseModel):
-    model: str = Field(min_length=1, max_length=128)
+    model: str | None = Field(default=None, min_length=1, max_length=128)
+    display_name: str | None = Field(default=None, min_length=1, max_length=40)
 
 
 @app.get("/api/tokens")

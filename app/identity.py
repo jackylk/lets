@@ -5,6 +5,22 @@ from typing import Optional
 from .db import connect
 
 
+AGENT_DISPLAY_NAMES = (
+    "Neo",
+    "Trinity",
+    "Morpheus",
+    "Oracle",
+    "Tank",
+    "Switch",
+    "Apoc",
+    "Seraph",
+    "Niobe",
+    "Dozer",
+    "Link",
+    "Sparks",
+)
+
+
 def ensure_human(name: str, email: Optional[str] = None) -> int:
     """Return the humans.id for a given name. Create if missing. Idempotent."""
     with connect() as conn:
@@ -64,17 +80,40 @@ def ensure_agent_instance(
                 _join_agent_workspace(conn, workspace_id, agent_id, human_id)
             return agent_id
 
+        display_name = _next_agent_display_name(conn, human_id)
         cursor = conn.execute(
             """
-            INSERT INTO agent_instances (role_id, owner_human_id, device_label, model)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO agent_instances
+                (role_id, owner_human_id, device_label, model, display_name)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (role_id, human_id, device_label, model),
+            (role_id, human_id, device_label, model, display_name),
         )
         agent_id = int(cursor.lastrowid)
         if workspace_id is not None:
             _join_agent_workspace(conn, workspace_id, agent_id, human_id)
         return agent_id
+
+
+def _next_agent_display_name(conn, human_id: int) -> str:
+    rows = conn.execute(
+        """
+        SELECT display_name FROM agent_instances
+        WHERE owner_human_id = ? AND display_name IS NOT NULL
+        """,
+        (human_id,),
+    ).fetchall()
+    used = {str(r["display_name"]) for r in rows if r["display_name"]}
+    for name in AGENT_DISPLAY_NAMES:
+        if name not in used:
+            return name
+    i = 2
+    while True:
+        for name in AGENT_DISPLAY_NAMES:
+            candidate = f"{name} {i}"
+            if candidate not in used:
+                return candidate
+        i += 1
 
 
 def _join_agent_workspace(conn, workspace_id: int, agent_instance_id: int, owner_human_id: int) -> None:

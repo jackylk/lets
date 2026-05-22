@@ -1,21 +1,40 @@
 import type { WorkspaceMember } from "../api/types";
+import { agentShortName } from "../agent/display";
 
 interface Props {
+  workspaceName?: string;
   members: WorkspaceMember[];
   onInvite: () => void;
   onInviteAgent?: () => void;
   onSelectAgent?: (agentId: number) => void;
 }
 
-export function MembersList({ members, onInvite, onInviteAgent, onSelectAgent }: Props) {
+export function MembersList({ workspaceName, members, onInvite, onInviteAgent, onSelectAgent }: Props) {
+  const humanCount = members.filter((m) => m.kind === "human").length;
+  const agentCount = members.filter((m) => m.kind === "agent").length;
+  const agentNameCounts = new Map<string, number>();
+  for (const member of members) {
+    if (member.kind !== "agent") continue;
+    const name = agentShortName(member);
+    agentNameCounts.set(name, (agentNameCounts.get(name) ?? 0) + 1);
+  }
+
   return (
     <div className="px-3 py-2 border-t border-border">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim mb-2">
-        成员
+      <div className="mb-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim">
+          当前工作区成员
+        </div>
+        {workspaceName && (
+          <div className="mt-0.5 truncate text-[12px] text-text-muted">
+            {workspaceName} · {humanCount} 人 · {agentCount} agent
+          </div>
+        )}
       </div>
       <div className="flex flex-col gap-0.5">
-        {members.map((m) =>
-          m.kind === "human" ? (
+        {members.map((m) => {
+          if (m.kind === "human") {
+            return (
             <div key={`h-${m.id}`} className="flex items-center gap-2 py-0.5">
               <span className="text-[12.5px] text-text truncate">{m.name}</span>
               {m.role === "owner" && (
@@ -24,7 +43,12 @@ export function MembersList({ members, onInvite, onInviteAgent, onSelectAgent }:
                 </span>
               )}
             </div>
-          ) : (
+            );
+          }
+
+          const name = agentShortName(m);
+          const duplicateName = (agentNameCounts.get(name) ?? 0) > 1;
+          return (
             <button
               key={`a-${m.id}`}
               type="button"
@@ -32,16 +56,16 @@ export function MembersList({ members, onInvite, onInviteAgent, onSelectAgent }:
               className="flex flex-col py-0.5 text-left rounded hover:bg-surface-hover"
             >
               <span className="text-[12.5px] text-text">
-                {m.display_name || `${m.role}-${m.id}`}
+                {duplicateName ? `${name} · ${m.owner_name}` : name}
               </span>
               <span className="text-[10px] text-text-dim">
-                agent · 由 {m.owner_name} 管理
+                agent · {m.owner_name}
                 {m.paused_at ? " · 已暂停" : ""}
                 {m.deleted_at ? " · 已退役" : ""}
               </span>
             </button>
-          ),
-        )}
+          );
+        })}
         {members.length === 0 && (
           <div className="text-xs text-text-dim italic">暂无成员</div>
         )}
@@ -52,7 +76,7 @@ export function MembersList({ members, onInvite, onInviteAgent, onSelectAgent }:
           onClick={onInvite}
           className="text-xs text-text-dim hover:text-text"
         >
-          ＋ 邀请成员
+          ＋ 邀请人加入这个工作区
         </button>
         {onInviteAgent && (
           <button
@@ -60,7 +84,7 @@ export function MembersList({ members, onInvite, onInviteAgent, onSelectAgent }:
             onClick={onInviteAgent}
             className="text-xs text-text-dim hover:text-text"
           >
-            ＋ 邀请 agent
+            ＋ 邀请 agent 加入这个工作区
           </button>
         )}
       </div>

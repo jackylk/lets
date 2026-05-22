@@ -250,13 +250,30 @@ export function useUpdateAgentModel() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ agentInstanceId, model }: { agentInstanceId: number; model: string }) =>
-      apiRequest<{ id: number; role: string; device_label: string; model: string | null }>(
+      apiRequest<{ id: number; role: string; device_label: string; model: string | null; display_name: string | null }>(
         `/api/agent-instances/${agentInstanceId}`,
         { method: "PATCH", body: { model }, identity },
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tokens"] });
       qc.invalidateQueries({ queryKey: ["agent-instances"] });
+    },
+  });
+}
+
+export function useUpdateAgentDisplayName() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentInstanceId, displayName }: { agentInstanceId: number; displayName: string }) =>
+      apiRequest<{ id: number; role: string; device_label: string; model: string | null; display_name: string | null }>(
+        `/api/agent-instances/${agentInstanceId}`,
+        { method: "PATCH", body: { display_name: displayName }, identity },
+      ),
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: ["agent-instances"] });
+      qc.invalidateQueries({ queryKey: ["agent-instances", vars.agentInstanceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-members"] });
     },
   });
 }

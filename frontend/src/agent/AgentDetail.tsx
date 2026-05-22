@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react";
 import {
   useAgentDetail,
   useDeleteAgent,
   usePauseAgent,
   useResumeAgent,
+  useUpdateAgentDisplayName,
 } from "../api/queries";
+import { agentShortName, agentStatusLabel } from "./display";
 
 interface Props {
   agentId: number;
@@ -14,15 +17,17 @@ function formatNumber(value: number | string | null | undefined) {
   return Number(value ?? 0).toLocaleString();
 }
 
-function displayName(agent: { display_name: string | null; role: string; agent_instance_id: number }) {
-  return agent.display_name || `${agent.role}-${agent.agent_instance_id}`;
-}
-
 export function AgentDetail({ agentId, onBack }: Props) {
   const detail = useAgentDetail(agentId);
   const pause = usePauseAgent();
   const resume = useResumeAgent();
   const revoke = useDeleteAgent();
+  const rename = useUpdateAgentDisplayName();
+  const [draftName, setDraftName] = useState("");
+
+  useEffect(() => {
+    if (detail.data) setDraftName(agentShortName(detail.data));
+  }, [detail.data]);
 
   if (detail.isLoading) return <div className="p-6 text-text-dim">加载中...</div>;
   if (detail.isError || !detail.data) {
@@ -32,8 +37,7 @@ export function AgentDetail({ agentId, onBack }: Props) {
   const agent = detail.data;
   const paused = Boolean(agent.paused_at);
   const retired = Boolean(agent.deleted_at);
-  const online = !paused && !retired && agent.is_online === 1;
-  const status = retired ? "已退役" : paused ? "已暂停" : online ? "在线" : "离线";
+  const status = agentStatusLabel(agent);
 
   return (
     <div className="h-full overflow-auto bg-bg">
@@ -48,9 +52,9 @@ export function AgentDetail({ agentId, onBack }: Props) {
 
         <div className="mb-7 flex items-start justify-between gap-6">
           <div>
-            <h1 className="text-2xl font-semibold text-text">{displayName(agent)}</h1>
+            <h1 className="text-2xl font-semibold text-text">{agentShortName(agent)}</h1>
             <div className="mt-1 text-sm text-text-dim">
-              agent · 由 {agent.human_name} 管理 · {status}
+              {agent.role} · 由 {agent.human_name} 管理 · {status}
             </div>
           </div>
           <div className="flex gap-2">
@@ -91,6 +95,32 @@ export function AgentDetail({ agentId, onBack }: Props) {
 
         <section className="mb-8">
           <h2 className="mb-3 text-xs font-semibold uppercase text-text-dim">基本信息</h2>
+          <form
+            className="mb-5 flex max-w-md items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const next = draftName.trim();
+              if (!next || next === agentShortName(agent)) return;
+              rename.mutate({ agentInstanceId: agentId, displayName: next });
+            }}
+          >
+            <label className="min-w-0 flex-1">
+              <span className="block text-xs text-text-dim">展示名</span>
+              <input
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                maxLength={40}
+                className="mt-1 w-full rounded border border-border bg-surface-elev px-2 py-1.5 text-sm text-text"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={rename.isPending || !draftName.trim() || draftName.trim() === agentShortName(agent)}
+              className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-50"
+            >
+              保存
+            </button>
+          </form>
           <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
             <Info label="Role" value={agent.role} />
             <Info label="Model" value={agent.model || "-"} />

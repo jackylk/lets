@@ -53,3 +53,46 @@ def test_revoke_token(client):
 
     listed = client.get("/api/tokens", cookies={"lets_session": session}).json()
     assert listed[0]["revoked_at"] is not None
+
+
+def test_update_agent_display_name(client):
+    session = _login(client)
+    create = client.post(
+        "/api/tokens",
+        cookies={"lets_session": session},
+        json={"label": "codex on neo-mbp", "role": "codex", "device_label": "neo-mbp"},
+    )
+    agent_id = create.json()["agent_instance"]["id"]
+
+    res = client.patch(
+        f"/api/agent-instances/{agent_id}",
+        cookies={"lets_session": session},
+        json={"display_name": "Morpheus"},
+    )
+
+    assert res.status_code == 200
+    assert res.json()["display_name"] == "Morpheus"
+
+
+def test_update_codex_model_is_rejected_but_display_name_is_allowed(client):
+    session = _login(client)
+    create = client.post(
+        "/api/tokens",
+        cookies={"lets_session": session},
+        json={"label": "codex on neo-mbp", "role": "codex", "device_label": "neo-mbp"},
+    )
+    agent_id = create.json()["agent_instance"]["id"]
+
+    model_res = client.patch(
+        f"/api/agent-instances/{agent_id}",
+        cookies={"lets_session": session},
+        json={"model": "sonnet"},
+    )
+    name_res = client.patch(
+        f"/api/agent-instances/{agent_id}",
+        cookies={"lets_session": session},
+        json={"display_name": "Oracle"},
+    )
+
+    assert model_res.status_code == 400
+    assert name_res.status_code == 200

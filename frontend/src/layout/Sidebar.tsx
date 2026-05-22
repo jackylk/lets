@@ -19,6 +19,7 @@ interface Props {
   onInviteMember: () => void;
   onInviteAgent?: () => void;
   onClickSettings?: () => void;
+  onClickAgents?: () => void;
   onSelectAgent?: (agentId: number) => void;
 }
 
@@ -61,6 +62,7 @@ export function Sidebar({
   onInviteMember,
   onInviteAgent,
   onClickSettings,
+  onClickAgents,
   onSelectAgent,
 }: Props) {
   const [creating, setCreating] = useState(false);
@@ -148,6 +150,7 @@ export function Sidebar({
 
       {/* Members list */}
       <MembersList
+        workspaceName={activeWorkspace?.name}
         members={members}
         onInvite={onInviteMember}
         onInviteAgent={onInviteAgent}
@@ -155,9 +158,10 @@ export function Sidebar({
       />
 
       {/* Footer */}
-      {onClickSettings && (
+      {(onClickAgents || onClickSettings) && (
         <div className="border-t border-border-soft px-4 py-3 flex flex-col gap-0.5">
-          <FooterLink onClick={onClickSettings}>设置</FooterLink>
+          {onClickAgents && <FooterLink onClick={onClickAgents}>Agents</FooterLink>}
+          {onClickSettings && <FooterLink onClick={onClickSettings}>设置</FooterLink>}
         </div>
       )}
     </div>

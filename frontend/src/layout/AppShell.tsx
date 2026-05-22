@@ -74,7 +74,7 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
       data-testid="app-shell"
       className="grid h-[100dvh] relative"
       style={{
-        gridTemplateColumns: `${sideW}px 1fr`,
+        gridTemplateColumns: `${sideW}px minmax(0, 1fr) ${contextW}px`,
         transition: "grid-template-columns .18s ease",
       }}
     >
@@ -101,17 +101,14 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
 
       <main className="flex flex-col min-w-0 overflow-hidden pb-14 md:pb-0">{main}</main>
 
-      {/* Floating context panel */}
+      {/* Desktop context panel */}
       <aside
         data-testid="app-context"
         aria-hidden="false"
         className={
-          "hidden xl:flex flex-col fixed top-0 right-0 h-[100dvh] z-20 " +
-          "border-l border-border-soft bg-surface shadow-xl"
+          "hidden xl:flex flex-col relative min-w-0 h-[100dvh] " +
+          "border-l border-border-soft bg-surface"
         }
-        style={{
-          width: `${contextW}px`,
-        }}
       >
         {/* Resizer hairline on the drawer's left edge */}
         <div

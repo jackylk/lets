@@ -27,11 +27,12 @@ describe("<AppShell />", () => {
     expect(grid.className).toContain("grid");
   });
 
-  it("keeps the context panel fixed open on desktop", () => {
+  it("keeps the context panel in the desktop grid", () => {
     renderWithProviders(
       <AppShell sidebar={<i />} main={<i />} context={<div>CTX</div>} />,
     );
     expect(screen.getByTestId("app-context").getAttribute("aria-hidden")).toBe("false");
+    expect(screen.getByTestId("app-shell").getAttribute("style")).toContain("minmax(0, 1fr)");
     expect(screen.queryByTestId("app-context-toggle")).toBeNull();
   });
 });
