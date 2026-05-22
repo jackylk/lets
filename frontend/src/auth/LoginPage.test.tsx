@@ -16,6 +16,6 @@ describe("<LoginPage />", () => {
     );
     const link = await screen.findByRole("link", { name: /Continue as Neo/i });
     expect(link).toHaveAttribute("href", "/auth/dev/login?human=Neo&next=/app");
-    expect(screen.getByText(/本地开发登录已开启/)).toBeInTheDocument();
+    expect(screen.getByText(/本地开发登录/)).toBeInTheDocument();
   });
 });

@@ -284,3 +284,17 @@ export function useMoveTopic() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["workspace-topics"] }),
   });
 }
+
+export function useLogout() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<null>("/api/auth/logout", { method: "POST", body: {}, identity }),
+    onSuccess: () => {
+      qc.clear();
+      // Send the user back to the public root; SessionGate will surface LoginPage.
+      window.location.href = "/";
+    },
+  });
+}
