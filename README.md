@@ -71,8 +71,8 @@ The v1 tables (`work_items`, `agents`, `status_updates`, `findings`, `human_note
 | Table | Purpose |
 |-------|---------|
 | `humans` | Typed human identity (name UNIQUE, optional email) |
-| `agent_roles` | Known agent roles, seeded with `claude` and `codex` |
-| `agent_instances` | `(role, human, device)` tuples — a human can run multiple agents across devices |
+| `agent_types` | Known agent types, seeded with `claude` and `codex` |
+| `agent_instances` | `(agent_type, human, device)` tuples — a human can run multiple agents across devices |
 | `events` | Append-only event log (must-source set: idea.claimed / finding.promoted / decision.created / work_session.* / metric_run.completed / state_branch.*) |
 | `topics` | Minimal topic table (extended later in Track C) |
 | `messages` | Unified typed stream — **new canonical surface** for conversation, status, findings, decisions, etc. |

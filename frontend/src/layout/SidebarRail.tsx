@@ -11,10 +11,10 @@ interface Props {
  */
 export function SidebarRail({ attentionCount = 0, onClickAttention, onClickSettings }: Props) {
   return (
-    <div className="h-full flex flex-col items-center pt-12 gap-5 select-none">
+    <div className="h-full flex flex-col items-center pt-12 gap-5 select-none bg-surface-elev/30">
       <div
         title="Let's"
-        className="w-7 h-7 grid place-items-center font-[var(--font-display)] font-bold text-[20px] leading-none text-text"
+        className="w-7 h-7 grid place-items-center rounded-md border border-border-soft bg-surface-elev font-[var(--font-display)] font-bold text-[18px] leading-none text-text shadow-sm"
       >
         L
       </div>
@@ -22,7 +22,7 @@ export function SidebarRail({ attentionCount = 0, onClickAttention, onClickSetti
         type="button"
         title={attentionCount > 0 ? `${attentionCount} 条待处理` : "待处理"}
         onClick={onClickAttention}
-        className="relative w-7 h-7 grid place-items-center text-text-dim hover:text-text"
+        className="relative w-8 h-8 grid place-items-center rounded-md text-text-dim hover:bg-surface-hover hover:text-text"
       >
         <span className="font-mono text-[10px] uppercase tracking-[0.04em]">待处</span>
         {attentionCount > 0 && (
@@ -36,7 +36,7 @@ export function SidebarRail({ attentionCount = 0, onClickAttention, onClickSetti
         type="button"
         title="设置"
         onClick={onClickSettings}
-        className="w-7 h-7 grid place-items-center text-text-dim hover:text-text mb-4"
+        className="w-8 h-8 grid place-items-center rounded-md text-text-dim hover:bg-surface-hover hover:text-text mb-4"
       >
         <span className="font-mono text-[10px] uppercase tracking-[0.04em]">设置</span>
       </button>

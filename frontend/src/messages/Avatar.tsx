@@ -10,7 +10,7 @@ export function Avatar({ initial, kind, size = "md" }: Props) {
   return (
     <div
       className={cn(
-        "rounded-[3px] grid place-items-center font-semibold leading-none flex-shrink-0 border bg-transparent font-[var(--font-display)]",
+        "rounded-md grid place-items-center font-semibold leading-none flex-shrink-0 border bg-surface-elev font-[var(--font-display)] shadow-[0_1px_2px_rgba(31,39,37,0.04)]",
         size === "md" ? "w-7 h-7 text-[12px]" : "w-5 h-5 text-[10px]",
         kind === "human" && "border-human text-human",
         kind === "claude" && "border-agent-claude text-agent-claude",

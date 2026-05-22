@@ -208,9 +208,9 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
           mentionCandidates={mentionCandidates}
           disabled={postMessage.isPending}
         />
-        {/* Status strip lives below the composer so the user can see CC's
+        {/* Status strip lives below the composer so the user can see the agent's
             state while typing (eyes are already at the bottom of the screen). */}
-        <AgentListenStatus messages={merged} />
+        <AgentListenStatus messages={merged} workspaceMembers={workspaceMembers} />
       </div>
       <DiagramOverlay />
     </StreamProvider>

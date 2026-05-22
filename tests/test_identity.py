@@ -25,27 +25,27 @@ def test_humans_insert(temp_db):
     assert row["email"] == "neo@example.com"
 
 
-def test_agent_roles_table_exists(temp_db):
+def test_agent_types_table_exists(temp_db):
     from app.db import connect
     with connect() as conn:
         rows = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_roles'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_types'"
         ).fetchall()
     assert len(rows) == 1
 
 
-def test_agent_roles_columns(temp_db):
+def test_agent_types_columns(temp_db):
     from app.db import connect
     with connect() as conn:
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(agent_roles)").fetchall()}
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(agent_types)").fetchall()}
     assert {"id", "name", "description", "created_at"}.issubset(cols)
 
 
-def test_agent_roles_seeded(temp_db):
+def test_agent_types_seeded(temp_db):
     """init_db should seed claude and codex roles."""
     from app.db import connect
     with connect() as conn:
-        names = {r["name"] for r in conn.execute("SELECT name FROM agent_roles").fetchall()}
+        names = {r["name"] for r in conn.execute("SELECT name FROM agent_types").fetchall()}
     assert "claude" in names
     assert "codex" in names
 
@@ -65,7 +65,7 @@ def test_agent_instances_columns(temp_db):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(agent_instances)").fetchall()}
     assert {
         "id",
-        "role_id",
+        "agent_type_id",
         "owner_human_id",
         "device_label",
         "model",
@@ -82,16 +82,16 @@ def test_agent_instances_unique_per_human_device(temp_db):
     with connect() as conn:
         conn.execute("INSERT INTO humans (name) VALUES ('Neo')")
         human_id = conn.execute("SELECT id FROM humans WHERE name='Neo'").fetchone()["id"]
-        role_id = conn.execute("SELECT id FROM agent_roles WHERE name='claude'").fetchone()["id"]
+        agent_type_id = conn.execute("SELECT id FROM agent_types WHERE name='claude'").fetchone()["id"]
         conn.execute(
-            "INSERT INTO agent_instances (role_id, owner_human_id, device_label) VALUES (?, ?, ?)",
-            (role_id, human_id, "neo-mbp"),
+            "INSERT INTO agent_instances (agent_type_id, owner_human_id, device_label) VALUES (?, ?, ?)",
+            (agent_type_id, human_id, "neo-mbp"),
         )
         import sqlite3
         try:
             conn.execute(
-                "INSERT INTO agent_instances (role_id, owner_human_id, device_label) VALUES (?, ?, ?)",
-                (role_id, human_id, "neo-mbp"),
+                "INSERT INTO agent_instances (agent_type_id, owner_human_id, device_label) VALUES (?, ?, ?)",
+                (agent_type_id, human_id, "neo-mbp"),
             )
             assert False, "should have raised IntegrityError"
         except sqlite3.IntegrityError:
@@ -153,7 +153,7 @@ def test_ensure_agent_instance_unknown_role_raises(temp_db):
     from app.identity import ensure_human, ensure_agent_instance
     hid = ensure_human("Neo")
     import pytest
-    with pytest.raises(ValueError, match="unknown agent role"):
+    with pytest.raises(ValueError, match="unknown agent type"):
         ensure_agent_instance(role="nonexistent", human_id=hid, device_label="x")
 
 

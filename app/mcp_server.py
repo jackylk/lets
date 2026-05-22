@@ -415,7 +415,7 @@ def whoami() -> dict:
                 """
                 SELECT ai.device_label, ai.model, ar.name AS role
                 FROM agent_instances ai
-                JOIN agent_roles ar ON ar.id = ai.role_id
+                JOIN agent_types ar ON ar.id = ai.agent_type_id
                 WHERE ai.id = ?
                 """,
                 (out["agent_instance_id"],),

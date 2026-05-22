@@ -173,10 +173,10 @@ export function Composer({
       : [];
 
   return (
-    <div className="px-6 py-3 border-t border-border-soft bg-bg">
-      <div className="relative rounded border border-border bg-surface-elev px-3 py-2 flex flex-col gap-2 shadow-sm focus-within:border-accent-border focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
+    <div className="px-5 py-4 md:px-8 border-t border-border-soft bg-surface-elev/70">
+      <div className="relative mx-auto max-w-[880px] rounded-lg border border-border-soft bg-surface-elev px-3.5 py-2.5 flex flex-col gap-2 shadow-[0_8px_24px_rgba(31,39,37,0.06)] focus-within:border-accent-border focus-within:shadow-[0_0_0_3px_var(--color-accent-soft),0_8px_24px_rgba(31,39,37,0.06)]">
         {mentionOptions.length > 0 && (
-          <div className="absolute left-3 bottom-[calc(100%+6px)] w-72 max-w-[calc(100vw-48px)] rounded border border-border bg-surface-elev shadow-lg overflow-hidden z-20">
+          <div className="absolute left-3 bottom-[calc(100%+8px)] w-72 max-w-[calc(100vw-48px)] rounded-lg border border-border bg-surface-elev shadow-[0_18px_42px_rgba(31,39,37,0.16)] overflow-hidden z-20">
             {mentionOptions.map((candidate, index) => (
               <button
                 key={`${candidate.kind}-${candidate.key}`}
@@ -192,7 +192,7 @@ export function Composer({
                     : "hover:bg-surface-hover",
                 ].join(" ")}
               >
-                <span className="w-7 h-7 rounded-[3px] border border-border grid place-items-center font-[var(--font-display)] text-[12px] text-text-muted">
+                <span className="w-7 h-7 rounded-md border border-border grid place-items-center font-[var(--font-display)] text-[12px] text-text-muted">
                   {candidate.kind === "agent" ? candidate.key.toUpperCase().slice(0, 2) : candidate.label.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="min-w-0">
@@ -213,10 +213,10 @@ export function Composer({
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onClick={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={onKey}
-          className="bg-transparent outline-none resize-none text-[14.5px] leading-relaxed min-h-[28px]"
+          className="bg-transparent outline-none resize-none text-[14.5px] leading-relaxed min-h-[30px] placeholder:text-text-dim"
         />
         <div className="flex items-center text-[11px] text-text-dim gap-2">
-          <span>/ 命令 · @ 提及 · Enter 发送 · Shift Enter 换行</span>
+          <span>{resolvedAddresses.length > 0 ? "将发送给提及对象" : "默认发到当前话题"}</span>
           {mentions.length > 0 && (
             <span className="font-mono">
               {mentions.map((m) => `@${m}`).join(" ")}
@@ -230,7 +230,7 @@ export function Composer({
             type="button"
             onClick={submit}
             disabled={!text.trim() || disabled}
-            className="px-3 py-1 rounded-[3px] bg-text text-bg disabled:opacity-40 disabled:cursor-not-allowed text-[12px] font-medium"
+            className="px-3 py-1.5 rounded-md bg-text text-bg disabled:opacity-40 disabled:cursor-not-allowed text-[12px] font-semibold shadow-sm"
           >
             发送
           </button>

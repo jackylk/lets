@@ -39,6 +39,24 @@ def test_create_token_returns_raw_value_once(client):
     assert listed[0]["label"] == "claude on neo-mbp"
 
 
+def test_guest_cannot_create_agent_token(client):
+    from app.auth import issue_session
+    from app.db import connect
+
+    with connect() as conn:
+        row = conn.execute(
+            "INSERT INTO humans (name, is_guest) VALUES ('Guest', TRUE) RETURNING id"
+        ).fetchone()
+    session = issue_session(int(row["id"]))
+
+    res = client.post(
+        "/api/tokens",
+        cookies={"lets_session": session},
+        json={"label": "x", "role": "claude", "device_label": "guest-laptop"},
+    )
+    assert res.status_code == 403
+
+
 def test_revoke_token(client):
     session = _login(client)
     create = client.post(

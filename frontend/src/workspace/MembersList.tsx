@@ -1,5 +1,5 @@
 import type { WorkspaceMember } from "../api/types";
-import { agentShortName } from "../agent/display";
+import { agentDisplayName } from "../agent/display";
 
 interface Props {
   workspaceName?: string;
@@ -15,7 +15,7 @@ export function MembersList({ workspaceName, members, onInvite, onInviteAgent, o
   const agentNameCounts = new Map<string, number>();
   for (const member of members) {
     if (member.kind !== "agent") continue;
-    const name = agentShortName(member);
+    const name = agentDisplayName(member);
     agentNameCounts.set(name, (agentNameCounts.get(name) ?? 0) + 1);
   }
 
@@ -46,7 +46,7 @@ export function MembersList({ workspaceName, members, onInvite, onInviteAgent, o
             );
           }
 
-          const name = agentShortName(m);
+          const name = agentDisplayName(m);
           const duplicateName = (agentNameCounts.get(name) ?? 0) > 1;
           return (
             <button

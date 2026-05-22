@@ -600,6 +600,18 @@ def test_claude_command_omits_system_prompt_when_none():
     assert "--append-system-prompt" not in cmd
 
 
+def test_codex_command_skips_git_repo_check_for_local_gateway():
+    from app.gateway import _agent_command
+    cmd = _agent_command(["codex", "exec"], "codex", None, None)
+    assert cmd == ["codex", "exec", "--skip-git-repo-check", "--json"]
+
+
+def test_codex_resume_keeps_subcommand_after_exec_options():
+    from app.gateway import _agent_command
+    cmd = _agent_command(["codex", "exec"], "codex", "sess-1", None)
+    assert cmd == ["codex", "exec", "--skip-git-repo-check", "resume", "sess-1", "--json"]
+
+
 def test_build_prompt_includes_resolved_questions_section():
     """When the human has resolved a question via the right-pane 答 button,
     the gateway should surface the Q+A pair so the agent stops re-raising it."""

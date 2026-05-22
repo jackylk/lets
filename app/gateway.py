@@ -722,6 +722,8 @@ def _agent_command(
     if engine == "codex":
         if len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec":
             out = [cmd[0], cmd[1]]
+            if "--skip-git-repo-check" not in out:
+                out.append("--skip-git-repo-check")
             if session_id:
                 out.extend(["resume", session_id])
             out.extend(cmd[2:])
@@ -732,7 +734,7 @@ def _agent_command(
 
 def _error_for_cli(engine: str, cmd: list[str], returncode: int, stderr: str) -> str:
     name = "Claude CLI" if engine == "claude" else "Codex CLI" if engine == "codex" else "local CLI"
-    probe = "claude --print 'hi'" if engine == "claude" else "codex exec 'hi'" if engine == "codex" else "the CLI"
+    probe = "claude --print 'hi'" if engine == "claude" else "codex exec --skip-git-repo-check 'hi'" if engine == "codex" else "the CLI"
     return (
         f"{name} 调用失败。\n\n"
         f"command: {' '.join(cmd)}\n"
@@ -744,7 +746,7 @@ def _error_for_cli(engine: str, cmd: list[str], returncode: int, stderr: str) ->
 
 def _timeout_for_cli(engine: str, timeout: int) -> str:
     name = "Claude CLI" if engine == "claude" else "Codex CLI" if engine == "codex" else "local CLI"
-    probe = "claude --print 'hi'" if engine == "claude" else "codex exec 'hi'" if engine == "codex" else "the CLI"
+    probe = "claude --print 'hi'" if engine == "claude" else "codex exec --skip-git-repo-check 'hi'" if engine == "codex" else "the CLI"
     return (
         f"{name} 超过 {timeout}s 没有返回。\n\n"
         f"在终端运行 `{probe}` 验证本机非交互模式可用；"
@@ -967,7 +969,7 @@ def _login(argv: list[str]) -> int:
         "--role",
         choices=["claude", "codex"],
         default=os.environ.get("LETS_AGENT_ROLE", "claude"),
-        help="Local agent role to register",
+        help="Local agent type to register",
     )
     parser.add_argument(
         "--device-label",

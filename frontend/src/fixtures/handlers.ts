@@ -170,6 +170,7 @@ export const handlers = [
       human: {
         id: 1, name: "Neo", github_login: "neo",
         avatar_url: "https://avatars.example/neo.png",
+        is_guest: false,
       },
     }),
   ),
@@ -230,6 +231,16 @@ export const handlers = [
       created_at: "2026-01-01T00:00:00Z",
     }, { status: 201 }),
   ),
+  http.post("/api/invites/:token/accept", () =>
+    HttpResponse.json({ workspace_id: 1 }),
+  ),
+  http.post("/api/invites/:token/accept-guest", async ({ request }) => {
+    const body = (await request.json()) as { name?: string };
+    return HttpResponse.json({
+      workspace_id: 1,
+      human: { id: 2, name: body.name ?? "Guest", is_guest: true },
+    });
+  }),
   http.get("/api/workspaces/:id/topics", () => HttpResponse.json(seed.topics)),
 
   // ---- v1.5 chrome (projects, single topic, participants, artifacts, git, attention)

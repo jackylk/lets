@@ -30,16 +30,16 @@ def test_list_members_includes_agents(temp_db, client):
     from app.db import connect
     with connect() as conn:
         conn.execute(
-            "INSERT INTO agent_roles (name) VALUES ('claude') ON CONFLICT DO NOTHING"
+            "INSERT INTO agent_types (name) VALUES ('claude') ON CONFLICT DO NOTHING"
         )
-        role_id = conn.execute(
-            "SELECT id FROM agent_roles WHERE name='claude'"
+        agent_type_id = conn.execute(
+            "SELECT id FROM agent_types WHERE name='claude'"
         ).fetchone()["id"]
         # human_id 1 = alice (from her first dev-login)
         agent_id = conn.execute(
-            "INSERT INTO agent_instances (role_id, owner_human_id, device_label) "
+            "INSERT INTO agent_instances (agent_type_id, owner_human_id, device_label) "
             "VALUES (?, ?, 'mac')",
-            (role_id, 1),
+            (agent_type_id, 1),
         ).lastrowid
         conn.execute(
             "INSERT INTO workspace_agent_members "

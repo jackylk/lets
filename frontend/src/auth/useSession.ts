@@ -6,6 +6,7 @@ export interface SessionUser {
   name: string;
   github_login: string | null;
   avatar_url: string | null;
+  is_guest: boolean;
 }
 
 export interface SessionResponse { human: SessionUser }

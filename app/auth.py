@@ -166,7 +166,8 @@ def verify_session(value: str) -> dict | None:
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT s.id AS session_id, s.human_id, h.name, h.github_login, h.avatar_url
+            SELECT s.id AS session_id, s.human_id, h.name, h.github_login,
+                   h.avatar_url, h.is_guest
             FROM sessions s
             JOIN humans h ON h.id = s.human_id
             WHERE s.value_hash = ? AND s.revoked_at IS NULL
@@ -179,7 +180,9 @@ def verify_session(value: str) -> dict | None:
             "UPDATE sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
             (row["session_id"],),
         )
-        return dict(row)
+        principal = dict(row)
+        principal["is_guest"] = bool(principal.get("is_guest"))
+        return principal
 
 
 def revoke_session(value: str) -> None:

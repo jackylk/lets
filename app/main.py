@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -845,7 +845,7 @@ def list_all_agent_instances(
                     THEN 1 ELSE 0
                 END as is_online
             FROM agent_instances ai
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans h ON h.id = ai.owner_human_id
             LEFT JOIN tokens t ON t.agent_instance_id = ai.id
                               AND t.revoked_at IS NULL
@@ -895,7 +895,7 @@ def list_my_agent_instances(
                     '[]'::json
                 ) AS workspaces
             FROM agent_instances ai
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans h ON h.id = ai.owner_human_id
             LEFT JOIN tokens t ON t.agent_instance_id = ai.id
                               AND t.revoked_at IS NULL
@@ -1012,7 +1012,7 @@ def get_agent_instance_detail(
                    ai.created_at, ai.owner_human_id AS human_id, h.name AS human_name,
                    MAX(t.last_used_at) AS last_seen_at
             FROM agent_instances ai
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans h ON h.id = ai.owner_human_id
             LEFT JOIN tokens t ON t.agent_instance_id = ai.id AND t.revoked_at IS NULL
             WHERE ai.id = ?
@@ -1095,7 +1095,7 @@ def update_agent_instance(
             """
             SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.owner_human_id
             FROM agent_instances ai
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             WHERE ai.id = ?
             """,
             (agent_instance_id,),
@@ -1125,7 +1125,7 @@ def update_agent_instance(
             """
             SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.display_name
             FROM agent_instances ai
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             WHERE ai.id = ?
             """,
             (agent_instance_id,),
@@ -1149,7 +1149,7 @@ def list_online_agents(
                 MAX(t.last_used_at) as last_seen_at
             FROM tokens t
             JOIN agent_instances ai ON ai.id = t.agent_instance_id
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans h ON h.id = ai.owner_human_id
             WHERE t.agent_instance_id IS NOT NULL
               AND t.revoked_at IS NULL
@@ -1948,7 +1948,7 @@ def list_workspace_members(
                    wam.joined_at
             FROM workspace_agent_members wam
             JOIN agent_instances ai ON ai.id = wam.agent_instance_id
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans h ON h.id = ai.owner_human_id
             WHERE wam.workspace_id = ?
             ORDER BY wam.joined_at ASC
@@ -2088,22 +2088,28 @@ def revoke_invite(
     return {"ok": True}
 
 
+class GuestInviteAccept(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+def _unique_guest_name(conn, display_name: str) -> str:
+    base = " ".join(display_name.strip().split()) or "Guest"
+    candidate = base
+    i = 2
+    while conn.execute("SELECT 1 FROM humans WHERE name = ?", (candidate,)).fetchone():
+        candidate = f"{base} ({i})"
+        i += 1
+    return candidate
+
+
 @app.get("/join/{token}", response_model=None)
-def join_by_token(
-    token: str,
-    lets_session: str | None = Cookie(default=None, alias="lets_session"),
-) -> RedirectResponse | FileResponse:
+def join_by_token(token: str) -> RedirectResponse | FileResponse:
     """Magic-link landing.
 
-    Unauthenticated → bounce to /login with the join URL as redirect.
-    Authenticated → serve the SPA so `JoinTokenPage` runs the accept call
-    client-side. The accept itself happens via `POST /api/invites/:token/accept`.
+    Always serve the SPA. `JoinTokenPage` checks whether a session exists:
+    signed-in users accept with `POST /api/invites/:token/accept`, while
+    signed-out users can create a lightweight guest session.
     """
-    from .auth import verify_session
-    if not lets_session or verify_session(lets_session) is None:
-        return RedirectResponse(
-            url=f"/login?redirect=/join/{token}", status_code=303
-        )
     return home()  # type: ignore[return-value]
 
 
@@ -2151,6 +2157,70 @@ def accept_invite(
                 (inv["id"],),
             )
     return {"workspace_id": int(inv["workspace_id"])}
+
+
+@app.post("/api/invites/{token}/accept-guest")
+def accept_invite_as_guest(token: str, payload: GuestInviteAccept) -> JSONResponse:
+    from .auth import issue_session
+
+    with connect() as conn:
+        inv = conn.execute(
+            """
+            SELECT id, workspace_id, max_uses, used_count, expires_at
+            FROM workspace_invites
+            WHERE token = ?
+              AND revoked_at IS NULL
+              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (max_uses IS NULL OR used_count < max_uses)
+            """,
+            (token,),
+        ).fetchone()
+        if inv is None:
+            raise HTTPException(status_code=404, detail="invite not valid")
+
+        guest_name = _unique_guest_name(conn, payload.name)
+        cursor = conn.execute(
+            """
+            INSERT INTO humans (name, is_guest)
+            VALUES (?, TRUE)
+            """,
+            (guest_name,),
+        )
+        human_id = int(cursor.lastrowid)
+        conn.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, human_id, role)
+            VALUES (?, ?, 'member')
+            RETURNING workspace_id
+            """,
+            (inv["workspace_id"], human_id),
+        )
+        conn.execute(
+            """
+            UPDATE workspace_invites
+            SET used_count = used_count + 1
+            WHERE id = ?
+            """,
+            (inv["id"],),
+        )
+
+    session_value = issue_session(human_id)
+    res = JSONResponse(
+        {
+            "workspace_id": int(inv["workspace_id"]),
+            "human": {"id": human_id, "name": guest_name, "is_guest": True},
+        }
+    )
+    res.set_cookie(
+        "lets_session",
+        session_value,
+        httponly=True,
+        secure=os.environ.get("LETS_COOKIE_SECURE", "true").lower() != "false",
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,
+        path="/",
+    )
+    return res
 
 
 @app.get("/api/workspaces/{workspace_id}/topics")
@@ -2406,7 +2476,7 @@ def get_topic_participants(
                 ah.name AS human_name
             FROM messages m
             JOIN agent_instances ai ON ai.id = m.actor_id
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans ah ON ah.id = ai.owner_human_id
             WHERE m.topic_id = ? AND m.actor_type = 'agent'
             ORDER BY ai.id ASC
@@ -2678,6 +2748,7 @@ def auth_me(
             "name": principal["name"],
             "github_login": principal["github_login"],
             "avatar_url": principal["avatar_url"],
+            "is_guest": principal["is_guest"],
         }
     }
 
@@ -3067,7 +3138,7 @@ def device_flow_poll(device_code: str) -> dict:
             SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
                    ai.display_name, ai.owner_human_id
             FROM agent_instances ai
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             WHERE ai.id = ?
             """,
             (row["agent_instance_id"],),
@@ -3187,7 +3258,7 @@ def api_device_flow_poll(device_code: str) -> dict:
             SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
                    ai.display_name, ai.owner_human_id
             FROM agent_instances ai
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             WHERE ai.id = ?
             """,
             (row["agent_instance_id"],),
@@ -3247,7 +3318,7 @@ def list_my_tokens(
                 """
                 SELECT ai.id, ar.name AS role, ai.device_label, ai.model
                 FROM agent_instances ai
-                JOIN agent_roles ar ON ar.id = ai.role_id
+                JOIN agent_types ar ON ar.id = ai.agent_type_id
                 WHERE ai.owner_human_id = ?
                 """,
                 (principal["human_id"],),
@@ -3277,6 +3348,8 @@ def create_my_token(
     principal = verify_session(lets_session)
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
+    if principal.get("is_guest"):
+        raise HTTPException(status_code=403, detail="guest users cannot create agent tokens")
 
     _token_ws_id = payload.workspace_id
     if _token_ws_id is None:
@@ -3304,7 +3377,7 @@ def create_my_token(
             """
             SELECT ai.id, ar.name AS role, ai.device_label, ai.model
             FROM agent_instances ai
-            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
             WHERE ai.id = ?
             """,
             (agent_instance_id,),

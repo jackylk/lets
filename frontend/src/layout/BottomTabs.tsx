@@ -15,7 +15,7 @@ const TABS: Array<{ key: MobileTab; label: string }> = [
 
 export function BottomTabs({ active, onSelect }: Props) {
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 h-14 bg-surface-elev border-t border-border-soft flex">
+    <nav className="md:hidden fixed bottom-0 inset-x-0 h-14 bg-surface-elev/95 border-t border-border-soft flex shadow-[0_-8px_24px_rgba(31,39,37,0.08)]">
       {TABS.map((t) => (
         <button
           key={t.key}
@@ -23,7 +23,7 @@ export function BottomTabs({ active, onSelect }: Props) {
           onClick={() => onSelect(t.key)}
           className={cn(
             "flex-1 flex flex-col items-center justify-center gap-0.5 text-[11px]",
-            active === t.key ? "text-text font-semibold" : "text-text-dim",
+            active === t.key ? "text-accent-text font-semibold" : "text-text-dim",
           )}
         >
           <span>{t.label}</span>

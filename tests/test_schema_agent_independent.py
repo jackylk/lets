@@ -30,8 +30,8 @@ def test_agent_instances_unique_constraint():
     with db.connect() as conn:
         cur = conn.execute("""
             SELECT indexname FROM pg_indexes
-            WHERE tablename = 'agent_instances' AND indexname LIKE '%owner_role_device%'
+            WHERE tablename = 'agent_instances' AND indexname LIKE '%owner_type_device%'
         """)
         names = {r["indexname"] for r in cur.fetchall()}
 
-    assert 'agent_instances_owner_role_device_key' in names
+    assert 'agent_instances_owner_type_device_key' in names

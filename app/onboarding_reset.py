@@ -31,7 +31,7 @@ RESET_TABLES = (
     "humans",
     "agents",
     "work_items",
-    "agent_roles",
+    "agent_types",
 )
 
 
@@ -72,17 +72,17 @@ def reset_once() -> None:
                         sql.SQL(", ").join(sql.Identifier(name) for name in existing)
                     )
                 )
-            if "agent_roles" in existing:
+            if "agent_types" in existing:
                 cur.execute(
                     """
-                    INSERT INTO agent_roles (name, description)
+                    INSERT INTO agent_types (name, description)
                     VALUES ('claude', 'Anthropic Claude Code')
                     ON CONFLICT (name) DO NOTHING
                     """
                 )
                 cur.execute(
                     """
-                    INSERT INTO agent_roles (name, description)
+                    INSERT INTO agent_types (name, description)
                     VALUES ('codex', 'OpenAI Codex CLI')
                     ON CONFLICT (name) DO NOTHING
                     """

@@ -91,15 +91,47 @@ def test_accept_invite_revoked_token_404(temp_db, client):
     assert r.status_code == 404
 
 
-def test_join_token_unauthenticated_redirects_to_login(temp_db, client):
+def test_accept_invite_as_guest_creates_session_and_member(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+    client.post("/api/auth/logout")
+
+    r = client.post(f"/api/invites/{inv['token']}/accept-guest", json={"name": "Bob"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["workspace_id"] == ws["id"]
+    assert body["human"]["name"] == "Bob"
+    assert body["human"]["is_guest"] is True
+    assert "lets_session" in r.cookies
+
+    me = client.get("/auth/me", cookies={"lets_session": r.cookies["lets_session"]})
+    assert me.status_code == 200
+    assert me.json()["human"]["is_guest"] is True
+
+    mine = client.get("/api/workspaces", cookies={"lets_session": r.cookies["lets_session"]})
+    assert ws["id"] in [w["id"] for w in mine.json()]
+
+
+def test_accept_invite_as_guest_disambiguates_existing_name(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+    client.post("/api/auth/logout")
+
+    first = client.post(f"/api/invites/{inv['token']}/accept-guest", json={"name": "Sam"})
+    second = client.post(f"/api/invites/{inv['token']}/accept-guest", json={"name": "Sam"})
+    assert first.json()["human"]["name"] == "Sam"
+    assert second.json()["human"]["name"] == "Sam (2)"
+
+
+def test_join_token_unauthenticated_returns_spa(temp_db, client):
     _login(client, "alice")
     ws = client.post("/api/workspaces", json={"name": "A"}).json()
     inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
     client.post("/api/auth/logout")
     r = client.get(f"/join/{inv['token']}", follow_redirects=False)
-    assert r.status_code in (302, 303, 307)
-    assert "/login" in r.headers["location"]
-    assert f"/join/{inv['token']}" in r.headers["location"]
+    assert r.status_code in (200, 307)
 
 
 def test_join_token_authenticated_returns_spa(temp_db, client):

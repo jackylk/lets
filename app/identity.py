@@ -45,25 +45,25 @@ def ensure_agent_instance(
     workspace_id: int | None = None,
     model: str | None = None,
 ) -> int:
-    """Return agent_instances.id. Create if missing. Idempotent. Raises ValueError if role unknown.
+    """Return agent_instances.id. Create if missing. Idempotent. Raises ValueError if type unknown.
 
     If workspace_id is provided, the owned agent is also added to that
-    workspace. Agent identity is keyed on (owner human, role, device).
+    workspace. Agent identity is keyed on (owner human, agent type, device).
     """
     with connect() as conn:
         role_row = conn.execute(
-            "SELECT id FROM agent_roles WHERE name = ?", (role,)
+            "SELECT id FROM agent_types WHERE name = ?", (role,)
         ).fetchone()
         if not role_row:
-            raise ValueError(f"unknown agent role: {role}")
-        role_id = int(role_row["id"])
+            raise ValueError(f"unknown agent type: {role}")
+        agent_type_id = int(role_row["id"])
 
         existing = conn.execute(
             """
             SELECT id FROM agent_instances
-            WHERE role_id = ? AND owner_human_id = ? AND device_label = ?
+            WHERE agent_type_id = ? AND owner_human_id = ? AND device_label = ?
             """,
-            (role_id, human_id, device_label),
+            (agent_type_id, human_id, device_label),
         ).fetchone()
         if existing:
             if model is not None:
@@ -84,10 +84,10 @@ def ensure_agent_instance(
         cursor = conn.execute(
             """
             INSERT INTO agent_instances
-                (role_id, owner_human_id, device_label, model, display_name)
+                (agent_type_id, owner_human_id, device_label, model, display_name)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (role_id, human_id, device_label, model, display_name),
+            (agent_type_id, human_id, device_label, model, display_name),
         )
         agent_id = int(cursor.lastrowid)
         if workspace_id is not None:

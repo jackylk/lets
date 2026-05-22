@@ -39,11 +39,7 @@ export default function App() {
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
   if (path.startsWith("/join/")) {
     const token = path.slice("/join/".length);
-    return (
-      <SessionGate fallback={<LoginPage />}>
-        <JoinTokenPage token={token} />
-      </SessionGate>
-    );
+    return <JoinTokenPage token={token} />;
   }
   return (
     <SessionGate fallback={<LoginPage />}>

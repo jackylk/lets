@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import type { MessageDTO } from "../api/types";
+import type { MessageDTO, WorkspaceMember } from "../api/types";
+import { agentDisplayName } from "../agent/display";
 import { parseBackendTs } from "../lib/time";
 
 interface Props {
   messages: MessageDTO[];
+  workspaceMembers?: WorkspaceMember[];
   /** Optional: handle clicking "↓ N 条未读" — defaults to scrolling to first unread. */
   onJumpToUnread?: () => void;
 }
@@ -40,11 +42,11 @@ function debounceWindowFor(msg: MessageDTO): number {
 /**
  * Strip between TopicHeader and the chat stream. Surfaces what state the
  * agent is in:
- *   • idle — "CC 在听 · 读到 40s 前 · 上次发言 7m 前"
- *   • thinking — "CC 思考中 · 已 12s" (pulsing dot, brick-red accent)
- *   • impending — "CC 即将介入 (X 秒后)" (briefly, after user sends + before agent posts status)
+ *   • idle — "Codex - Jacky Li 在听 · 读到 40s 前 · 上次发言 7m 前"
+ *   • thinking — "Codex - Jacky Li 思考中 · 已 12s" (pulsing dot, brick-red accent)
+ *   • impending — "Codex - Jacky Li 即将介入 (X 秒后)" (briefly, after user sends + before agent posts status)
  */
-export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
+export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnread }: Props) {
   // Force a re-render every second so relative-time labels stay live in
   // the thinking/impending phases.
   const [, force] = useState(0);
@@ -58,6 +60,7 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
     let lastReadAt: string | null = null;
     let lastAgentReplyAt: string | null = null;
     let lastAgentActivityAt: string | null = null;  // any agent post
+    let lastAgentActivityId: number | null = null;
     let lastHumanMsg: MessageDTO | null = null;
     let pendingStatus: MessageDTO | null = null;
     let lastFailure: MessageDTO | null = null;
@@ -68,6 +71,7 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
       } else if (m.actor_type === "agent") {
         if (!lastAgentActivityAt || m.created_at > lastAgentActivityAt) {
           lastAgentActivityAt = m.created_at;
+          lastAgentActivityId = m.actor_id;
         }
         if (m.type === "chat") {
           if (!lastAgentReplyAt || m.created_at > lastAgentReplyAt) {
@@ -155,11 +159,22 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
       phase = "impending";
     }
 
+    const statusAgentId =
+      pendingStatus?.actor_id ??
+      lastFailure?.actor_id ??
+      lastAgentActivityId ??
+      workspaceMembers.find((m) => m.kind === "agent" && !m.deleted_at)?.id ??
+      null;
+    const statusAgent = workspaceMembers.find(
+      (m) => m.kind === "agent" && m.id === statusAgentId,
+    );
+
     return {
-      lastReadAt, lastAgentReplyAt, unreadCount, agentLabel: "CC",
+      lastReadAt, lastAgentReplyAt, unreadCount,
+      agentLabel: statusAgent?.kind === "agent" ? agentDisplayName(statusAgent) : "agent",
       phase, pendingStatus, lastHumanMsg, lastFailure,
     };
-  }, [messages]);
+  }, [messages, workspaceMembers]);
 
   // No data yet → don't show anything (avoids noisy header on a brand-new topic).
   if (
@@ -189,9 +204,8 @@ export function AgentListenStatus({ messages, onJumpToUnread }: Props) {
     "text-text-muted";
 
   // Sits below the Composer — no rectangular frame, no border, transparent
-  // background. The pulsing dot is the visual anchor. Reads "● CC 思考中 ·
-  // 已 12s" inline, footnote-style, so it stays in peripheral view while
-  // the user types.
+  // background. The pulsing dot is the visual anchor. The label stays inline,
+  // footnote-style, so it remains in peripheral view while the user types.
   return (
     <div
       data-testid="agent-listen-status"

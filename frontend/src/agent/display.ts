@@ -17,6 +17,9 @@ const MATRIX_NAMES = [
 
 type AgentLike = Pick<AgentInstanceRowDTO, "agent_instance_id" | "display_name" | "role">;
 type WorkspaceAgentLike = Pick<WorkspaceMemberAgent, "id" | "display_name" | "role">;
+type AgentWithOwner =
+  | (AgentLike & Pick<AgentInstanceRowDTO, "human_name">)
+  | (WorkspaceAgentLike & Pick<WorkspaceMemberAgent, "owner_name">);
 
 export function fallbackAgentName(id: number) {
   const base = MATRIX_NAMES[Math.abs(id - 1) % MATRIX_NAMES.length];
@@ -24,9 +27,26 @@ export function fallbackAgentName(id: number) {
   return cycle === 0 ? base : `${base} ${cycle + 1}`;
 }
 
+function isGeneratedMatrixName(name: string) {
+  return MATRIX_NAMES.some((base) => name === base || name.startsWith(`${base} `));
+}
+
+function roleTitle(role: string) {
+  if (role === "codex") return "Codex";
+  if (role === "claude") return "Claude Code";
+  return role;
+}
+
 export function agentShortName(agent: AgentLike | WorkspaceAgentLike) {
   const id = "agent_instance_id" in agent ? agent.agent_instance_id : agent.id;
   return agent.display_name || fallbackAgentName(id) || `${agent.role}-${id}`;
+}
+
+export function agentDisplayName(agent: AgentWithOwner) {
+  const ownerName = "owner_name" in agent ? agent.owner_name : agent.human_name;
+  const displayName = agent.display_name?.trim();
+  if (displayName && !isGeneratedMatrixName(displayName)) return displayName;
+  return `${roleTitle(agent.role)} - ${ownerName}`;
 }
 
 export function agentStatusLabel(agent: Pick<AgentInstanceRowDTO, "deleted_at" | "paused_at" | "is_online">) {
