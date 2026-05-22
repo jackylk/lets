@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Let's Architecture</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f6f2;
+      --paper: #ffffff;
+      --ink: #18202a;
+      --muted: #66717f;
+      --line: #d8dde3;
+      --line-strong: #aeb7c2;
+      --blue: #2563eb;
+      --green: #16865a;
+      --amber: #b46500;
+      --red: #c13b3a;
+      --violet: #6d4fd8;
+      --code: #f1f4f8;
+      --shadow: 0 16px 45px rgba(26, 32, 44, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 36px 24px 64px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 32px;
+      align-items: end;
+      padding: 22px 0 34px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 14px;
+      font-size: clamp(34px, 5vw, 64px);
+      line-height: 1.04;
+      letter-spacing: 0;
+      font-weight: 720;
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: 28px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 18px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .lede {
+      max-width: 760px;
+      margin-bottom: 0;
+      font-size: 19px;
+      color: var(--muted);
+    }
+
+    .meta {
+      display: grid;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .meta strong {
+      display: block;
+      color: var(--ink);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 18px 0 8px;
+    }
+
+    nav a,
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.68);
+      color: var(--ink);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    section {
+      padding: 42px 0 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 18px;
+    }
+
+    .span-4 {
+      grid-column: span 4;
+    }
+
+    .span-6 {
+      grid-column: span 6;
+    }
+
+    .span-8 {
+      grid-column: span 8;
+    }
+
+    .span-12 {
+      grid-column: span 12;
+    }
+
+    .card {
+      height: 100%;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .card p,
+    .card li {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .card p:last-child,
+    .card ul:last-child,
+    .card ol:last-child {
+      margin-bottom: 0;
+    }
+
+    .diagram {
+      padding: 18px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .diagram svg {
+      display: block;
+      min-width: 920px;
+      width: 100%;
+      height: auto;
+    }
+
+    .diagram-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    .dot.green {
+      background: var(--green);
+    }
+
+    .dot.amber {
+      background: var(--amber);
+    }
+
+    .dot.violet {
+      background: var(--violet);
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: var(--code);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f4f6f8;
+      color: #303944;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td {
+      color: var(--muted);
+    }
+
+    td:first-child {
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .callout {
+      padding: 16px 18px;
+      border-left: 4px solid var(--blue);
+      border-radius: 8px;
+      background: #eef5ff;
+      color: #24364d;
+    }
+
+    .callout strong {
+      color: #10233d;
+    }
+
+    footer {
+      margin-top: 50px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      header {
+        grid-template-columns: 1fr;
+      }
+
+      .span-4,
+      .span-6,
+      .span-8 {
+        grid-column: span 12;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        padding: 22px 14px 48px;
+      }
+
+      .card,
+      .diagram {
+        padding: 14px;
+      }
+
+      .lede {
+        font-size: 17px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <div>
+        <h1>Let's 架构文档</h1>
+        <p class="lede">Let's 是一个面向人类与本地 coding agent 的协作工作区。浏览器负责人类控制台，FastAPI 负责共享状态和权限，Postgres 保存协作事实，本地 gateway/MCP 把 Claude Code、Codex 等 agent 接入同一个 topic/message 流。</p>
+      </div>
+      <div class="meta" aria-label="document metadata">
+        <div><strong>代码基准</strong>当前仓库实现，2026-05-22</div>
+        <div><strong>主要入口</strong><code>app/main.py</code> · <code>frontend/src/App.tsx</code> · <code>app/gateway.py</code></div>
+        <div><strong>部署形态</strong>本地 uvicorn / Docker / Railway + Postgres</div>
+      </div>
+    </header>
+
+    <nav aria-label="目录">
+      <a href="#overview">总览</a>
+      <a href="#runtime">运行时架构图</a>
+      <a href="#domain">领域模型</a>
+      <a href="#flows">关键流程</a>
+      <a href="#storage">数据与状态</a>
+      <a href="#security">认证与权限</a>
+      <a href="#deployment">部署</a>
+    </nav>
+
+    <section id="overview">
+      <div class="grid">
+        <div class="span-8">
+          <h2>系统定位</h2>
+          <div class="card">
+            <p>Let's 不是代码仓库，也不是 agent 记忆库。它是项目协作状态层：把 workspace、topic、message、artifact、task tree、decision、attention、agent presence 等事实统一写进数据库，再通过 Web UI、REST API、SSE 和 MCP 暴露给人和 agent。</p>
+            <p>当前实现里，“blackboard”不是 gateway 里的本地缓存，而是后端数据库里的 typed messages、events、metadata 和派生面板。gateway 只负责把本地 agent CLI 和远端协作流连接起来。</p>
+          </div>
+        </div>
+        <div class="span-4">
+          <h2>核心原则</h2>
+          <div class="card">
+            <ul>
+              <li>人类用浏览器组织 workspace、topic、成员、agent 和 token。</li>
+              <li>agent 通过 MCP 或 gateway 读取 topic，并把结果写回 typed message。</li>
+              <li>协作事实优先进入 Postgres，文件类 artifact 只保存元数据和版本指针。</li>
+              <li>Git/GitHub 仍是代码真相源；Let's 只补足目标、讨论、证据和交接上下文。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="runtime">
+      <div class="diagram">
+        <div class="diagram-title">
+          <strong>运行时架构图</strong>
+          <span>浏览器、后端、数据库、本地 agent 与外部服务的关系</span>
+        </div>
+        <svg viewBox="0 0 1180 690" role="img" aria-labelledby="runtime-title runtime-desc">
+          <title id="runtime-title">Let's runtime architecture</title>
+          <desc id="runtime-desc">Browser SPA and local agent gateways communicate with FastAPI, which stores state in Postgres and serves MCP.</desc>
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#617083"></path>
+            </marker>
+            <style>
+              .box { fill: #fff; stroke: #cfd6de; stroke-width: 1.5; rx: 8; }
+              .boxBlue { fill: #eff6ff; stroke: #8ab4f8; }
+              .boxGreen { fill: #edf9f2; stroke: #8bcfa9; }
+              .boxAmber { fill: #fff6e8; stroke: #e0b169; }
+              .boxViolet { fill: #f5f1ff; stroke: #b6a3ea; }
+              .label { font: 700 17px ui-sans-serif, system-ui; fill: #1e2937; }
+              .small { font: 13px ui-sans-serif, system-ui; fill: #617083; }
+              .tiny { font: 12px ui-sans-serif, system-ui; fill: #6f7b8a; }
+              .line { stroke: #617083; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+              .lineSoft { stroke: #9aa5b1; stroke-width: 1.5; fill: none; marker-end: url(#arrow); stroke-dasharray: 5 5; }
+              .group { fill: transparent; stroke: #d8dde3; stroke-width: 1.2; stroke-dasharray: 7 7; rx: 12; }
+            </style>
+          </defs>
+
+          <rect x="35" y="42" width="255" height="156" class="box boxBlue"></rect>
+          <text x="62" y="78" class="label">Browser SPA</text>
+          <text x="62" y="106" class="small">Vite + React + Query</text>
+          <text x="62" y="132" class="tiny">/app · workspace · topic stream</text>
+          <text x="62" y="154" class="tiny">context panes · settings · invites</text>
+          <text x="62" y="176" class="tiny">SSE: /api/topics/:id/stream</text>
+
+          <rect x="35" y="260" width="255" height="132" class="box boxAmber"></rect>
+          <text x="62" y="296" class="label">Local Gateway</text>
+          <text x="62" y="324" class="small">python -m app.gateway</text>
+          <text x="62" y="350" class="tiny">poll topics, spawn local CLI</text>
+          <text x="62" y="372" class="tiny">Claude Code / Codex adapter</text>
+
+          <rect x="35" y="454" width="255" height="120" class="box"></rect>
+          <text x="62" y="490" class="label">Direct MCP Clients</text>
+          <text x="62" y="518" class="small">Claude / Codex MCP config</text>
+          <text x="62" y="544" class="tiny">POST /mcp/ streamable HTTP</text>
+
+          <rect x="390" y="68" width="370" height="470" class="group"></rect>
+          <rect x="420" y="98" width="310" height="110" class="box boxGreen"></rect>
+          <text x="452" y="134" class="label">FastAPI App</text>
+          <text x="452" y="162" class="small">app/main.py</text>
+          <text x="452" y="188" class="tiny">REST APIs · auth · SSE · static SPA</text>
+
+          <rect x="420" y="246" width="310" height="112" class="box boxViolet"></rect>
+          <text x="452" y="282" class="label">FastMCP Server</text>
+          <text x="452" y="310" class="small">app/mcp_server.py mounted at /mcp</text>
+          <text x="452" y="336" class="tiny">whoami · read_topic · post_typed_message</text>
+
+          <rect x="420" y="396" width="310" height="110" class="box"></rect>
+          <text x="452" y="432" class="label">Domain Modules</text>
+          <text x="452" y="460" class="small">messages · workspaces · artifacts</text>
+          <text x="452" y="486" class="tiny">attention · drift · task_trees · identity</text>
+
+          <rect x="855" y="80" width="270" height="158" class="box boxGreen"></rect>
+          <text x="884" y="116" class="label">Postgres</text>
+          <text x="884" y="144" class="small">app/db.py adapter</text>
+          <text x="884" y="170" class="tiny">messages · events · topics</text>
+          <text x="884" y="192" class="tiny">workspaces · agents · tokens</text>
+          <text x="884" y="214" class="tiny">artifacts · task trees · sessions</text>
+
+          <rect x="855" y="302" width="270" height="126" class="box"></rect>
+          <text x="884" y="338" class="label">Artifact Git Repo</text>
+          <text x="884" y="366" class="small">LETS_GIT_REPO</text>
+          <text x="884" y="392" class="tiny">file content, versions, diffs</text>
+
+          <rect x="855" y="492" width="270" height="112" class="box"></rect>
+          <text x="884" y="528" class="label">External Services</text>
+          <text x="884" y="556" class="small">GitHub OAuth / Railway</text>
+          <text x="884" y="582" class="tiny">login, hosting, managed database</text>
+
+          <path d="M290 112 C332 112 356 128 418 140" class="line"></path>
+          <text x="308" y="98" class="tiny">REST + cookie</text>
+          <path d="M420 174 C360 192 330 198 290 186" class="lineSoft"></path>
+          <text x="310" y="222" class="tiny">SSE updates</text>
+
+          <path d="M290 324 C350 324 365 304 418 304" class="line"></path>
+          <text x="304" y="304" class="tiny">MCP calls + bearer token</text>
+          <path d="M290 514 C345 514 364 352 418 324" class="line"></path>
+
+          <path d="M730 152 C780 152 812 154 852 158" class="line"></path>
+          <text x="758" y="134" class="tiny">SQL</text>
+          <path d="M730 450 C805 430 808 376 852 370" class="line"></path>
+          <path d="M730 304 C790 278 812 206 852 186" class="line"></path>
+          <path d="M730 126 C812 92 820 534 852 548" class="lineSoft"></path>
+
+          <path d="M162 392 L162 454" class="lineSoft"></path>
+          <text x="180" y="428" class="tiny">optional direct mode</text>
+        </svg>
+        <div class="legend">
+          <span><i class="dot"></i>人类 UI</span>
+          <span><i class="dot amber"></i>本地 agent 边缘进程</span>
+          <span><i class="dot green"></i>服务端与数据库</span>
+          <span><i class="dot violet"></i>MCP 协议面</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="domain">
+      <h2>领域模型</h2>
+      <div class="grid">
+        <div class="span-4">
+          <div class="card">
+            <h3>Workspace</h3>
+            <p>协作边界。成员、agent membership、invite、topic 都挂在 workspace 下。它替代早期 project 概念，但代码里仍保留部分 project 命名兼容层。</p>
+          </div>
+        </div>
+        <div class="span-4">
+          <div class="card">
+            <h3>Topic</h3>
+            <p>讨论线程与任务上下文的容器。浏览器在 topic 内显示消息流、右侧上下文面板、目标进度、图表资料和参与者。</p>
+          </div>
+        </div>
+        <div class="span-4">
+          <div class="card">
+            <h3>Typed Message</h3>
+            <p>当前最核心的协作事实。类型包括 chat、status、finding、decision、question、artifact_revision、task_tree_proposal、annotation 等。</p>
+          </div>
+        </div>
+        <div class="span-4">
+          <div class="card">
+            <h3>Agent Instance</h3>
+            <p>一个具体本地 agent 身份，由 role、owner human、device label、model、display name 和 membership 组成。token 可绑定到 agent instance。</p>
+          </div>
+        </div>
+        <div class="span-4">
+          <div class="card">
+            <h3>Artifact</h3>
+            <p>协作产物，如文档、PPT、代码片段或分析。数据库保存 artifact 元数据和版本链，内容可由 git backend 管理。</p>
+          </div>
+        </div>
+        <div class="span-4">
+          <div class="card">
+            <h3>Task Tree / Attention</h3>
+            <p>task tree 把目标拆成可跟踪工作项；attention 和 drift nudge 把需要人处理的问题、偏离和待决策项推到 UI。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="diagram" style="margin-top: 18px;">
+        <div class="diagram-title">
+          <strong>数据关系图</strong>
+          <span>省略部分 legacy 表，仅展示当前产品主路径</span>
+        </div>
+        <svg viewBox="0 0 1180 520" role="img" aria-labelledby="data-title data-desc">
+          <title id="data-title">Let's data model</title>
+          <desc id="data-desc">Workspaces contain members, agent memberships and topics. Topics contain messages, artifacts, task trees and events.</desc>
+          <defs>
+            <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#617083"></path>
+            </marker>
+            <style>
+              .entity { fill: #fff; stroke: #cfd6de; stroke-width: 1.5; rx: 8; }
+              .primary { fill: #eff6ff; stroke: #8ab4f8; }
+              .state { fill: #edf9f2; stroke: #8bcfa9; }
+              .edge { stroke: #617083; stroke-width: 1.6; fill: none; marker-end: url(#arrow2); }
+              .edgeSoft { stroke: #9aa5b1; stroke-width: 1.3; fill: none; marker-end: url(#arrow2); stroke-dasharray: 5 5; }
+              .name { font: 700 16px ui-sans-serif, system-ui; fill: #1e2937; }
+              .field { font: 12px ui-sans-serif, system-ui; fill: #6f7b8a; }
+            </style>
+          </defs>
+
+          <rect x="52" y="62" width="188" height="92" class="entity primary"></rect>
+          <text x="78" y="96" class="name">humans</text>
+          <text x="78" y="124" class="field">name, email, github login</text>
+
+          <rect x="52" y="218" width="188" height="92" class="entity primary"></rect>
+          <text x="78" y="252" class="name">workspaces</text>
+          <text x="78" y="280" class="field">slug, name, owner_human_id</text>
+
+          <rect x="318" y="62" width="212" height="92" class="entity"></rect>
+          <text x="344" y="96" class="name">workspace_members</text>
+          <text x="344" y="124" class="field">workspace_id, human_id, role</text>
+
+          <rect x="318" y="218" width="212" height="92" class="entity"></rect>
+          <text x="344" y="252" class="name">workspace_invites</text>
+          <text x="344" y="280" class="field">token, expires_at, accepted_at</text>
+
+          <rect x="318" y="374" width="212" height="92" class="entity"></rect>
+          <text x="344" y="408" class="name">agent_instances</text>
+          <text x="344" y="436" class="field">role, owner, device, model</text>
+
+          <rect x="610" y="62" width="212" height="92" class="entity"></rect>
+          <text x="636" y="96" class="name">workspace_agent_members</text>
+          <text x="636" y="124" class="field">workspace_id, agent_instance_id</text>
+
+          <rect x="610" y="218" width="212" height="92" class="entity primary"></rect>
+          <text x="636" y="252" class="name">topics</text>
+          <text x="636" y="280" class="field">workspace_id, slug, title, mode</text>
+
+          <rect x="900" y="32" width="212" height="92" class="entity state"></rect>
+          <text x="926" y="66" class="name">messages</text>
+          <text x="926" y="94" class="field">type, actor, body, metadata</text>
+
+          <rect x="900" y="154" width="212" height="92" class="entity state"></rect>
+          <text x="926" y="188" class="name">events</text>
+          <text x="926" y="216" class="field">event_type, target, payload</text>
+
+          <rect x="900" y="276" width="212" height="92" class="entity state"></rect>
+          <text x="926" y="310" class="name">artifacts</text>
+          <text x="926" y="338" class="field">type, backend, current_version</text>
+
+          <rect x="900" y="398" width="212" height="92" class="entity state"></rect>
+          <text x="926" y="432" class="name">task_trees/items</text>
+          <text x="926" y="460" class="field">goal, items, status, owner</text>
+
+          <path d="M240 108 L318 108" class="edge"></path>
+          <path d="M146 154 L146 218" class="edge"></path>
+          <path d="M240 264 L318 264" class="edge"></path>
+          <path d="M240 264 C278 352 292 420 318 420" class="edgeSoft"></path>
+          <path d="M530 420 C576 350 582 134 610 108" class="edge"></path>
+          <path d="M240 264 C380 196 502 248 610 264" class="edge"></path>
+          <path d="M822 264 C858 216 858 84 900 78" class="edge"></path>
+          <path d="M822 264 C870 252 872 202 900 200" class="edge"></path>
+          <path d="M822 264 C866 270 874 316 900 322" class="edge"></path>
+          <path d="M822 264 C864 306 874 424 900 444" class="edge"></path>
+        </svg>
+      </div>
+    </section>
+
+    <section id="flows">
+      <h2>关键流程</h2>
+      <div class="grid">
+        <div class="span-6">
+          <div class="card">
+            <h3>人类浏览器流程</h3>
+            <ol>
+              <li>用户通过 GitHub OAuth 或 dev login 获得 <code>lets_session</code> cookie。</li>
+              <li>SPA 调用 <code>/auth/me</code>、<code>/api/workspaces</code>、<code>/api/workspaces/:id/topics</code> 建立左侧导航。</li>
+              <li>进入 topic 后，先拉 <code>/api/topics/:id/messages</code>，再订阅 <code>/api/topics/:id/stream</code>。</li>
+              <li>用户发送消息时，前端解析 mention，写入 <code>addressed_to</code>，再 POST 到 <code>/api/messages</code>。</li>
+              <li>右侧 context pane 从 typed messages 中派生共识、候选方案、问题、反方观点、延展想法和资料。</li>
+            </ol>
+          </div>
+        </div>
+        <div class="span-6">
+          <div class="card">
+            <h3>本地 agent 流程</h3>
+            <ol>
+              <li>gateway 启动 device flow，请用户在浏览器确认本地设备和 role。</li>
+              <li>后端创建 agent instance，签发一次性可见的 <code>lets_...</code> token。</li>
+              <li>gateway 用 token 调用 MCP <code>whoami</code>、<code>list_my_topics</code>、<code>read_topic</code>。</li>
+              <li>当消息 <code>addressed_to</code> 命中该 agent，gateway 启动本地 CLI 并构造上下文 prompt。</li>
+              <li>agent 输出通过 <code>post_typed_message</code> 写回 topic，浏览器通过 SSE 看到更新。</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <div class="diagram" style="margin-top: 18px;">
+        <div class="diagram-title">
+          <strong>消息触发流程图</strong>
+          <span>从人类 @agent 到 agent 回写结果</span>
+        </div>
+        <svg viewBox="0 0 1180 360" role="img" aria-labelledby="flow-title flow-desc">
+          <title id="flow-title">Agent message flow</title>
+          <desc id="flow-desc">A browser post addressed to an agent is persisted, streamed, picked up by gateway, processed by local CLI, and posted back.</desc>
+          <defs>
+            <marker id="arrow3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#617083"></path>
+            </marker>
+            <style>
+              .step { fill: #fff; stroke: #cfd6de; stroke-width: 1.5; rx: 8; }
+              .stepBlue { fill: #eff6ff; stroke: #8ab4f8; }
+              .stepAmber { fill: #fff6e8; stroke: #e0b169; }
+              .stepGreen { fill: #edf9f2; stroke: #8bcfa9; }
+              .arrow { stroke: #617083; stroke-width: 1.7; fill: none; marker-end: url(#arrow3); }
+              .t1 { font: 700 15px ui-sans-serif, system-ui; fill: #1e2937; }
+              .t2 { font: 12px ui-sans-serif, system-ui; fill: #6f7b8a; }
+            </style>
+          </defs>
+
+          <rect x="36" y="94" width="160" height="94" class="step stepBlue"></rect>
+          <text x="64" y="128" class="t1">1. 人类发送</text>
+          <text x="64" y="156" class="t2">@cc / @cx mention</text>
+
+          <rect x="250" y="94" width="176" height="94" class="step stepGreen"></rect>
+          <text x="278" y="128" class="t1">2. API 入库</text>
+          <text x="278" y="156" class="t2">POST /api/messages</text>
+
+          <rect x="480" y="94" width="176" height="94" class="step stepGreen"></rect>
+          <text x="508" y="128" class="t1">3. SSE 广播</text>
+          <text x="508" y="156" class="t2">topic stream 更新</text>
+
+          <rect x="710" y="94" width="176" height="94" class="step stepAmber"></rect>
+          <text x="738" y="128" class="t1">4. Gateway 拉取</text>
+          <text x="738" y="156" class="t2">read_topic after_id</text>
+
+          <rect x="940" y="94" width="190" height="94" class="step stepAmber"></rect>
+          <text x="968" y="128" class="t1">5. 本地 CLI</text>
+          <text x="968" y="156" class="t2">claude / codex exec</text>
+
+          <rect x="480" y="248" width="176" height="76" class="step stepGreen"></rect>
+          <text x="508" y="280" class="t1">6. 回写结果</text>
+          <text x="508" y="304" class="t2">post_typed_message</text>
+
+          <path d="M196 141 L248 141" class="arrow"></path>
+          <path d="M426 141 L478 141" class="arrow"></path>
+          <path d="M656 141 L708 141" class="arrow"></path>
+          <path d="M886 141 L938 141" class="arrow"></path>
+          <path d="M1035 188 C1010 282 740 286 658 286" class="arrow"></path>
+          <path d="M480 286 C322 286 286 188 338 188" class="arrow"></path>
+        </svg>
+      </div>
+    </section>
+
+    <section id="storage">
+      <h2>数据与状态边界</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>层</th>
+              <th>职责</th>
+              <th>主要代码 / 表</th>
+              <th>注意点</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Postgres adapter</td>
+              <td>统一连接、事务、SQLite 兼容 SQL 翻译和 schema 初始化。</td>
+              <td><code>app/db.py</code>, <code>connect()</code>, <code>init_db()</code></td>
+              <td>很多业务代码仍按 sqlite row / <code>?</code> placeholder 写法运行，adapter 负责转译。</td>
+            </tr>
+            <tr>
+              <td>Conversation state</td>
+              <td>保存 topic 内的 typed message，是 UI 和 agent 共享上下文的主干。</td>
+              <td><code>topics</code>, <code>messages</code>, <code>/api/messages</code>, <code>read_topic</code></td>
+              <td>metadata 承载结构化提案、图表、评分、addressing 等扩展信息。</td>
+            </tr>
+            <tr>
+              <td>Coordination state</td>
+              <td>记录成员、agent、presence、token、invite 和工作区权限。</td>
+              <td><code>workspaces</code>, <code>workspace_members</code>, <code>agent_instances</code>, <code>tokens</code></td>
+              <td>agent instance 是独立成员，可加入 workspace，也可暂停或删除。</td>
+            </tr>
+            <tr>
+              <td>Artifact state</td>
+              <td>保存协作产物的元数据、当前版本和版本链。</td>
+              <td><code>artifacts</code>, <code>artifact_versions</code>, <code>app/artifacts</code></td>
+              <td>内容由 backend adapter 管，当前主要是 <code>LETS_GIT_REPO</code> 指向的 git repo。</td>
+            </tr>
+            <tr>
+              <td>Derived state</td>
+              <td>从消息和事件中生成 UI 面板、attention 队列、drift nudge 和目标进度。</td>
+              <td><code>attention.py</code>, <code>drift.py</code>, <code>task_trees.py</code></td>
+              <td>这些不是新的真相源，主要用于降低人类扫读成本。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="security">
+      <h2>认证与权限</h2>
+      <div class="grid">
+        <div class="span-6">
+          <div class="card">
+            <h3>浏览器会话</h3>
+            <p>用户通过 GitHub OAuth 或本地 dev login 获得 <code>lets_session</code> cookie。REST API 的 <code>get_api_principal</code> 同时支持浏览器 session 和 Bearer token，因此 SPA 与 agent 可以复用部分 API。</p>
+          </div>
+        </div>
+        <div class="span-6">
+          <div class="card">
+            <h3>Agent Bearer token</h3>
+            <p>agent token 前缀为 <code>lets_</code>，服务端只保存 SHA-256 hash。<code>/mcp/</code> 由严格 Bearer middleware 保护，并把 principal 写入 contextvar，MCP tool 由此知道调用者是谁。</p>
+          </div>
+        </div>
+        <div class="span-6">
+          <div class="card">
+            <h3>Membership 检查</h3>
+            <p>topic 访问会检查 human 是否在 workspace member 中，或 agent 是否在 <code>workspace_agent_members</code> 中且未暂停、未删除。邀请 token 用于加入 workspace。</p>
+          </div>
+        </div>
+        <div class="span-6">
+          <div class="card">
+            <h3>设备授权</h3>
+            <p>gateway 使用 device-flow 风格授权：终端发起、浏览器确认、后端创建 agent instance 并签发 token，gateway 轮询后只消费一次明文 token。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="deployment">
+      <h2>部署与运行</h2>
+      <div class="grid">
+        <div class="span-4">
+          <div class="card">
+            <h3>本地开发</h3>
+            <p>后端入口是 <code>uvicorn app.main:app --reload</code>。默认数据库 URL 是 <code>postgresql://jacky@localhost:5432/lets_dev</code>，也可用 <code>DATABASE_URL</code> 或 <code>LETS_DATABASE_URL</code> 覆盖。</p>
+          </div>
+        </div>
+        <div class="span-4">
+          <div class="card">
+            <h3>前端构建</h3>
+            <p>前端在 <code>frontend/</code>，构建产物默认从 <code>frontend/dist</code> 挂到 <code>/app</code>。如果没有构建产物，后端测试仍可运行。</p>
+          </div>
+        </div>
+        <div class="span-4">
+          <div class="card">
+            <h3>Railway / Docker</h3>
+            <p>容器启动会执行 <code>init_db()</code> 并挂载 MCP session manager。Railway 侧使用托管 Postgres，运行时需要配置 <code>DATABASE_URL</code> 和可选的 GitHub OAuth env。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout" style="margin-top: 18px;">
+        <strong>当前架构判断：</strong>真正需要被多用户、多 gateway 共享的状态应进入 Web 后端和 Postgres；gateway-local 状态只适合保存轮询游标、进程锁、CLI 调用和短期运行信息。
+      </div>
+    </section>
+
+    <footer>
+      相关文档：<a href="./architecture.md">architecture.md</a> · <a href="./core-schema.md">core-schema.md</a> · <a href="./artifact-sync-strategy.md">artifact-sync-strategy.md</a> · <a href="./superpowers/plans/STATUS.md">superpowers/plans/STATUS.md</a>
+    </footer>
+  </div>
+</body>
+</html>
