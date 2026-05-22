@@ -210,7 +210,7 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
     <div
       data-testid="agent-listen-status"
       data-phase={summary.phase}
-      className="px-6 pb-2 pt-0.5 text-[11px] italic text-text-dim flex items-center gap-1.5 select-none"
+      className="px-3 md:px-6 pb-2 pt-0.5 text-[11px] italic text-text-dim flex items-center gap-1.5 select-none"
     >
       <span aria-hidden className={`w-[6px] h-[6px] rounded-full ${dotClass}`} />
       {summary.phase === "thinking" && summary.pendingStatus ? (

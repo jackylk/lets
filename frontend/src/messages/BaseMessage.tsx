@@ -76,7 +76,7 @@ export function BaseMessage({ msgId, actor, timeIso, body, tag, tone = "default"
       data-msg-id={msgId}
       data-unread={isUnread || undefined}
       className={cn(
-        "grid grid-cols-[28px_1fr] gap-3 py-3 transition-colors rounded",
+        "grid grid-cols-[24px_1fr] md:grid-cols-[28px_1fr] gap-2 md:gap-3 py-3 transition-colors rounded",
         isCited && "bg-accent-soft/60 shadow-[inset_2px_0_0_var(--color-accent)] px-1 -mx-1",
         isUnread && "border-l-2 border-dashed border-border pl-2 -ml-2",
       )}
@@ -97,7 +97,7 @@ export function BaseMessage({ msgId, actor, timeIso, body, tag, tone = "default"
             </span>
           )}
         </div>
-        <div className={cn("text-[14.5px] leading-[1.72] py-1 px-3 rounded mt-px", toneClasses[tone])}>
+        <div className={cn("text-[14.5px] leading-[1.72] py-1 px-2 md:px-3 rounded mt-px overflow-x-auto", toneClasses[tone])}>
           {body}
         </div>
       </div>
