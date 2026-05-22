@@ -11,7 +11,6 @@ interface AppShellProps {
 
 const COLLAPSED_KEY = "lets:sidebar-collapsed";
 const CONTEXT_W_KEY = "lets:context-w";
-const CONTEXT_OPEN_KEY = "lets:context-open";
 const SIDEBAR_W_EXPANDED = 296;
 const SIDEBAR_W_COLLAPSED = 48;
 const CONTEXT_W_DEFAULT = 360;
@@ -30,14 +29,9 @@ function loadContextW(): number {
   } catch { /* ignore */ }
   return CONTEXT_W_DEFAULT;
 }
-function loadContextOpen(): boolean {
-  try { return window.localStorage.getItem(CONTEXT_OPEN_KEY) === "1"; } catch { return false; }
-}
-
 export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: AppShellProps) {
   const [collapsed, setCollapsed] = useState<boolean>(loadCollapsed);
   const [contextW, setContextW] = useState<number>(loadContextW);
-  const [contextOpen, setContextOpen] = useState<boolean>(loadContextOpen);
 
   useEffect(() => {
     try { window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* ignore */ }
@@ -45,9 +39,6 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
   useEffect(() => {
     try { window.localStorage.setItem(CONTEXT_W_KEY, String(contextW)); } catch { /* ignore */ }
   }, [contextW]);
-  useEffect(() => {
-    try { window.localStorage.setItem(CONTEXT_OPEN_KEY, contextOpen ? "1" : "0"); } catch { /* ignore */ }
-  }, [contextOpen]);
 
   // Drag-to-resize the context drawer.
   const dragStart = useRef<{ x: number; startW: number } | null>(null);
@@ -110,32 +101,16 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
 
       <main className="flex flex-col min-w-0 overflow-hidden pb-14 md:pb-0">{main}</main>
 
-      {/* Toggle button — fixed at top-right; hidden on narrow screens (where mobile uses a tab) */}
-      {!contextOpen && (
-        <button
-          type="button"
-          data-testid="app-context-toggle"
-          aria-label="展开 context"
-          title="展开 context"
-          onClick={() => setContextOpen(true)}
-          className="hidden xl:flex fixed top-3 right-3 z-30 items-center gap-1 px-2 py-1 rounded text-[11px] text-text-dim hover:text-text bg-bg/90 border border-border-soft shadow-sm"
-        >
-          context ‹
-        </button>
-      )}
-
-      {/* Floating context drawer */}
+      {/* Floating context panel */}
       <aside
         data-testid="app-context"
-        aria-hidden={!contextOpen}
+        aria-hidden="false"
         className={
           "hidden xl:flex flex-col fixed top-0 right-0 h-[100dvh] z-20 " +
-          "border-l border-border-soft bg-surface shadow-xl " +
-          "transition-transform duration-200 ease-out"
+          "border-l border-border-soft bg-surface shadow-xl"
         }
         style={{
           width: `${contextW}px`,
-          transform: contextOpen ? "translateX(0)" : "translateX(100%)",
         }}
       >
         {/* Resizer hairline on the drawer's left edge */}
@@ -151,19 +126,10 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
           <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[2px] h-10 bg-border group-hover:bg-accent-border rounded-full transition-colors" />
         </div>
 
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border-soft">
+        <div className="flex items-center px-3 py-2 border-b border-border-soft">
           <span className="text-[11px] uppercase tracking-wider font-semibold text-text-dim">
             context
           </span>
-          <button
-            type="button"
-            aria-label="收起 context"
-            title="收起 context"
-            onClick={() => setContextOpen(false)}
-            className="w-6 h-6 grid place-items-center rounded text-text-dim hover:text-text hover:bg-surface-hover text-[13px]"
-          >
-            ›
-          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">{context}</div>
