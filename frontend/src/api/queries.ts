@@ -364,6 +364,21 @@ export function useMoveTopic() {
   });
 }
 
+export function useRenameTopic() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ topicId, title }: { topicId: number; title: string }) =>
+      apiRequest<TopicDTO>(`/api/topics/${topicId}`, {
+        method: "PATCH", body: { title }, identity,
+      }),
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+      qc.invalidateQueries({ queryKey: ["topics", vars.topicId, "info"] });
+    },
+  });
+}
+
 export function useLogout() {
   const identity = useIdentity();
   const qc = useQueryClient();

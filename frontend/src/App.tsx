@@ -16,7 +16,7 @@ import {
 import {
   useWorkspaces, useTopicsInWorkspace, useWorkspaceMembers,
   useCreateWorkspace, useAttention, useSessionMe, useAllAgents,
-  useCreateInvite,
+  useCreateInvite, useRenameWorkspace, useDeleteWorkspace, useRenameTopic,
 } from "./api/queries";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "./api/client";
@@ -124,6 +124,9 @@ function Workspace() {
   });
 
   const createWorkspace = useCreateWorkspace();
+  const renameWorkspace = useRenameWorkspace();
+  const deleteWorkspace = useDeleteWorkspace();
+  const renameTopic = useRenameTopic();
 
   const handleCreateWorkspace = (name: string) => {
     createWorkspace.mutate(name, {
@@ -134,6 +137,23 @@ function Workspace() {
       },
     });
   };
+
+  const handleRenameWorkspace = (id: number, name: string) =>
+    renameWorkspace.mutateAsync({ id, name });
+
+  const handleDeleteWorkspace = (id: number) => {
+    deleteWorkspace.mutate(id, {
+      onSuccess: () => {
+        const fallback = workspaces.find((w) => w.id !== id);
+        setActiveWorkspaceId(fallback?.id ?? null);
+        setTopicId(null);
+        setView({ kind: "topic", id: 0 });
+      },
+    });
+  };
+
+  const handleRenameTopic = (id: number, title: string) =>
+    renameTopic.mutateAsync({ topicId: id, title });
 
   const [activeInvite, setActiveInvite] = useState<WorkspaceInvite | null>(null);
   const [showInviteAgent, setShowInviteAgent] = useState(false);
@@ -168,6 +188,9 @@ function Workspace() {
       }
       onSwitchWorkspace={handleSwitchWorkspace}
       onCreateWorkspace={handleCreateWorkspace}
+      onRenameWorkspace={handleRenameWorkspace}
+      onDeleteWorkspace={handleDeleteWorkspace}
+      onRenameTopic={handleRenameTopic}
       onInviteMember={handleInviteMember}
       onInviteAgent={handleInviteAgent}
       onClickAgents={() => setView({ kind: "agents" })}
