@@ -665,15 +665,42 @@ def _migrate_projects_to_workspaces(conn) -> None:
             "ALTER TABLE agent_instances ADD COLUMN workspace_id BIGINT "
             "REFERENCES workspaces(id)"
         )
-        # Backfill: for each agent, drop the row if its human has no workspace —
-        # the human will recreate via `lets add` against the new schema anyway.
+        # Orphaned agents (human with no workspace membership) get a personal
+        # workspace auto-created. Can't DELETE them — tokens FK to
+        # agent_instances would block it, and dropping tokens would log the
+        # user out unexpectedly.
         conn.execute(
             """
-            DELETE FROM agent_instances ai
-            WHERE NOT EXISTS (
-                SELECT 1 FROM workspace_members wm
-                WHERE wm.human_id = ai.human_id
+            INSERT INTO workspaces (slug, name, owner_human_id, is_private)
+            SELECT 'personal-' || h.id,
+                   COALESCE(h.name, 'user-' || h.id) || '''s workspace',
+                   h.id,
+                   TRUE
+            FROM humans h
+            WHERE EXISTS (
+                SELECT 1 FROM agent_instances ai
+                WHERE ai.human_id = h.id
             )
+            AND NOT EXISTS (
+                SELECT 1 FROM workspace_members wm
+                WHERE wm.human_id = h.id
+            )
+            ON CONFLICT (slug) DO NOTHING
+            RETURNING workspaces.id
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, human_id, role)
+            SELECT w.id, w.owner_human_id, 'owner'
+            FROM workspaces w
+            WHERE w.owner_human_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM workspace_members wm
+                  WHERE wm.workspace_id = w.id AND wm.human_id = w.owner_human_id
+              )
+            ON CONFLICT DO NOTHING
+            RETURNING workspace_members.workspace_id
             """
         )
         conn.execute(
