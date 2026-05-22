@@ -43,7 +43,7 @@ describe("<AgentListenStatus />", () => {
       msg({ id: 4, body: "another" }),
     ];
     render(<AgentListenStatus messages={messages} workspaceMembers={[codexMember]} />);
-    expect(screen.getByText(/Codex - Jacky Li 在听/)).toBeInTheDocument();
+    expect(screen.getByText(/Neo 在听/)).toBeInTheDocument();
     expect(screen.getByText(/读到/)).toBeInTheDocument();
     expect(screen.getByText(/上次发言/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /2 未读/ })).toBeInTheDocument();
@@ -63,7 +63,7 @@ describe("<AgentListenStatus />", () => {
       }),
     ];
     render(<AgentListenStatus messages={messages} workspaceMembers={[codexMember]} />);
-    expect(screen.getByText(/Codex - Jacky Li 思考中/)).toBeInTheDocument();
+    expect(screen.getByText(/Neo 思考中/)).toBeInTheDocument();
     expect(screen.getByTestId("agent-listen-status")).toHaveAttribute("data-phase", "thinking");
   });
 
@@ -86,7 +86,7 @@ describe("<AgentListenStatus />", () => {
       }),
     ];
     render(<AgentListenStatus messages={messages} workspaceMembers={[codexMember]} />);
-    expect(screen.getByText(/Codex - Jacky Li 调用失败/)).toBeInTheDocument();
+    expect(screen.getByText(/Neo 调用失败/)).toBeInTheDocument();
     expect(screen.getByTestId("agent-listen-status")).toHaveAttribute("data-phase", "failed");
   });
 
@@ -105,7 +105,7 @@ describe("<AgentListenStatus />", () => {
       msg({ id: 2, body: "what about Y", created_at: t(2) }),
     ];
     render(<AgentListenStatus messages={messages} workspaceMembers={[codexMember]} />);
-    expect(screen.getByText(/Codex - Jacky Li 即将介入/)).toBeInTheDocument();
+    expect(screen.getByText(/Neo 即将介入/)).toBeInTheDocument();
     expect(screen.getByTestId("agent-listen-status")).toHaveAttribute("data-phase", "impending");
     // Countdown should say "Xs 后" not "Xs"
     expect(screen.getByText(/[1-9]\d?s 后/)).toBeInTheDocument();
@@ -125,7 +125,7 @@ describe("<AgentListenStatus />", () => {
       msg({ id: 2, body: "@cc 急", created_at: t(0.5) }),
     ];
     render(<AgentListenStatus messages={messages} workspaceMembers={[codexMember]} />);
-    expect(screen.getByText(/Codex - Jacky Li 即将介入/)).toBeInTheDocument();
+    expect(screen.getByText(/Neo 即将介入/)).toBeInTheDocument();
     // Must show 2s or less (not the normal 6s).
     expect(screen.getByText(/^· [12]s 后$/)).toBeInTheDocument();
   });

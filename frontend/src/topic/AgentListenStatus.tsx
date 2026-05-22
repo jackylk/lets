@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MessageDTO, WorkspaceMember } from "../api/types";
-import { agentDisplayName } from "../agent/display";
+import { agentShortName } from "../agent/display";
 import { parseBackendTs } from "../lib/time";
 
 interface Props {
@@ -42,9 +42,9 @@ function debounceWindowFor(msg: MessageDTO): number {
 /**
  * Strip between TopicHeader and the chat stream. Surfaces what state the
  * agent is in:
- *   • idle — "Codex - Jacky Li 在听 · 读到 40s 前 · 上次发言 7m 前"
- *   • thinking — "Codex - Jacky Li 思考中 · 已 12s" (pulsing dot, brick-red accent)
- *   • impending — "Codex - Jacky Li 即将介入 (X 秒后)" (briefly, after user sends + before agent posts status)
+ *   • idle — "Neo 在听 · 读到 40s 前 · 上次发言 7m 前"
+ *   • thinking — "Neo 思考中 · 已 12s" (pulsing dot, brick-red accent)
+ *   • impending — "Neo 即将介入 (X 秒后)" (briefly, after user sends + before agent posts status)
  */
 export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnread }: Props) {
   // Force a re-render every second so relative-time labels stay live in
@@ -171,7 +171,7 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
 
     return {
       lastReadAt, lastAgentReplyAt, unreadCount,
-      agentLabel: statusAgent?.kind === "agent" ? agentDisplayName(statusAgent) : "agent",
+      agentLabel: statusAgent?.kind === "agent" ? agentShortName(statusAgent) : "agent",
       phase, pendingStatus, lastHumanMsg, lastFailure,
     };
   }, [messages, workspaceMembers]);
