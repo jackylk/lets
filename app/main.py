@@ -2299,13 +2299,17 @@ async def auth_github_callback(code: str, state: str) -> RedirectResponse:
         ).fetchone()
         if row is not None:
             human_id = row["id"]
+            # Don't touch `name` on re-login. It was disambiguated on first
+            # INSERT (suffix "(2)" etc.) to satisfy the humans.name UNIQUE
+            # constraint; setting it back to the bare display_name here can
+            # collide with a different row that already holds that name.
             conn.execute(
                 """
                 UPDATE humans SET github_login = ?, avatar_url = ?,
-                       name = COALESCE(?, name), updated_at = CURRENT_TIMESTAMP
+                       updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (github_login, avatar_url, display_name, human_id),
+                (github_login, avatar_url, human_id),
             )
         else:
             # Resolve name uniqueness — humans.name is UNIQUE.
