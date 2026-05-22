@@ -719,6 +719,19 @@ def _migrate_projects_to_workspaces(conn) -> None:
         )
 
 
+def _migrate_device_auth_flows_workspace(conn) -> None:
+    """Add device_auth_flows.workspace_id on DBs created before d517b90.
+
+    CREATE TABLE IF NOT EXISTS is a no-op on existing tables, so the column
+    addition in the schema never reached prod. Idempotent ADD COLUMN IF NOT
+    EXISTS fixes that without touching greenfield deployments.
+    """
+    conn.execute(
+        "ALTER TABLE IF EXISTS device_auth_flows "
+        "ADD COLUMN IF NOT EXISTS workspace_id BIGINT REFERENCES workspaces(id)"
+    )
+
+
 def init_db() -> None:
     global _initialized_url
     url = database_url()
@@ -728,6 +741,7 @@ def init_db() -> None:
             # executescript() tries to build indexes that reference them.
             _migrate_projects_to_workspaces(conn)
             conn.executescript(_SCHEMA_SQL)
+            _migrate_device_auth_flows_workspace(conn)
             conn.execute("INSERT INTO agent_roles (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
                          ("claude", "Anthropic Claude Code"))
             conn.execute("INSERT INTO agent_roles (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
