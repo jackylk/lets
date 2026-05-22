@@ -90,17 +90,17 @@ export function ConnectComputerBanner({ onDismiss }: { onDismiss?: () => void })
   };
 
   return (
-    <div className="border-b border-border-soft bg-surface-elev px-4 py-2.5 flex flex-wrap items-center gap-2 sm:gap-3 text-[12.5px]">
-      <span className="order-1 flex-1 text-text-muted">
+    <div className="border-b border-border-soft bg-surface-elev px-4 py-2.5 flex items-center gap-3 text-[12.5px]">
+      <span className="text-text-muted shrink-0">
         还没接上电脑？把这条命令粘进终端：
       </span>
-      <code className="order-3 sm:order-2 font-mono text-[12.5px] text-text bg-bg/50 px-2 py-1 rounded border border-border-soft whitespace-nowrap overflow-x-auto flex-1 min-w-0">
+      <code className="font-mono text-[12.5px] text-text bg-bg/50 px-2 py-1 rounded border border-border-soft whitespace-nowrap overflow-x-auto flex-1 min-w-0">
         {command}
       </code>
       <button
         type="button"
         onClick={copy}
-        className="order-4 sm:order-3 shrink-0 px-2.5 py-1 rounded text-[12px] font-medium bg-text text-bg hover:opacity-90 transition"
+        className="shrink-0 px-2.5 py-1 rounded text-[12px] font-medium bg-text text-bg hover:opacity-90 transition"
       >
         {copied ? "已复制" : "复制"}
       </button>
@@ -109,7 +109,7 @@ export function ConnectComputerBanner({ onDismiss }: { onDismiss?: () => void })
         onClick={dismiss}
         aria-label="知道了，关闭"
         title="知道了"
-        className="order-2 sm:order-4 shrink-0 w-6 h-6 grid place-items-center rounded text-text-dim hover:text-text hover:bg-surface-hover text-[14px] leading-none"
+        className="shrink-0 w-6 h-6 grid place-items-center rounded text-text-dim hover:text-text hover:bg-surface-hover text-[14px] leading-none"
       >
         ✕
       </button>
