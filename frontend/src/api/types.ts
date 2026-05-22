@@ -138,7 +138,12 @@ export interface WorkspaceMemberAgent {
   role: string;
   device_label: string | null;
   model: string | null;
-  started_by_name: string;
+  display_name: string | null;
+  owner_human_id: number;
+  owner_name: string;
+  paused_at: string | null;
+  deleted_at: string | null;
+  joined_at: string;
 }
 
 export type WorkspaceMember = WorkspaceMemberHuman | WorkspaceMemberAgent;
@@ -179,10 +184,38 @@ export interface AgentInstanceRowDTO {
   role: string;
   device_label: string;
   model: string | null;
+  display_name: string | null;
+  paused_at: string | null;
+  deleted_at: string | null;
   human_id: number;
   human_name: string;
   last_seen_at: string | null;
   is_online: number;  // 0 or 1 from SQLite
+  workspaces?: Array<{ id: number; slug: string; name: string; joined_at: string }>;
+}
+
+export interface AgentDetailDTO extends AgentInstanceRowDTO {
+  created_at: string;
+  workspaces: Array<{ id: number; slug: string; name: string; joined_at: string }>;
+  stats: {
+    message_count: number;
+    topic_count: number;
+    input_tokens: number;
+    output_tokens: number;
+  };
+  recent_topics: Array<{
+    id: number;
+    slug: string;
+    title: string;
+    last_message_at: string;
+    message_count: number;
+  }>;
+  usage_started_at: string;
+  quota: null | {
+    session_used_percent?: number;
+    weekly_used_percent?: number;
+    resets_at?: string;
+  };
 }
 
 export interface AttentionMessageDTO extends MessageDTO {

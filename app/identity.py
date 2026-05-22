@@ -26,12 +26,13 @@ def ensure_agent_instance(
     role: str,
     human_id: int,
     device_label: str,
-    workspace_id: int,
+    workspace_id: int | None = None,
     model: str | None = None,
 ) -> int:
     """Return agent_instances.id. Create if missing. Idempotent. Raises ValueError if role unknown.
 
-    workspace_id is required; uniqueness is keyed on (role, human, device, workspace).
+    If workspace_id is provided, the owned agent is also added to that
+    workspace. Agent identity is keyed on (owner human, role, device).
     """
     with connect() as conn:
         role_row = conn.execute(
@@ -44,9 +45,9 @@ def ensure_agent_instance(
         existing = conn.execute(
             """
             SELECT id FROM agent_instances
-            WHERE role_id = ? AND human_id = ? AND device_label = ? AND workspace_id = ?
+            WHERE role_id = ? AND owner_human_id = ? AND device_label = ?
             """,
-            (role_id, human_id, device_label, workspace_id),
+            (role_id, human_id, device_label),
         ).fetchone()
         if existing:
             if model is not None:
@@ -58,13 +59,41 @@ def ensure_agent_instance(
                     """,
                     (model, existing["id"]),
                 )
-            return int(existing["id"])
+            agent_id = int(existing["id"])
+            if workspace_id is not None:
+                _join_agent_workspace(conn, workspace_id, agent_id, human_id)
+            return agent_id
 
         cursor = conn.execute(
             """
-            INSERT INTO agent_instances (role_id, human_id, workspace_id, device_label, model)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO agent_instances (role_id, owner_human_id, device_label, model)
+            VALUES (?, ?, ?, ?)
             """,
-            (role_id, human_id, workspace_id, device_label, model),
+            (role_id, human_id, device_label, model),
         )
-        return int(cursor.lastrowid)
+        agent_id = int(cursor.lastrowid)
+        if workspace_id is not None:
+            _join_agent_workspace(conn, workspace_id, agent_id, human_id)
+        return agent_id
+
+
+def _join_agent_workspace(conn, workspace_id: int, agent_instance_id: int, owner_human_id: int) -> None:
+    row = conn.execute(
+        """
+        SELECT 1 FROM workspace_members
+        WHERE workspace_id = ? AND human_id = ?
+        """,
+        (workspace_id, owner_human_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("agent owner must be a workspace member")
+    conn.execute(
+        """
+        INSERT INTO workspace_agent_members
+            (workspace_id, agent_instance_id, joined_by_human_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT DO NOTHING
+        RETURNING workspace_agent_members.workspace_id
+        """,
+        (workspace_id, agent_instance_id, owner_human_id),
+    )

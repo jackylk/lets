@@ -229,12 +229,15 @@ def _post(host: str, token: str, topic_id: int, type_: str, body: str, **metadat
     })
 
 
-def _addressed_to_me(msg: dict, my_human_id: int) -> bool:
+def _addressed_to_me(msg: dict, my_agent_id: int, my_human_id: int | None = None) -> bool:
     addr = msg.get("addressed_to")
     if not addr:
         return False
     parts = {p.strip() for p in str(addr).split(",")}
-    return str(my_human_id) in parts
+    if f"agent:{my_agent_id}" in parts:
+        return True
+    # Legacy compatibility: a bare number used to mean human:<id>.
+    return my_human_id is not None and str(my_human_id) in parts
 
 
 # Compact pane-updates spec — same parser, fraction of the tokens.
@@ -1892,7 +1895,7 @@ def main(argv: list[str] | None = None) -> int:
                     if (m.get("actor_type") == "agent"
                             and int(m.get("actor_id") or 0) == me.agent_instance_id):
                         continue  # own posts
-                    if not _addressed_to_me(m, me.human_id):
+                    if not _addressed_to_me(m, me.agent_instance_id, me.human_id):
                         continue
                     p = pending.setdefault(
                         tid,

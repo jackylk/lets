@@ -19,7 +19,7 @@ Refactor data and access-control so an agent is a first-class workspace member, 
 ## Non-goals
 
 - Borrowing another user's agent. If B's codex appears in A's workspace, it is because B is a human member of that workspace and B chose to invite their codex.
-- Quota visibility. Claude Code / Codex CLI do not expose remaining plan quota; we will not fake it.
+- Symmetric quota visibility. Codex can expose plan-style usage/rate-limit data from local session events; Claude Code plan usage is only visible inside the interactive `/usage` view and is not programmatically available to Lets. We will present quota bars only for agents where the gateway can honestly report them.
 - Per-workspace silencing as a separate state. "Eject from this workspace" already covers it.
 - Data migration. Production is empty; new schema ships clean.
 
@@ -130,6 +130,56 @@ The `@` picker in the message composer lists current workspace members, both hum
 
 Auto-address rule (`_default_addressee_for` in `app/main.py:1019`): currently routes to the lone online agent belonging to the sender. Reuse the rule, but cross-check by `agent_instance_id`, not by `human_id`. With multiple online agents the rule stays silent and forces an explicit `@`.
 
+## Agent detail page
+
+Workspace member rows should make the type difference obvious without making the member list noisy:
+
+- Human row: name + workspace role.
+- Agent row: display name / role + secondary text like `agent · managed by Jacky Li`.
+- Clicking an agent opens `/agents/<id>` rather than showing destructive controls inline.
+
+The detail page is the control and observability surface for an owned agent:
+
+### Header
+
+- Display name fallback: `<role>-<id>`.
+- Subtitle: `agent · managed by <owner> · <status>`.
+- Primary controls: pause/resume and revoke.
+
+### Basic information
+
+- Role, model, device label, owner, first registered, last activity.
+- Status values: online, offline, paused, retired.
+
+### Workspaces
+
+- List every workspace in `workspace_agent_members`.
+- Each row can expose "leave this workspace" for the agent owner; workspace owners can also eject an agent from their workspace from the workspace member surface.
+
+### Activity statistics
+
+Lifetime-first. The initial implementation does not need a 7-day / 30-day switch.
+
+- Participated topics: count distinct `messages.topic_id` where `actor_type='agent'` and `actor_id=<agent_instance_id>`.
+- Sent messages: count agent-authored messages.
+- Input tokens and output tokens: sum `messages.metadata.usage.input_tokens` and `messages.metadata.usage.output_tokens`.
+- Recent active topics: group agent messages by topic, sorted by latest message.
+
+Historical messages without `metadata.usage` count as zero. Show small copy such as `Usage stats from 2026-05-22` so early blank history is not surprising.
+
+### Cost estimate
+
+Do not show cost estimate for now. List-price estimates differ from plan pricing and real bills too easily, so token totals are safer until pricing provenance is solid.
+
+### Plan quota / rate-limit bars
+
+Show only when available:
+
+- Codex agent: gateway may report session/week usage percentages and reset times from Codex local session/rate-limit events. Render this as a `Plan usage` block with progress bars and reset timestamps.
+- Claude Code agent: do not fake this. Claude Code `/usage` is visible in the interactive CLI but not available through a stable local command/API for normal plan users. Hide the quota block or show a neutral "not available" state on the detail page, not in the member list.
+
+Store these values as agent telemetry rather than schema columns on `agent_instances` when implemented. The values are volatile snapshots, not identity fields.
+
 ## What this means for `lets add`
 
 CLI surface unchanged in shape:
@@ -165,7 +215,7 @@ Plus the existing `tests/test_device_flow.py` adjusts to assert the new `workspa
 ## Things deliberately out of scope
 
 - Per-workspace silencing as a third state (use eject)
-- Quota / usage tracking
+- Cost estimate display
 - Borrowing another user's agent
 - Transferring ownership of an agent
 - Push channel for membership updates (polling is fine)

@@ -833,6 +833,9 @@ def list_all_agent_instances(
                 ar.name as role,
                 ai.device_label,
                 ai.model,
+                ai.display_name,
+                ai.paused_at,
+                ai.deleted_at,
                 h.id as human_id,
                 h.name as human_name,
                 MAX(t.last_used_at) as last_seen_at,
@@ -843,14 +846,223 @@ def list_all_agent_instances(
                 END as is_online
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
-            JOIN humans h ON h.id = ai.human_id
+            JOIN humans h ON h.id = ai.owner_human_id
             LEFT JOIN tokens t ON t.agent_instance_id = ai.id
                               AND t.revoked_at IS NULL
-            GROUP BY ai.id, ar.name, ai.device_label, ai.model, h.id, h.name
+            WHERE ai.deleted_at IS NULL
+            GROUP BY ai.id, ar.name, ai.device_label, ai.model,
+                     ai.display_name, ai.paused_at, ai.deleted_at, h.id, h.name
             ORDER BY is_online DESC, last_seen_at DESC, ai.id ASC
             """
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+@app.get("/api/agents/mine")
+def list_my_agent_instances(
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                ai.id AS agent_instance_id,
+                ar.name AS role,
+                ai.device_label,
+                ai.model,
+                ai.display_name,
+                ai.paused_at,
+                ai.deleted_at,
+                h.id AS human_id,
+                h.name AS human_name,
+                MAX(t.last_used_at) AS last_seen_at,
+                CASE
+                    WHEN MAX(t.last_used_at) IS NOT NULL
+                     AND MAX(t.last_used_at) >= datetime('now', '-5 minutes')
+                    THEN 1 ELSE 0
+                END AS is_online,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', w.id,
+                            'slug', w.slug,
+                            'name', w.name,
+                            'joined_at', wam.joined_at
+                        )
+                        ORDER BY wam.joined_at
+                    ) FILTER (WHERE w.id IS NOT NULL),
+                    '[]'::json
+                ) AS workspaces
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN humans h ON h.id = ai.owner_human_id
+            LEFT JOIN tokens t ON t.agent_instance_id = ai.id
+                              AND t.revoked_at IS NULL
+            LEFT JOIN workspace_agent_members wam ON wam.agent_instance_id = ai.id
+            LEFT JOIN workspaces w ON w.id = wam.workspace_id
+            WHERE ai.owner_human_id = ?
+            GROUP BY ai.id, ar.name, ai.device_label, ai.model,
+                     ai.display_name, ai.paused_at, ai.deleted_at, h.id, h.name
+            ORDER BY ai.deleted_at ASC NULLS FIRST, is_online DESC, last_seen_at DESC, ai.id ASC
+            """,
+            (human_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _require_agent_owner(conn, agent_instance_id: int, human_id: int) -> dict:
+    row = conn.execute(
+        """
+        SELECT ai.id, ai.owner_human_id, ai.deleted_at
+        FROM agent_instances ai
+        WHERE ai.id = ?
+        """,
+        (agent_instance_id,),
+    ).fetchone()
+    if row is None or int(row["owner_human_id"]) != human_id:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return dict(row)
+
+
+@app.post("/api/agents/{agent_instance_id}/pause")
+def pause_agent_instance(
+    agent_instance_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        _require_agent_owner(conn, agent_instance_id, human_id)
+        conn.execute(
+            "UPDATE agent_instances SET paused_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (agent_instance_id,),
+        )
+    return {"ok": True}
+
+
+@app.post("/api/agents/{agent_instance_id}/resume")
+def resume_agent_instance(
+    agent_instance_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        _require_agent_owner(conn, agent_instance_id, human_id)
+        conn.execute(
+            "UPDATE agent_instances SET paused_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (agent_instance_id,),
+        )
+    return {"ok": True}
+
+
+@app.delete("/api/agents/{agent_instance_id}")
+def delete_agent_instance(
+    agent_instance_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        _require_agent_owner(conn, agent_instance_id, human_id)
+        conn.execute(
+            "UPDATE agent_instances SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (agent_instance_id,),
+        )
+        conn.execute(
+            "UPDATE tokens SET revoked_at = CURRENT_TIMESTAMP WHERE agent_instance_id = ? AND revoked_at IS NULL",
+            (agent_instance_id,),
+        )
+    return {"ok": True}
+
+
+@app.get("/api/agents/me/memberships")
+def list_current_agent_memberships(
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    agent_id = principal.get("agent_instance_id")
+    if agent_id is None:
+        raise HTTPException(status_code=400, detail="agent token required")
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT w.id, w.slug, w.name, wam.joined_at
+            FROM workspace_agent_members wam
+            JOIN workspaces w ON w.id = wam.workspace_id
+            JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+            WHERE wam.agent_instance_id = ?
+              AND ai.paused_at IS NULL
+              AND ai.deleted_at IS NULL
+              AND w.deleted_at IS NULL
+            ORDER BY wam.joined_at ASC
+            """,
+            (int(agent_id),),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_agent_instance_detail(
+    agent_instance_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT ai.id AS agent_instance_id, ar.name AS role, ai.device_label,
+                   ai.model, ai.display_name, ai.paused_at, ai.deleted_at,
+                   ai.created_at, ai.owner_human_id AS human_id, h.name AS human_name,
+                   MAX(t.last_used_at) AS last_seen_at
+            FROM agent_instances ai
+            JOIN agent_roles ar ON ar.id = ai.role_id
+            JOIN humans h ON h.id = ai.owner_human_id
+            LEFT JOIN tokens t ON t.agent_instance_id = ai.id AND t.revoked_at IS NULL
+            WHERE ai.id = ?
+            GROUP BY ai.id, ar.name, h.id, h.name
+            """,
+            (agent_instance_id,),
+        ).fetchone()
+        if row is None or int(row["human_id"]) != human_id:
+            raise HTTPException(status_code=404, detail="agent not found")
+        workspaces = conn.execute(
+            """
+            SELECT w.id, w.slug, w.name, wam.joined_at
+            FROM workspace_agent_members wam
+            JOIN workspaces w ON w.id = wam.workspace_id
+            WHERE wam.agent_instance_id = ?
+            ORDER BY wam.joined_at ASC
+            """,
+            (agent_instance_id,),
+        ).fetchall()
+        stats = conn.execute(
+            """
+            SELECT COUNT(*) AS message_count,
+                   COUNT(DISTINCT topic_id) AS topic_count,
+                   COALESCE(SUM((metadata::jsonb #>> '{usage,input_tokens}')::bigint), 0) AS input_tokens,
+                   COALESCE(SUM((metadata::jsonb #>> '{usage,output_tokens}')::bigint), 0) AS output_tokens
+            FROM messages
+            WHERE actor_type = 'agent' AND actor_id = ?
+            """,
+            (agent_instance_id,),
+        ).fetchone()
+        recent_topics = conn.execute(
+            """
+            SELECT t.id, t.slug, t.title, MAX(m.created_at) AS last_message_at,
+                   COUNT(*) AS message_count
+            FROM messages m
+            JOIN topics t ON t.id = m.topic_id
+            WHERE m.actor_type = 'agent' AND m.actor_id = ?
+            GROUP BY t.id, t.slug, t.title
+            ORDER BY last_message_at DESC
+            LIMIT 8
+            """,
+            (agent_instance_id,),
+        ).fetchall()
+    out = dict(row)
+    out["workspaces"] = [dict(r) for r in workspaces]
+    out["stats"] = dict(stats) if stats else {}
+    out["recent_topics"] = [dict(r) for r in recent_topics]
+    out["usage_started_at"] = "2026-05-22"
+    out["quota"] = None
+    return out
 
 
 @app.patch("/api/agent-instances/{agent_instance_id}")
@@ -876,14 +1088,14 @@ def update_agent_instance(
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.human_id
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.owner_human_id
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
             WHERE ai.id = ?
             """,
             (agent_instance_id,),
         ).fetchone()
-        if row is None or int(row["human_id"]) != int(principal["human_id"]):
+        if row is None or int(row["owner_human_id"]) != int(principal["human_id"]):
             raise HTTPException(status_code=404, detail="agent not found")
         if row["role"] != "claude":
             raise HTTPException(status_code=400, detail="model setting is only supported for claude")
@@ -924,9 +1136,11 @@ def list_online_agents(
             FROM tokens t
             JOIN agent_instances ai ON ai.id = t.agent_instance_id
             JOIN agent_roles ar ON ar.id = ai.role_id
-            JOIN humans h ON h.id = ai.human_id
+            JOIN humans h ON h.id = ai.owner_human_id
             WHERE t.agent_instance_id IS NOT NULL
               AND t.revoked_at IS NULL
+              AND ai.paused_at IS NULL
+              AND ai.deleted_at IS NULL
               AND t.last_used_at IS NOT NULL
               AND t.last_used_at >= datetime('now', '-5 minutes')
             GROUP BY ai.id, ar.name, ai.device_label, h.name
@@ -934,6 +1148,13 @@ def list_online_agents(
             """
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+app.add_api_route(
+    "/api/agents/{agent_instance_id}",
+    get_agent_instance_detail,
+    methods=["GET"],
+)
 
 
 @app.get("/api/findings")
@@ -1017,18 +1238,19 @@ def _maybe_rename_topic_from_first_chat(topic_id: int, body: str) -> str | None:
 
 
 def _default_addressee_for(actor_id: int | None) -> str | None:
-    """If the poster owns exactly one currently-online agent, return their
-    own human_id (the address the gateway matches on). With 0 or 2+ online
-    agents, return None — the user must @ explicitly to avoid ambiguity."""
+    """If the poster owns exactly one currently-online agent, address it by
+    agent identity. With 0 or 2+ online agents, force explicit @."""
     if actor_id is None:
         return None
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT COUNT(DISTINCT ai.id) AS n, MIN(ai.human_id) AS human_id
+            SELECT COUNT(DISTINCT ai.id) AS n, MIN(ai.id) AS agent_instance_id
             FROM tokens t
             JOIN agent_instances ai ON ai.id = t.agent_instance_id
-            WHERE ai.human_id = ?
+            WHERE ai.owner_human_id = ?
+              AND ai.paused_at IS NULL
+              AND ai.deleted_at IS NULL
               AND t.revoked_at IS NULL
               AND t.last_used_at IS NOT NULL
               AND t.last_used_at >= datetime('now', '-5 minutes')
@@ -1037,7 +1259,7 @@ def _default_addressee_for(actor_id: int | None) -> str | None:
         ).fetchone()
     if row is None or row["n"] != 1:
         return None
-    return str(row["human_id"])
+    return f"agent:{int(row['agent_instance_id'])}"
 
 
 @app.post("/api/messages")
@@ -1048,7 +1270,7 @@ async def post_message_endpoint(
     from .messages import post_message
     from .sse import broadcaster
 
-    _require_topic_member(payload.topic_id, int(principal["human_id"]))
+    _require_topic_actor(payload.topic_id, principal)
 
     # Body-required-unless-annotation: keep the old guarantee for all
     # "real" message types so legacy callers don't regress, but allow
@@ -1706,18 +1928,54 @@ def list_workspace_members(
         agent_rows = conn.execute(
             """
             SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
-                   ai.human_id AS started_by_human_id, h.name AS started_by_name
-            FROM agent_instances ai
+                   ai.display_name, ai.paused_at, ai.deleted_at,
+                   ai.owner_human_id AS owner_human_id,
+                   h.name AS owner_name,
+                   wam.joined_at
+            FROM workspace_agent_members wam
+            JOIN agent_instances ai ON ai.id = wam.agent_instance_id
             JOIN agent_roles ar ON ar.id = ai.role_id
-            JOIN humans h ON h.id = ai.human_id
-            WHERE ai.workspace_id = ?
-            ORDER BY ai.created_at ASC
+            JOIN humans h ON h.id = ai.owner_human_id
+            WHERE wam.workspace_id = ?
+            ORDER BY wam.joined_at ASC
             """,
             (workspace_id,),
         ).fetchall()
     humans = [{**dict(r), "kind": "human"} for r in human_rows]
     agents = [{**dict(r), "kind": "agent"} for r in agent_rows]
     return humans + agents
+
+
+@app.delete("/api/workspaces/{workspace_id}/agent-members/{agent_instance_id}")
+def remove_workspace_agent_member(
+    workspace_id: int,
+    agent_instance_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT ai.owner_human_id, wm.role AS caller_workspace_role
+            FROM agent_instances ai
+            LEFT JOIN workspace_members wm
+              ON wm.workspace_id = ? AND wm.human_id = ?
+            WHERE ai.id = ?
+            """,
+            (workspace_id, human_id, agent_instance_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        if int(row["owner_human_id"]) != human_id and row["caller_workspace_role"] != "owner":
+            raise HTTPException(status_code=403, detail="not allowed")
+        conn.execute(
+            """
+            DELETE FROM workspace_agent_members
+            WHERE workspace_id = ? AND agent_instance_id = ?
+            """,
+            (workspace_id, agent_instance_id),
+        )
+    return {"ok": True}
 
 
 @app.delete("/api/workspaces/{workspace_id}/members/{human_id}")
@@ -1936,8 +2194,50 @@ def _require_topic_member(topic_id: int, human_id: int) -> int:
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="topic not found")
+    if row["workspace_id"] is None:
+        return 0
     require_workspace_member(int(row["workspace_id"]), human_id)
     return int(row["workspace_id"])
+
+
+def _require_workspace_actor(workspace_id: int, principal: dict) -> None:
+    from .workspaces import require_workspace_member
+
+    agent_id = principal.get("agent_instance_id")
+    if agent_id is None:
+        require_workspace_member(workspace_id, int(principal["human_id"]))
+        return
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT ai.paused_at, ai.deleted_at
+            FROM workspace_agent_members wam
+            JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+            WHERE wam.workspace_id = ? AND wam.agent_instance_id = ?
+            """,
+            (workspace_id, int(agent_id)),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=403, detail="not a workspace actor")
+    if row["paused_at"] is not None:
+        raise HTTPException(status_code=401, detail="agent is paused")
+    if row["deleted_at"] is not None:
+        raise HTTPException(status_code=401, detail="agent is deleted")
+
+
+def _require_topic_actor(topic_id: int, principal: dict) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT workspace_id FROM topics WHERE id = ?", (topic_id,)
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    if row["workspace_id"] is None:
+        return 0
+    workspace_id = int(row["workspace_id"])
+    _require_workspace_actor(workspace_id, principal)
+    return workspace_id
 
 
 @app.get("/api/topics/{topic_id}")
@@ -2093,7 +2393,7 @@ def get_topic_participants(
             FROM messages m
             JOIN agent_instances ai ON ai.id = m.actor_id
             JOIN agent_roles ar ON ar.id = ai.role_id
-            JOIN humans ah ON ah.id = ai.human_id
+            JOIN humans ah ON ah.id = ai.owner_human_id
             WHERE m.topic_id = ? AND m.actor_type = 'agent'
             ORDER BY ai.id ASC
             """,
@@ -2639,11 +2939,11 @@ def device_flow_authorize(
         conn.execute(
             """
             UPDATE device_auth_flows
-            SET human_id = ?, agent_instance_id = ?, token_id = ?,
+            SET workspace_id = ?, human_id = ?, agent_instance_id = ?, token_id = ?,
                 token_value = ?, authorized_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (human_id, agent_instance_id, token_id, token_value, row["id"]),
+            (int(ws_id), human_id, agent_instance_id, token_id, token_value, row["id"]),
         )
 
     return HTMLResponse(_device_authorized_page(role=role, device_label=device_label))
@@ -2750,17 +3050,21 @@ def device_flow_poll(device_code: str) -> dict:
         )
         agent = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.workspace_id
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
+                   ai.display_name, ai.owner_human_id
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
             WHERE ai.id = ?
             """,
             (row["agent_instance_id"],),
         ).fetchone()
+        if agent is not None:
+            agent = dict(agent)
+            agent["workspace_id"] = row["workspace_id"]
     return {
         "status": "authorized",
         "token": token_value,
-        "agent_instance": dict(agent) if agent else None,
+        "agent_instance": agent if agent else None,
     }
 
 
@@ -2827,11 +3131,11 @@ def api_device_flow_authorize(
         conn.execute(
             """
             UPDATE device_auth_flows
-            SET human_id = ?, agent_instance_id = ?, token_id = ?,
+            SET workspace_id = ?, human_id = ?, agent_instance_id = ?, token_id = ?,
                 token_value = ?, authorized_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (human_id, agent_instance_id, token_id, token_value, row["id"]),
+            (int(ws_id), human_id, agent_instance_id, token_id, token_value, row["id"]),
         )
     return {"status": "authorized", "role": role, "device_label": device_label}
 
@@ -2866,17 +3170,21 @@ def api_device_flow_poll(device_code: str) -> dict:
         )
         agent = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.workspace_id
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
+                   ai.display_name, ai.owner_human_id
             FROM agent_instances ai
             JOIN agent_roles ar ON ar.id = ai.role_id
             WHERE ai.id = ?
             """,
             (row["agent_instance_id"],),
         ).fetchone()
+        if agent is not None:
+            agent = dict(agent)
+            agent["workspace_id"] = row["workspace_id"]
     return {
         "status": "authorized",
         "token": token_value,
-        "agent": dict(agent) if agent else None,
+        "agent": agent if agent else None,
     }
 
 
@@ -2925,7 +3233,7 @@ def list_my_tokens(
                 SELECT ai.id, ar.name AS role, ai.device_label, ai.model
                 FROM agent_instances ai
                 JOIN agent_roles ar ON ar.id = ai.role_id
-                WHERE ai.human_id = ?
+                WHERE ai.owner_human_id = ?
                 """,
                 (principal["human_id"],),
             ).fetchall()

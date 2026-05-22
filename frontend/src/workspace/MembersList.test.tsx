@@ -29,7 +29,12 @@ const agentMember: WorkspaceMember = {
   role: "claude",
   device_label: "neo-mbp",
   model: null,
-  started_by_name: "Neo",
+  display_name: null,
+  owner_human_id: 1,
+  owner_name: "Neo",
+  paused_at: null,
+  deleted_at: null,
+  joined_at: "2026-01-01T00:00:00Z",
 };
 
 describe("<MembersList />", () => {
@@ -45,10 +50,10 @@ describe("<MembersList />", () => {
     expect(screen.queryByText("owner")).toBeNull();
   });
 
-  it("renders agent caption with started_by_name", () => {
+  it("renders agent caption with owner_name", () => {
     render(<MembersList members={[agentMember]} onInvite={vi.fn()} />);
-    expect(screen.getByText("claude")).toBeInTheDocument();
-    expect(screen.getByText(/agent · Neo 启动/)).toBeInTheDocument();
+    expect(screen.getByText("claude-11")).toBeInTheDocument();
+    expect(screen.getByText(/agent · 由 Neo 管理/)).toBeInTheDocument();
   });
 
   it("calls onInvite when invite button is clicked", () => {
@@ -63,7 +68,7 @@ describe("<MembersList />", () => {
       <MembersList members={[ownerMember, agentMember]} onInvite={vi.fn()} />,
     );
     expect(screen.getByText("Neo")).toBeInTheDocument();
-    expect(screen.getByText("claude")).toBeInTheDocument();
+    expect(screen.getByText("claude-11")).toBeInTheDocument();
   });
 
   it("renders 邀请 agent button only when onInviteAgent is provided", () => {

@@ -4,9 +4,10 @@ interface Props {
   members: WorkspaceMember[];
   onInvite: () => void;
   onInviteAgent?: () => void;
+  onSelectAgent?: (agentId: number) => void;
 }
 
-export function MembersList({ members, onInvite, onInviteAgent }: Props) {
+export function MembersList({ members, onInvite, onInviteAgent, onSelectAgent }: Props) {
   return (
     <div className="px-3 py-2 border-t border-border">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim mb-2">
@@ -24,12 +25,21 @@ export function MembersList({ members, onInvite, onInviteAgent }: Props) {
               )}
             </div>
           ) : (
-            <div key={`a-${m.id}`} className="flex flex-col py-0.5">
-              <span className="text-[12.5px] text-text">{m.role}</span>
-              <span className="text-[10px] text-text-dim">
-                agent · {m.started_by_name} 启动
+            <button
+              key={`a-${m.id}`}
+              type="button"
+              onClick={() => onSelectAgent?.(m.id)}
+              className="flex flex-col py-0.5 text-left rounded hover:bg-surface-hover"
+            >
+              <span className="text-[12.5px] text-text">
+                {m.display_name || `${m.role}-${m.id}`}
               </span>
-            </div>
+              <span className="text-[10px] text-text-dim">
+                agent · 由 {m.owner_name} 管理
+                {m.paused_at ? " · 已暂停" : ""}
+                {m.deleted_at ? " · 已退役" : ""}
+              </span>
+            </button>
           ),
         )}
         {members.length === 0 && (

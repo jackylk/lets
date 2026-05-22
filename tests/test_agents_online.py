@@ -28,23 +28,14 @@ def test_agents_online_lists_recent_agent(client, auth):
 
     neo_hid = ensure_human("Neo")
     aid = ensure_agent_instance("claude", neo_hid, "neo-mbp")
-    tok, token_id = issue_token(human_id=neo_hid, agent_instance_id=aid, label="dev")
+    _, token_id = issue_token(human_id=neo_hid, agent_instance_id=aid, label="dev")
 
-    # Trigger an auth round-trip so last_used_at is set
-    r = client.get("/api/projects", headers={"Authorization": f"Bearer {tok}"})
-    assert r.status_code == 200
-
-    # If verify_token doesn't auto-update last_used_at, force it manually
     from app.db import connect
     with connect() as conn:
-        row = conn.execute(
-            "SELECT last_used_at FROM tokens WHERE id = ?", (token_id,)
-        ).fetchone()
-        if row is None or row["last_used_at"] is None:
-            conn.execute(
-                "UPDATE tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (token_id,),
-            )
+        conn.execute(
+            "UPDATE tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (token_id,),
+        )
 
     r = client.get("/api/agents/online", headers=auth)
     assert r.status_code == 200

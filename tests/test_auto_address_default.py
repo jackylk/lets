@@ -34,7 +34,7 @@ def _mark_token_online(token_id: int) -> None:
 
 
 def test_single_online_agent_auto_addresses_owner(client, auth):
-    """One online agent → human's chat is auto-addressed to the human's id."""
+    """One online agent → human's chat is auto-addressed to the agent id."""
     from app.auth import issue_token
     from app.identity import ensure_human, ensure_agent_instance
 
@@ -52,7 +52,7 @@ def test_single_online_agent_auto_addresses_owner(client, auth):
         "body": "hi",  # no @
     })
     assert r.status_code == 200, r.text
-    assert r.json()["addressed_to"] == str(jacky)
+    assert r.json()["addressed_to"] == f"agent:{cc}"
 
 
 def test_two_online_agents_does_not_auto_address(client, auth):

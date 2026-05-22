@@ -91,6 +91,16 @@ def test_device_flow_with_workspace(temp_db, client, monkeypatch):
     assert poll.status_code == 200
     agent = poll.json()["agent"]
     assert agent["workspace_id"] == ws["id"]
+    from app import db
+    with db.connect() as conn:
+        membership = conn.execute(
+            """
+            SELECT 1 FROM workspace_agent_members
+            WHERE workspace_id = ? AND agent_instance_id = ?
+            """,
+            (ws["id"], agent["id"]),
+        ).fetchone()
+    assert membership is not None
 
 
 def test_device_flow_defaults_to_caller_first_workspace(temp_db, client, monkeypatch):
@@ -103,4 +113,15 @@ def test_device_flow_defaults_to_caller_first_workspace(temp_db, client, monkeyp
     user_code = r.json()["user_code"]
     client.post(f"/api/auth/device-flow/authorize/{user_code}")
     poll = client.get(f"/api/auth/device-flow/poll/{r.json()['device_code']}")
-    assert poll.json()["agent"]["workspace_id"] == ws["id"]
+    agent = poll.json()["agent"]
+    assert agent["workspace_id"] == ws["id"]
+    from app import db
+    with db.connect() as conn:
+        membership = conn.execute(
+            """
+            SELECT 1 FROM workspace_agent_members
+            WHERE workspace_id = ? AND agent_instance_id = ?
+            """,
+            (ws["id"], agent["id"]),
+        ).fetchone()
+    assert membership is not None

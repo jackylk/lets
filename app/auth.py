@@ -65,13 +65,17 @@ def verify_token(plaintext: str) -> dict[str, Any] | None:
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT id, human_id, agent_instance_id, revoked_at
-            FROM tokens
-            WHERE value_hash = ?
+            SELECT t.id, t.human_id, t.agent_instance_id, t.revoked_at,
+                   ai.deleted_at AS agent_deleted_at
+            FROM tokens t
+            LEFT JOIN agent_instances ai ON ai.id = t.agent_instance_id
+            WHERE t.value_hash = ?
             """,
             (value_hash,),
         ).fetchone()
         if not row or row["revoked_at"] is not None:
+            return None
+        if row["agent_instance_id"] is not None and row["agent_deleted_at"] is not None:
             return None
 
         conn.execute(

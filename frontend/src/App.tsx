@@ -25,11 +25,13 @@ import type { TopicDTO, Workspace, WorkspaceInvite } from "./api/types";
 import { InviteDialog } from "./workspace/InviteDialog";
 import { InviteAgentDialog } from "./workspace/InviteAgentDialog";
 import { JoinTokenPage } from "./join/JoinTokenPage";
+import { AgentDetail } from "./agent/AgentDetail";
 
 type DesktopView =
   | { kind: "topic"; id: number }
   | { kind: "attention" }
-  | { kind: "settings-tokens" };
+  | { kind: "settings-tokens" }
+  | { kind: "agent-detail"; id: number };
 
 export default function App() {
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
@@ -167,6 +169,7 @@ function Workspace() {
       onInviteMember={handleInviteMember}
       onInviteAgent={handleInviteAgent}
       onClickSettings={() => setView({ kind: "settings-tokens" })}
+      onSelectAgent={(id) => setView({ kind: "agent-detail", id })}
     />
   );
 
@@ -201,6 +204,8 @@ function Workspace() {
     main = <AttentionView userName={userName} />;
   } else if (view.kind === "settings-tokens") {
     main = <SettingsTokensPage />;
+  } else if (view.kind === "agent-detail") {
+    main = <AgentDetail agentId={view.id} onBack={() => setView({ kind: "topic", id: activeTopicId ?? 0 })} />;
   } else {
     main = <div className="p-6 text-text-dim">加载中…</div>;
   }
@@ -208,6 +213,8 @@ function Workspace() {
   const context =
     view.kind === "topic" && activeTopicId ? (
       <TopicContext topicId={activeTopicId} projectId={activeWorkspaceId} />
+    ) : view.kind === "agent-detail" ? (
+      <div className="p-4 text-text-dim text-sm">Agent details</div>
     ) : (
       <div className="p-4 text-text-dim text-sm">No context</div>
     );

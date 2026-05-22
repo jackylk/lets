@@ -19,6 +19,7 @@ interface Props {
   onInviteMember: () => void;
   onInviteAgent?: () => void;
   onClickSettings?: () => void;
+  onSelectAgent?: (agentId: number) => void;
 }
 
 interface TopicRowProps {
@@ -60,6 +61,7 @@ export function Sidebar({
   onInviteMember,
   onInviteAgent,
   onClickSettings,
+  onSelectAgent,
 }: Props) {
   const [creating, setCreating] = useState(false);
 
@@ -149,6 +151,7 @@ export function Sidebar({
         members={members}
         onInvite={onInviteMember}
         onInviteAgent={onInviteAgent}
+        onSelectAgent={onSelectAgent}
       />
 
       {/* Footer */}

@@ -5,7 +5,7 @@ import type {
   IdentityDTO, MessageDTO, TopicDTO, PostMessageInput,
   TokenRowDTO, CreateTokenInput, CreateTokenResponseDTO,
   ProjectDTO, ParticipantsDTO, GitStatusDTO, OnlineAgentDTO,
-  AgentInstanceRowDTO,
+  AgentDetailDTO, AgentInstanceRowDTO,
   AttentionDTO, ArtifactDTO,
   Workspace, WorkspaceMember, WorkspaceInvite,
 } from "./types";
@@ -100,6 +100,68 @@ export function useAllAgents() {
     queryFn: () =>
       apiRequest<AgentInstanceRowDTO[]>("/api/agent-instances", { identity }),
     refetchInterval: 15_000,
+  });
+}
+
+export function useMyAgents() {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["agent-instances", "mine"],
+    queryFn: () => apiRequest<AgentInstanceRowDTO[]>("/api/agents/mine", { identity }),
+  });
+}
+
+export function useAgentDetail(agentId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["agent-instances", agentId],
+    enabled: agentId !== null,
+    queryFn: () => apiRequest<AgentDetailDTO>(`/api/agents/${agentId}`, { identity }),
+  });
+}
+
+export function usePauseAgent() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (agentId: number) =>
+      apiRequest<{ ok: boolean }>(`/api/agents/${agentId}/pause`, {
+        method: "POST", body: {}, identity,
+      }),
+    onSuccess: (_res, agentId) => {
+      qc.invalidateQueries({ queryKey: ["agent-instances"] });
+      qc.invalidateQueries({ queryKey: ["agent-instances", agentId] });
+    },
+  });
+}
+
+export function useResumeAgent() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (agentId: number) =>
+      apiRequest<{ ok: boolean }>(`/api/agents/${agentId}/resume`, {
+        method: "POST", body: {}, identity,
+      }),
+    onSuccess: (_res, agentId) => {
+      qc.invalidateQueries({ queryKey: ["agent-instances"] });
+      qc.invalidateQueries({ queryKey: ["agent-instances", agentId] });
+    },
+  });
+}
+
+export function useDeleteAgent() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (agentId: number) =>
+      apiRequest<{ ok: boolean }>(`/api/agents/${agentId}`, {
+        method: "DELETE", identity,
+      }),
+    onSuccess: (_res, agentId) => {
+      qc.invalidateQueries({ queryKey: ["agent-instances"] });
+      qc.invalidateQueries({ queryKey: ["agent-instances", agentId] });
+    },
   });
 }
 

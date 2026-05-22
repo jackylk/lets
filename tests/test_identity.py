@@ -63,7 +63,17 @@ def test_agent_instances_columns(temp_db):
     from app.db import connect
     with connect() as conn:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(agent_instances)").fetchall()}
-    assert {"id", "role_id", "human_id", "device_label", "status", "last_seen_at", "created_at"}.issubset(cols)
+    assert {
+        "id",
+        "role_id",
+        "owner_human_id",
+        "device_label",
+        "model",
+        "display_name",
+        "paused_at",
+        "deleted_at",
+        "created_at",
+    }.issubset(cols)
 
 
 def test_agent_instances_unique_per_human_device(temp_db):
@@ -74,13 +84,13 @@ def test_agent_instances_unique_per_human_device(temp_db):
         human_id = conn.execute("SELECT id FROM humans WHERE name='Neo'").fetchone()["id"]
         role_id = conn.execute("SELECT id FROM agent_roles WHERE name='claude'").fetchone()["id"]
         conn.execute(
-            "INSERT INTO agent_instances (role_id, human_id, device_label) VALUES (?, ?, ?)",
+            "INSERT INTO agent_instances (role_id, owner_human_id, device_label) VALUES (?, ?, ?)",
             (role_id, human_id, "neo-mbp"),
         )
         import sqlite3
         try:
             conn.execute(
-                "INSERT INTO agent_instances (role_id, human_id, device_label) VALUES (?, ?, ?)",
+                "INSERT INTO agent_instances (role_id, owner_human_id, device_label) VALUES (?, ?, ?)",
                 (role_id, human_id, "neo-mbp"),
             )
             assert False, "should have raised IntegrityError"

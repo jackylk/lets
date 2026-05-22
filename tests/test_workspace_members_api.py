@@ -36,10 +36,16 @@ def test_list_members_includes_agents(temp_db, client):
             "SELECT id FROM agent_roles WHERE name='claude'"
         ).fetchone()["id"]
         # human_id 1 = alice (from her first dev-login)
+        agent_id = conn.execute(
+            "INSERT INTO agent_instances (role_id, owner_human_id, device_label) "
+            "VALUES (?, ?, 'mac')",
+            (role_id, 1),
+        ).lastrowid
         conn.execute(
-            "INSERT INTO agent_instances (role_id, human_id, workspace_id, device_label) "
-            "VALUES (?, ?, ?, 'mac')",
-            (role_id, 1, ws["id"]),
+            "INSERT INTO workspace_agent_members "
+            "(workspace_id, agent_instance_id, joined_by_human_id) VALUES (?, ?, ?) "
+            "RETURNING workspace_id",
+            (ws["id"], agent_id, 1),
         )
     r = client.get(f"/api/workspaces/{ws['id']}/members")
     agents = [m for m in r.json() if m["kind"] == "agent"]

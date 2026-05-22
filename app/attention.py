@@ -15,10 +15,11 @@ def get_attention(human_id: int) -> dict:
     """Return three buckets of attention items for one human.
 
     The ``messages.addressed_to`` column is treated as a comma-separated
-    list of human IDs. We wrap with commas on both sides so an integer-id
-    match doesn't false-positive on a substring (e.g., "5" inside "15").
+    list of typed addressees. Bare integer IDs are accepted for legacy human
+    mentions.
     """
-    needle = str(human_id)
+    legacy_needle = str(human_id)
+    typed_needle = f"human:{human_id}"
     with connect() as conn:
         rows = conn.execute(
             """
@@ -26,10 +27,13 @@ def get_attention(human_id: int) -> dict:
             FROM messages m
             JOIN topics t ON t.id = m.topic_id
             WHERE m.addressed_to IS NOT NULL
-              AND ',' || REPLACE(m.addressed_to, ' ', '') || ',' LIKE '%,' || ? || ',%'
+              AND (
+                ',' || REPLACE(m.addressed_to, ' ', '') || ',' LIKE '%,' || ? || ',%'
+                OR ',' || REPLACE(m.addressed_to, ' ', '') || ',' LIKE '%,' || ? || ',%'
+              )
             ORDER BY m.created_at DESC
             """,
-            (needle,),
+            (legacy_needle, typed_needle),
         ).fetchall()
 
     needs_decision: list[dict] = []
