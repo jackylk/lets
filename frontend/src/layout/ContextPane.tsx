@@ -8,7 +8,7 @@ interface BlockProps { label: string; right?: ReactNode; hint?: string; children
 export function ContextBlock({ label, right, hint, children }: BlockProps) {
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-2 px-1">
+      <div className="flex items-baseline justify-between mb-1.5 px-1">
         <span
           className="text-[11px] uppercase tracking-wider font-semibold text-text-dim"
           title={hint}
