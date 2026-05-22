@@ -429,33 +429,105 @@ def whoami() -> dict:
 
 @mcp.tool()
 def list_my_topics(limit: int = 50) -> list[dict]:
-    """List topics on this Let's instance, newest activity first.
+    """List topics visible to the calling human or agent, newest activity first.
 
     For each topic returns: ``{id, slug, title, project_id, project_slug,
     project_name, last_message_id, last_message_at, last_message_body}``.
-    The single-tenant local-mode assumption is that every topic is visible
-    to every authenticated user — multi-tenant ACLs land in Track C2.
     """
+    from .auth import get_mcp_principal
+
+    p = get_mcp_principal()
+    if p is None:
+        raise ValueError("MCP call has no authenticated principal")
+
+    agent_id = p.get("agent_instance_id")
+    if agent_id is not None:
+        membership_predicate = """
+            (
+              t.workspace_id IS NULL OR EXISTS (
+                SELECT 1
+                FROM workspace_agent_members wam
+                JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+                WHERE wam.workspace_id = t.workspace_id
+                  AND wam.agent_instance_id = ?
+                  AND ai.paused_at IS NULL
+                  AND ai.deleted_at IS NULL
+              )
+            )
+        """
+        params: list[object] = [int(agent_id), limit]
+    else:
+        membership_predicate = """
+            (
+              t.workspace_id IS NULL OR EXISTS (
+                SELECT 1 FROM workspace_members wm
+                WHERE wm.workspace_id = t.workspace_id AND wm.human_id = ?
+              )
+            )
+        """
+        params = [int(p["human_id"]), limit]
+
     with connect() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT
-                t.id, t.slug, t.title, t.project_id,
-                p.slug AS project_slug, p.name AS project_name,
+                t.id, t.slug, t.title, t.workspace_id AS project_id,
+                w.slug AS project_slug, w.name AS project_name,
                 m.id AS last_message_id,
                 m.created_at AS last_message_at,
                 m.body AS last_message_body
             FROM topics t
-            LEFT JOIN projects p ON p.id = t.project_id
+            LEFT JOIN workspaces w ON w.id = t.workspace_id
             LEFT JOIN messages m ON m.id = (
                 SELECT MAX(id) FROM messages WHERE topic_id = t.id
             )
+            WHERE {membership_predicate}
             ORDER BY COALESCE(m.created_at, t.created_at) DESC, t.id DESC
             LIMIT ?
             """,
-            (limit,),
+            params,
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _require_mcp_topic_actor(topic_id: int, principal: dict) -> None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT workspace_id FROM topics WHERE id = ?",
+            (topic_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("topic not found")
+        if row["workspace_id"] is None:
+            return
+        workspace_id = int(row["workspace_id"])
+        agent_id = principal.get("agent_instance_id")
+        if agent_id is not None:
+            membership = conn.execute(
+                """
+                SELECT ai.paused_at, ai.deleted_at
+                FROM workspace_agent_members wam
+                JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+                WHERE wam.workspace_id = ? AND wam.agent_instance_id = ?
+                """,
+                (workspace_id, int(agent_id)),
+            ).fetchone()
+            if membership is None:
+                raise ValueError("agent is not a member of this topic workspace")
+            if membership["paused_at"] is not None:
+                raise ValueError("agent is paused")
+            if membership["deleted_at"] is not None:
+                raise ValueError("agent is deleted")
+            return
+        membership = conn.execute(
+            """
+            SELECT 1 FROM workspace_members
+            WHERE workspace_id = ? AND human_id = ?
+            """,
+            (workspace_id, int(principal["human_id"])),
+        ).fetchone()
+        if membership is None:
+            raise ValueError("human is not a member of this topic workspace")
 
 
 @mcp.tool()
@@ -476,7 +548,12 @@ def read_topic(
     long topic without missing the tail.
     """
     from .messages import topic_stream
+    from .auth import get_mcp_principal
 
+    p = get_mcp_principal()
+    if p is None:
+        raise ValueError("MCP call has no authenticated principal")
+    _require_mcp_topic_actor(topic_id, p)
     return topic_stream(topic_id, after_id=after_id, limit=limit, order=order)
 
 
@@ -505,6 +582,7 @@ async def post_typed_message(
     from .sse import broadcaster
 
     p = _require_agent_principal()
+    _require_mcp_topic_actor(topic_id, p)
     msg_id = post_message(
         topic_id=topic_id,
         type=type,

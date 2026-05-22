@@ -47,8 +47,13 @@ def _call(client, headers, name, arguments, *, expect_list: bool = False):
     # Prefer structuredContent when present and unambiguous.
     sc = result.get("structuredContent")
     if isinstance(sc, dict) and set(sc.keys()) == {"result"}:
-        return sc["result"]
+        value = sc["result"]
+        if expect_list and isinstance(value, dict):
+            return [value]
+        return value
     if sc is not None:
+        if expect_list and isinstance(sc, dict):
+            return [sc]
         return sc
 
     content = result.get("content", [])
@@ -100,6 +105,43 @@ def test_list_my_topics_sees_a_topic(client, agent_auth):
     topics = _call(client, headers, "list_my_topics", {"limit": 200}, expect_list=True)
     slugs = {t["slug"] for t in topics}
     assert "mcp-v15-t1" in slugs
+
+
+def test_list_my_topics_filters_to_agent_workspaces(client):
+    from app.auth import issue_token
+    from app.identity import ensure_agent_instance, ensure_human
+    from app.workspaces import create_workspace
+    from app.db import connect
+
+    neo_id = ensure_human("Neo")
+    allowed_ws = create_workspace("Allowed MCP Workspace", neo_id)
+    agent_id = ensure_agent_instance(
+        "claude", neo_id, "neo-mbp-mcp-workspace-test", workspace_id=allowed_ws["id"],
+    )
+    token, _ = issue_token(
+        human_id=neo_id, agent_instance_id=agent_id, label="mcp-v15-workspace-test",
+    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json, text/event-stream",
+    }
+
+    trinity_id = ensure_human("Trinity")
+    hidden_ws = create_workspace("Hidden MCP Workspace", trinity_id)
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO topics (slug, title, workspace_id) VALUES (?, ?, ?)",
+            ("mcp-visible-topic", "Visible", allowed_ws["id"]),
+        )
+        conn.execute(
+            "INSERT INTO topics (slug, title, workspace_id) VALUES (?, ?, ?)",
+            ("mcp-hidden-topic", "Hidden", hidden_ws["id"]),
+        )
+
+    topics = _call(client, headers, "list_my_topics", {"limit": 200}, expect_list=True)
+    slugs = {t["slug"] for t in topics}
+    assert "mcp-visible-topic" in slugs
+    assert "mcp-hidden-topic" not in slugs
 
 
 def test_post_typed_message_writes_as_calling_agent(client, agent_auth):

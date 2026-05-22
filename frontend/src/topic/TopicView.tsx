@@ -13,13 +13,14 @@ import { StreamProvider } from "../messages/StreamContext";
 import { DiagramOverlay } from "../messages/DiagramOverlay";
 import { Composer, type MentionCandidate, type MentionResolver } from "./Composer";
 import { topicDisplayTitle } from "./topicSummary";
-import type { MessageDTO, TaskTreeProposalMeta } from "../api/types";
+import type { MessageDTO, TaskTreeProposalMeta, WorkspaceMember } from "../api/types";
 
 interface Props {
   topicId: number;
+  workspaceMembers?: WorkspaceMember[];
 }
 
-export function TopicView({ topicId }: Props) {
+export function TopicView({ topicId, workspaceMembers = [] }: Props) {
   const me = useIdentityMe();
   const topic = useTopic(topicId);
   const participants = useTopicParticipants(topicId);
@@ -87,64 +88,82 @@ export function TopicView({ topicId }: Props) {
     };
   }, [agents.data, me.data, participants.data]);
 
-  // Build a mention resolver: @cc / @codex / @<role> / @<device> / @<human> → human_id list.
+  // Build a mention resolver from workspace roster so people and agents can
+  // be addressed before they have posted in this topic.
   const mentionCandidates: MentionCandidate[] = useMemo(() => {
     const out: MentionCandidate[] = [];
     const seen = new Set<string>();
-    for (const a of agents.data ?? []) {
-      if (!a.is_online) continue;
-      const key = a.role === "claude" ? "cc" : a.role === "codex" ? "cx" : a.role.toLowerCase();
+    for (const m of workspaceMembers) {
+      if (m.kind !== "agent" || m.deleted_at) continue;
+      const online = Boolean(
+        (agents.data ?? []).find((a) => a.agent_instance_id === m.id && a.is_online),
+      );
+      const key = m.role === "claude" ? "cc" : m.role === "codex" ? "cx" : m.role.toLowerCase();
       if (!seen.has(`agent:${key}`)) {
         seen.add(`agent:${key}`);
         out.push({
           key,
-          label: `${a.role} · ${a.device_label}`,
-          detail: a.is_online ? "online" : "offline",
+          label: `${m.display_name || m.role} · ${m.device_label || "device"}`,
+          detail: `${online ? "online" : "offline"} · by ${m.owner_name}`,
           kind: "agent",
         });
       }
     }
-    for (const h of participants.data?.humans ?? []) {
-      if (me.data?.human.id === h.id) continue;
-      const key = h.name.toLowerCase();
+    for (const m of workspaceMembers) {
+      if (m.kind !== "human" || me.data?.human.id === m.id) continue;
+      const key = m.name.toLowerCase();
       if (seen.has(`human:${key}`)) continue;
       seen.add(`human:${key}`);
       out.push({
         key,
-        label: h.name,
+        label: m.name,
         detail: "human",
         kind: "human",
       });
     }
     return out;
-  }, [agents.data, me.data, participants.data]);
+  }, [agents.data, me.data, workspaceMembers]);
 
   const resolver: MentionResolver = useMemo(() => {
-    const lookup: Record<string, number> = {};
-    // Humans in the topic
-    for (const h of participants.data?.humans ?? []) {
-      lookup[h.name.toLowerCase()] = h.id;
+    const lookup: Record<string, string> = {};
+    for (const m of workspaceMembers) {
+      if (m.kind === "human") {
+        lookup[m.name.toLowerCase()] = `human:${m.id}`;
+        continue;
+      }
+      if (m.deleted_at) continue;
+      lookup[m.role.toLowerCase()] = `agent:${m.id}`;
+      if (m.device_label) lookup[m.device_label.toLowerCase()] = `agent:${m.id}`;
+      if (m.display_name) lookup[m.display_name.toLowerCase()] = `agent:${m.id}`;
+      if (m.role === "claude") lookup["cc"] = `agent:${m.id}`;
+      if (m.role === "codex") lookup["cx"] = `agent:${m.id}`;
     }
-    // Agents in the topic — @cc / @codex / @<role> / @<device> all map to
-    // the agent's human (the runner triggers on human_id match)
-    for (const a of agents.data ?? []) {
-      lookup[a.role.toLowerCase()] = a.human_id;
-      lookup[a.device_label.toLowerCase()] = a.human_id;
-      // Short aliases the user is likely to type
-      if (a.role === "claude") lookup["cc"] = a.human_id;
-      if (a.role === "codex") lookup["cx"] = a.human_id;
+    // Topic participants are a fallback for older topics whose workspace
+    // member query has not caught up yet.
+    for (const h of participants.data?.humans ?? []) {
+      lookup[h.name.toLowerCase()] ??= `human:${h.id}`;
     }
     return {
+      resolveAddresses(mentions) {
+        const out = new Set<string>();
+        for (const m of mentions) {
+          const address = lookup[m];
+          if (address) out.add(address);
+        }
+        return [...out];
+      },
       resolveHumanIds(mentions) {
         const out = new Set<number>();
         for (const m of mentions) {
-          const id = lookup[m];
-          if (id != null) out.add(id);
+          const address = lookup[m];
+          if (address?.startsWith("human:")) {
+            out.add(Number(address.slice("human:".length)));
+          }
         }
         return [...out];
       },
     };
-  }, [participants.data, agents.data]);
+  }, [participants.data, workspaceMembers]);
 
   function send(msg: { body: string; addressedTo: string | null }) {
     if (!me.data) return;

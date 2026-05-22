@@ -2,11 +2,13 @@ import { useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
 
 export interface ComposerMessage {
   body: string;
-  /** Comma-separated human IDs derived from @mentions in the body. */
+  /** Comma-separated typed addressees, e.g. human:2,agent:7. */
   addressedTo: string | null;
 }
 
 export interface MentionResolver {
+  resolveAddresses?: (mentions: string[]) => string[];
+  /** @deprecated Use resolveAddresses so agents can be addressed as agent:<id>. */
   resolveHumanIds: (mentions: string[]) => number[];
 }
 
@@ -27,9 +29,9 @@ interface Props {
 
 /**
  * Parses `@name` / `@cc` / `@codex` tokens out of the body and asks the
- * resolver to map them to human_ids. The result is stuffed into
- * ``addressed_to`` on the outgoing message — which is what the agent
- * runner pivots on to decide whether to invoke the local CLI.
+ * resolver to map them to typed addressees. The result is stuffed into
+ * ``addressed_to`` on the outgoing message — humans use human:<id>,
+ * agents use agent:<id>.
  */
 function extractMentions(body: string): string[] {
   const matches = body.matchAll(/@([\p{L}\p{N}_-]+)/gu);
@@ -115,8 +117,10 @@ export function Composer({
     const mentions = extractMentions(trimmed);
     let addressedTo: string | null = null;
     if (mentions.length > 0 && resolver) {
-      const ids = resolver.resolveHumanIds(mentions);
-      addressedTo = ids.length > 0 ? ids.join(",") : null;
+      const addresses = resolver.resolveAddresses
+        ? resolver.resolveAddresses(mentions)
+        : resolver.resolveHumanIds(mentions).map((id) => String(id));
+      addressedTo = addresses.length > 0 ? addresses.join(",") : null;
     }
     onSend({ body: trimmed, addressedTo });
     setText("");
@@ -161,8 +165,12 @@ export function Composer({
   }
 
   const mentions = extractMentions(text);
-  const resolvedIds =
-    mentions.length > 0 && resolver ? resolver.resolveHumanIds(mentions) : [];
+  const resolvedAddresses =
+    mentions.length > 0 && resolver
+      ? resolver.resolveAddresses
+        ? resolver.resolveAddresses(mentions)
+        : resolver.resolveHumanIds(mentions).map((id) => String(id))
+      : [];
 
   return (
     <div className="px-6 py-3 border-t border-border-soft bg-bg">
@@ -212,8 +220,8 @@ export function Composer({
           {mentions.length > 0 && (
             <span className="font-mono">
               {mentions.map((m) => `@${m}`).join(" ")}
-              {resolvedIds.length > 0
-                ? ` to human_id ${resolvedIds.join(",")}`
+              {resolvedAddresses.length > 0
+                ? ` to ${resolvedAddresses.join(",")}`
                 : " (无法解析)"}
             </span>
           )}

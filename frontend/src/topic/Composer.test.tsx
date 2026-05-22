@@ -22,9 +22,13 @@ describe("<Composer />", () => {
     expect((textarea as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("extracts @mentions and feeds resolved human_ids into addressedTo", async () => {
+  it("extracts @mentions and feeds typed addresses into addressedTo", async () => {
     const onSend = vi.fn();
     const resolver = {
+      resolveAddresses: vi.fn((mentions: string[]) => {
+        const map: Record<string, string> = { cc: "agent:7", trinity: "human:2" };
+        return mentions.map((m) => map[m]).filter((v): v is string => typeof v === "string");
+      }),
       resolveHumanIds: vi.fn((mentions: string[]) => {
         const map: Record<string, number> = { cc: 1, codex: 1, jacky: 1, trinity: 2 };
         return mentions.map((m) => map[m]).filter((n): n is number => typeof n === "number");
@@ -37,20 +41,21 @@ describe("<Composer />", () => {
     await user.type(textarea, "@cc 你能帮我看看吗？ @trinity");
     await user.keyboard("{Enter}");
 
-    expect(resolver.resolveHumanIds).toHaveBeenCalledWith(["cc", "trinity"]);
+    expect(resolver.resolveAddresses).toHaveBeenCalledWith(["cc", "trinity"]);
     expect(onSend).toHaveBeenCalledWith({
       body: "@cc 你能帮我看看吗？ @trinity",
-      addressedTo: "1,2",
+      addressedTo: "agent:7,human:2",
     });
   });
 
   it("treats plain CC/Codex calls as addressed agent mentions", async () => {
     const onSend = vi.fn();
     const resolver = {
-      resolveHumanIds: vi.fn((mentions: string[]) => {
-        const map: Record<string, number> = { cc: 1, cx: 2 };
-        return mentions.map((m) => map[m]).filter((n): n is number => typeof n === "number");
+      resolveAddresses: vi.fn((mentions: string[]) => {
+        const map: Record<string, string> = { cc: "agent:7", cx: "agent:8" };
+        return mentions.map((m) => map[m]).filter((v): v is string => typeof v === "string");
       }),
+      resolveHumanIds: vi.fn(() => []),
     };
     const user = userEvent.setup();
     renderWithProviders(<Composer onSend={onSend} resolver={resolver} />);
@@ -59,20 +64,21 @@ describe("<Composer />", () => {
     await user.type(textarea, "CC在吗");
     await user.keyboard("{Enter}");
 
-    expect(resolver.resolveHumanIds).toHaveBeenCalledWith(["cc"]);
+    expect(resolver.resolveAddresses).toHaveBeenCalledWith(["cc"]);
     expect(onSend).toHaveBeenCalledWith({
       body: "CC在吗",
-      addressedTo: "1",
+      addressedTo: "agent:7",
     });
   });
 
   it("shows mention candidates after @ and inserts the selected alias", async () => {
     const onSend = vi.fn();
     const resolver = {
-      resolveHumanIds: vi.fn((mentions: string[]) => {
-        const map: Record<string, number> = { cc: 1 };
-        return mentions.map((m) => map[m]).filter((n): n is number => typeof n === "number");
+      resolveAddresses: vi.fn((mentions: string[]) => {
+        const map: Record<string, string> = { cc: "agent:7" };
+        return mentions.map((m) => map[m]).filter((v): v is string => typeof v === "string");
       }),
+      resolveHumanIds: vi.fn(() => []),
     };
     const user = userEvent.setup();
     renderWithProviders(
@@ -91,10 +97,11 @@ describe("<Composer />", () => {
 
     await user.keyboard("{Enter}");
     expect(textarea.value).toBe("@cc ");
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 
     await user.type(textarea, "hi");
     await user.keyboard("{Enter}");
-    expect(onSend).toHaveBeenCalledWith({ body: "@cc hi", addressedTo: "1" });
+    expect(onSend).toHaveBeenCalledWith({ body: "@cc hi", addressedTo: "agent:7" });
   });
 
   it("@c prefix-matches @cc and Enter auto-selects (case-insensitive)", async () => {

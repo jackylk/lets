@@ -185,7 +185,7 @@ function Workspace() {
         <ConnectComputerBanner onDismiss={() => setBannerDismissed(true)} />
       )}
       <div className="flex-1 min-h-0">
-        <TopicView topicId={id} />
+        <TopicView topicId={id} workspaceMembers={members} />
       </div>
     </div>
   );
