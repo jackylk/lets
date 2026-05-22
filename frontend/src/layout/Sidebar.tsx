@@ -74,7 +74,7 @@ function TopicRow({ topic, active, onSelect, onRename }: TopicRowProps) {
         "group relative flex w-full items-center rounded text-[12.5px]",
         active
           ? "bg-surface-elev text-text shadow-[inset_0_0_0_1px_var(--color-border)]"
-          : "text-text-muted hover:text-text hover:shadow-[inset_2px_0_0_var(--color-accent)]",
+          : "text-text-muted hover:bg-surface-hover hover:text-text",
       )}
     >
       {renaming ? (
