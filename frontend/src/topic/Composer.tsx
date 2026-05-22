@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 
 export interface ComposerMessage {
   body: string;
@@ -66,6 +66,8 @@ export function Composer({
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingCaretRef = useRef<number | null>(null);
 
   const mentionQuery = activeMentionQuery(text, caret);
   const mentionOptions = useMemo(() => {
@@ -91,6 +93,14 @@ export function Composer({
     return ranked.map((r) => r.c).slice(0, 6);
   }, [mentionCandidates, mentionQuery]);
 
+  useEffect(() => {
+    const nextCaret = pendingCaretRef.current;
+    if (nextCaret === null) return;
+    pendingCaretRef.current = null;
+    textareaRef.current?.focus();
+    textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+  }, [text]);
+
   function updateText(e: ChangeEvent<HTMLTextAreaElement>) {
     setText(e.target.value);
     setCaret(e.target.selectionStart);
@@ -101,14 +111,10 @@ export function Composer({
     if (!mentionQuery) return;
     const next = `${text.slice(0, mentionQuery.start)}@${candidate.key} ${text.slice(caret)}`;
     const nextCaret = mentionQuery.start + candidate.key.length + 2;
+    pendingCaretRef.current = nextCaret;
     setText(next);
     setCaret(nextCaret);
     setActiveIndex(0);
-    requestAnimationFrame(() => {
-      const textarea = document.querySelector<HTMLTextAreaElement>("[data-testid='composer-textarea']");
-      textarea?.focus();
-      textarea?.setSelectionRange(nextCaret, nextCaret);
-    });
   }
 
   function submit() {
@@ -205,6 +211,7 @@ export function Composer({
         )}
         <textarea
           data-testid="composer-textarea"
+          ref={textareaRef}
           rows={1}
           value={text}
           disabled={disabled}
