@@ -530,12 +530,137 @@ _init_lock = threading.Lock()
 _initialized_url: str | None = None
 
 
+def _migrate_projects_to_workspaces(conn) -> None:
+    """One-shot migration for environments deployed before the workspace rewrite.
+
+    Detects the legacy `projects` table / `topics.project_id` column and:
+      1. Copies projects → workspaces (preserving id) when both exist
+      2. Renames topics.project_id → topics.workspace_id
+      3. Inserts the project owner as the workspace owner member
+      4. Drops the old projects table
+
+    No-op once the new schema is in place. Safe to run on every startup.
+    """
+    cols = conn.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'topics' AND column_name IN ('project_id', 'workspace_id')"
+    ).fetchall()
+    col_names = {r["column_name"] for r in cols}
+    has_legacy = "project_id" in col_names
+    has_new = "workspace_id" in col_names
+    if not has_legacy:
+        return  # already on new schema (or fresh DB)
+
+    legacy_projects_exists = bool(conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'projects'"
+    ).fetchone())
+
+    if legacy_projects_exists:
+        # Step 1: copy projects rows into workspaces, preserving id.
+        conn.execute(
+            """
+            INSERT INTO workspaces (id, slug, name, description, owner_human_id,
+                                    created_at, updated_at)
+            SELECT id, slug, name, description, owner_human_id,
+                   created_at, updated_at
+            FROM projects
+            ON CONFLICT (id) DO NOTHING
+            """
+        )
+        # Step 3: project owner becomes workspace owner.
+        conn.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, human_id, role)
+            SELECT id, owner_human_id, 'owner'
+            FROM workspaces
+            WHERE owner_human_id IS NOT NULL
+            ON CONFLICT DO NOTHING
+            """
+        )
+        # Resync the workspaces id sequence after preserving legacy ids.
+        conn.execute(
+            "SELECT setval(pg_get_serial_sequence('workspaces', 'id'), "
+            "COALESCE((SELECT MAX(id) FROM workspaces), 1))"
+        )
+
+    # Step 2: rename topics.project_id → topics.workspace_id.
+    if not has_new:
+        # Drop the FK that referenced projects(id) — the new FK to workspaces(id)
+        # is named topics_workspace_id_fkey, but the legacy column had its own
+        # constraint that must go first.
+        conn.execute(
+            """
+            DO $$
+            DECLARE fk_name TEXT;
+            BEGIN
+              SELECT conname INTO fk_name FROM pg_constraint
+              WHERE conrelid = 'topics'::regclass
+                AND contype = 'f'
+                AND pg_get_constraintdef(oid) LIKE '%project_id%';
+              IF fk_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE topics DROP CONSTRAINT ' || quote_ident(fk_name);
+              END IF;
+            END $$;
+            """
+        )
+        conn.execute("ALTER TABLE topics RENAME COLUMN project_id TO workspace_id")
+        conn.execute(
+            "ALTER TABLE topics ADD CONSTRAINT topics_workspace_id_fkey "
+            "FOREIGN KEY (workspace_id) REFERENCES workspaces(id)"
+        )
+
+    # Step 4: drop the legacy table.
+    conn.execute("DROP TABLE IF EXISTS projects CASCADE")
+
+    # Step 5: agent_instances.workspace_id NOT NULL — fill any legacy NULLs.
+    # Pre-rewrite agent_instances rows didn't have a workspace_id at all,
+    # so the column was just added by CREATE TABLE IF NOT EXISTS? Actually no,
+    # if the table already exists the CREATE is a no-op and the column may
+    # be missing. Add it (nullable), backfill with the human's first workspace
+    # (or auto-create one), then enforce NOT NULL.
+    ai_cols = conn.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'agent_instances' AND column_name = 'workspace_id'"
+    ).fetchone()
+    if ai_cols is None:
+        conn.execute(
+            "ALTER TABLE agent_instances ADD COLUMN workspace_id BIGINT "
+            "REFERENCES workspaces(id)"
+        )
+        # Backfill: for each agent, drop the row if its human has no workspace —
+        # the human will recreate via `lets add` against the new schema anyway.
+        conn.execute(
+            """
+            DELETE FROM agent_instances ai
+            WHERE NOT EXISTS (
+                SELECT 1 FROM workspace_members wm
+                WHERE wm.human_id = ai.human_id
+            )
+            """
+        )
+        conn.execute(
+            """
+            UPDATE agent_instances ai
+            SET workspace_id = (
+                SELECT workspace_id FROM workspace_members wm
+                WHERE wm.human_id = ai.human_id
+                ORDER BY joined_at ASC LIMIT 1
+            )
+            WHERE workspace_id IS NULL
+            """
+        )
+        conn.execute(
+            "ALTER TABLE agent_instances ALTER COLUMN workspace_id SET NOT NULL"
+        )
+
+
 def init_db() -> None:
     global _initialized_url
     url = database_url()
     with _init_lock:
         with connect() as conn:
             conn.executescript(_SCHEMA_SQL)
+            _migrate_projects_to_workspaces(conn)
             conn.execute("INSERT INTO agent_roles (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
                          ("claude", "Anthropic Claude Code"))
             conn.execute("INSERT INTO agent_roles (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
