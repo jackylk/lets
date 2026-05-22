@@ -17,6 +17,7 @@ interface Props {
   onSwitchWorkspace: (id: number) => void;
   onCreateWorkspace: (name: string) => void;
   onInviteMember: () => void;
+  onInviteAgent?: () => void;
   onClickSettings?: () => void;
 }
 
@@ -57,6 +58,7 @@ export function Sidebar({
   onSwitchWorkspace,
   onCreateWorkspace,
   onInviteMember,
+  onInviteAgent,
   onClickSettings,
 }: Props) {
   const [creating, setCreating] = useState(false);
@@ -143,7 +145,11 @@ export function Sidebar({
       <div className="flex-1 min-h-3" />
 
       {/* Members list */}
-      <MembersList members={members} onInvite={onInviteMember} />
+      <MembersList
+        members={members}
+        onInvite={onInviteMember}
+        onInviteAgent={onInviteAgent}
+      />
 
       {/* Footer */}
       {onClickSettings && (

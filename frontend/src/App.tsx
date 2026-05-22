@@ -23,6 +23,7 @@ import { apiRequest } from "./api/client";
 import { useIdentity } from "./identity/useIdentity";
 import type { TopicDTO, Workspace, WorkspaceInvite } from "./api/types";
 import { InviteDialog } from "./workspace/InviteDialog";
+import { InviteAgentDialog } from "./workspace/InviteAgentDialog";
 import { JoinTokenPage } from "./join/JoinTokenPage";
 
 type DesktopView =
@@ -131,6 +132,7 @@ function Workspace() {
   };
 
   const [activeInvite, setActiveInvite] = useState<WorkspaceInvite | null>(null);
+  const [showInviteAgent, setShowInviteAgent] = useState(false);
   const createInvite = useCreateInvite();
 
   const handleInviteMember = () => {
@@ -138,6 +140,11 @@ function Workspace() {
     createInvite.mutate(activeWorkspace.id, {
       onSuccess: (inv) => setActiveInvite(inv),
     });
+  };
+
+  const handleInviteAgent = () => {
+    if (!activeWorkspace) return;
+    setShowInviteAgent(true);
   };
 
   const sidebar = (
@@ -158,6 +165,7 @@ function Workspace() {
       onSwitchWorkspace={handleSwitchWorkspace}
       onCreateWorkspace={handleCreateWorkspace}
       onInviteMember={handleInviteMember}
+      onInviteAgent={handleInviteAgent}
       onClickSettings={() => setView({ kind: "settings-tokens" })}
     />
   );
@@ -232,6 +240,13 @@ function Workspace() {
           workspaceName={activeWorkspace?.name ?? ""}
           joinUrl={activeInvite.join_url}
           onClose={() => setActiveInvite(null)}
+        />
+      )}
+      {showInviteAgent && activeWorkspace && (
+        <InviteAgentDialog
+          workspaceName={activeWorkspace.name}
+          workspaceSlug={activeWorkspace.slug}
+          onClose={() => setShowInviteAgent(false)}
         />
       )}
     </>

@@ -3,9 +3,10 @@ import type { WorkspaceMember } from "../api/types";
 interface Props {
   members: WorkspaceMember[];
   onInvite: () => void;
+  onInviteAgent?: () => void;
 }
 
-export function MembersList({ members, onInvite }: Props) {
+export function MembersList({ members, onInvite, onInviteAgent }: Props) {
   return (
     <div className="px-3 py-2 border-t border-border">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim mb-2">
@@ -35,13 +36,24 @@ export function MembersList({ members, onInvite }: Props) {
           <div className="text-xs text-text-dim italic">暂无成员</div>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onInvite}
-        className="mt-2 text-xs text-text-dim hover:text-text"
-      >
-        ＋ 邀请成员
-      </button>
+      <div className="mt-2 flex flex-col gap-1 items-start">
+        <button
+          type="button"
+          onClick={onInvite}
+          className="text-xs text-text-dim hover:text-text"
+        >
+          ＋ 邀请成员
+        </button>
+        {onInviteAgent && (
+          <button
+            type="button"
+            onClick={onInviteAgent}
+            className="text-xs text-text-dim hover:text-text"
+          >
+            ＋ 邀请 agent
+          </button>
+        )}
+      </div>
     </div>
   );
 }

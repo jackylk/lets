@@ -31,7 +31,7 @@ const ws2 = makeWorkspace(2, "用户认证", "user-auth");
 const defaultProps = {
   activeWorkspace: ws1,
   workspaces: [ws1, ws2],
-  topics: [makeTopic(10, "general-1", "主频道")],
+  topics: [makeTopic(10, "topic-abc12", "新话题")],
   members: [] as WorkspaceMember[],
   activeTopicId: null,
   onSelectTopic: vi.fn(),
@@ -47,7 +47,7 @@ describe("<Sidebar />", () => {
     // Active workspace switcher shows name
     expect(screen.getByText(/我的工作区/)).toBeInTheDocument();
     // Active workspace topics rendered
-    expect(screen.getByText("主频道")).toBeInTheDocument();
+    expect(screen.getByText("新话题")).toBeInTheDocument();
     // Other workspace collapsed section visible (may appear in switcher chips AND section)
     expect(screen.getAllByText("用户认证").length).toBeGreaterThan(0);
   });
@@ -78,7 +78,7 @@ describe("<Sidebar />", () => {
   it("calls onSelectTopic when a topic row is clicked", () => {
     const onSelectTopic = vi.fn();
     renderWithProviders(<Sidebar {...defaultProps} onSelectTopic={onSelectTopic} />);
-    fireEvent.click(screen.getByText("主频道"));
+    fireEvent.click(screen.getByText("新话题"));
     expect(onSelectTopic).toHaveBeenCalledWith(10);
   });
 
@@ -101,7 +101,7 @@ describe("<Sidebar />", () => {
   it("does not render ChannelRow — only TopicRow style buttons", () => {
     renderWithProviders(<Sidebar {...defaultProps} />);
     // No old masthead / Let's branding (that was removed from sidebar)
-    // The primary topic button should have GENERA (first 6 chars of 'general-1')
-    expect(screen.getByText("GENERA")).toBeInTheDocument();
+    // The primary topic button should have TOPIC- (first 6 chars of 'topic-abc12')
+    expect(screen.getByText("TOPIC-")).toBeInTheDocument();
   });
 });

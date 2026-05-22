@@ -65,4 +65,22 @@ describe("<MembersList />", () => {
     expect(screen.getByText("Neo")).toBeInTheDocument();
     expect(screen.getByText("claude")).toBeInTheDocument();
   });
+
+  it("renders 邀请 agent button only when onInviteAgent is provided", () => {
+    const { rerender } = render(
+      <MembersList members={[]} onInvite={vi.fn()} />,
+    );
+    expect(screen.queryByText(/邀请 agent/)).toBeNull();
+
+    const onInviteAgent = vi.fn();
+    rerender(
+      <MembersList
+        members={[]}
+        onInvite={vi.fn()}
+        onInviteAgent={onInviteAgent}
+      />,
+    );
+    fireEvent.click(screen.getByText(/邀请 agent/));
+    expect(onInviteAgent).toHaveBeenCalledOnce();
+  });
 });

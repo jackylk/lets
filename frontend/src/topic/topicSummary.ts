@@ -3,9 +3,10 @@ import type { MessageDTO, TopicDTO } from "../api/types";
 const GENERIC_TITLES = new Set([
   "new",
   "新对话",
+  "新话题",  // auto-created on first login; fall through to first-message title
   "untitled",
   "topic",
-  "主频道",  // auto-created on first login; fall through to first-message title
+  "主频道",  // legacy default; kept for back-compat
   "general",
 ]);
 

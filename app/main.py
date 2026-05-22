@@ -259,20 +259,20 @@ class TopicUpdate(BaseModel):
 
 
 def _ensure_onboarded(human_id: int) -> None:
-    """Create '我的工作区' + '主频道' on first login if absent. Idempotent."""
+    """Create '我的工作区' + '新话题' on first login if absent. Idempotent."""
     import secrets as _secrets
     from .workspaces import list_workspaces_for_human, create_workspace
     if list_workspaces_for_human(human_id):
         return
     ws = create_workspace(name="我的工作区", owner_human_id=human_id)
-    slug = f"general-{_secrets.token_hex(4)}"
+    slug = f"topic-{_secrets.token_hex(4)}"
     with connect() as conn:
         conn.execute(
             """
             INSERT INTO topics (slug, title, workspace_id, mode)
             VALUES (?, ?, ?, 'exploratory')
             """,
-            (slug, "主频道", ws["id"]),
+            (slug, "新话题", ws["id"]),
         )
 
 
@@ -980,11 +980,11 @@ def list_activity() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-_GENERIC_TOPIC_TITLES = {"主频道", "新对话", "general", "untitled", "new", "topic"}
+_GENERIC_TOPIC_TITLES = {"新话题", "主频道", "新对话", "general", "untitled", "new", "topic"}
 
 
 def _maybe_rename_topic_from_first_chat(topic_id: int, body: str) -> str | None:
-    """If the topic is still on its auto-created generic name ("主频道" etc.)
+    """If the topic is still on its auto-created generic name ("新话题" etc.)
     and the current message body is a real user chat, derive a short title
     from the body and persist it. Returns the new title if it was changed,
     else None."""
@@ -1073,7 +1073,7 @@ async def post_message_endpoint(
     ):
         addressed_to = _default_addressee_for(payload.actor_id)
 
-    # First-chat-renames-topic: replace the auto-created "主频道" with a
+    # First-chat-renames-topic: replace the auto-created "新话题" with a
     # short snippet of the first human message so the sidebar + header
     # immediately reflect what the topic is actually about.
     if payload.actor_type == "human" and payload.type == "chat":

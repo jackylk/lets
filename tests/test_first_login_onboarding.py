@@ -20,7 +20,7 @@ def test_first_login_creates_workspace_and_topic(temp_db, client):
     ws_id = workspaces[0]["id"]
     topics = client.get(f"/api/workspaces/{ws_id}/topics").json()
     assert len(topics) == 1
-    assert topics[0]["title"] == "主频道"
+    assert topics[0]["title"] == "新话题"
 
 
 def test_second_login_does_not_duplicate(temp_db, client):

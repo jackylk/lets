@@ -11,6 +11,7 @@ interface AppShellProps {
 
 const COLLAPSED_KEY = "lets:sidebar-collapsed";
 const CONTEXT_W_KEY = "lets:context-w";
+const CONTEXT_OPEN_KEY = "lets:context-open";
 const SIDEBAR_W_EXPANDED = 296;
 const SIDEBAR_W_COLLAPSED = 48;
 const CONTEXT_W_DEFAULT = 360;
@@ -29,10 +30,14 @@ function loadContextW(): number {
   } catch { /* ignore */ }
   return CONTEXT_W_DEFAULT;
 }
+function loadContextOpen(): boolean {
+  try { return window.localStorage.getItem(CONTEXT_OPEN_KEY) === "1"; } catch { return false; }
+}
 
 export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: AppShellProps) {
   const [collapsed, setCollapsed] = useState<boolean>(loadCollapsed);
   const [contextW, setContextW] = useState<number>(loadContextW);
+  const [contextOpen, setContextOpen] = useState<boolean>(loadContextOpen);
 
   useEffect(() => {
     try { window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* ignore */ }
@@ -40,15 +45,18 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
   useEffect(() => {
     try { window.localStorage.setItem(CONTEXT_W_KEY, String(contextW)); } catch { /* ignore */ }
   }, [contextW]);
+  useEffect(() => {
+    try { window.localStorage.setItem(CONTEXT_OPEN_KEY, contextOpen ? "1" : "0"); } catch { /* ignore */ }
+  }, [contextOpen]);
 
-  // Drag-to-resize the context pane.
+  // Drag-to-resize the context drawer.
   const dragStart = useRef<{ x: number; startW: number } | null>(null);
   function onResizerDown(e: React.MouseEvent) {
     dragStart.current = { x: e.clientX, startW: contextW };
     document.body.classList.add("select-none", "cursor-col-resize");
     const onMove = (ev: MouseEvent) => {
       if (!dragStart.current) return;
-      const dx = dragStart.current.x - ev.clientX;       // drag left ⇒ wider context
+      const dx = dragStart.current.x - ev.clientX;       // drag left ⇒ wider drawer
       const next = Math.max(
         CONTEXT_W_MIN,
         Math.min(CONTEXT_W_MAX, dragStart.current.startW + dx),
@@ -69,15 +77,13 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
   }
 
   const sideW = collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W_EXPANDED;
-  // On narrow screens the resizer + context column collapse out of view
-  // (Tailwind `hidden xl:block` on the right side). Resizer mirrors that.
 
   return (
     <div
       data-testid="app-shell"
-      className="grid h-[100dvh]"
+      className="grid h-[100dvh] relative"
       style={{
-        gridTemplateColumns: `${sideW}px 1fr 6px ${contextW}px`,
+        gridTemplateColumns: `${sideW}px 1fr`,
         transition: "grid-template-columns .18s ease",
       }}
     >
@@ -104,24 +110,63 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
 
       <main className="flex flex-col min-w-0 overflow-hidden pb-14 md:pb-0">{main}</main>
 
-      {/* Resizer column — a hairline draggable strip between main and context */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        title="拖动调整右栏宽度 · 双击重置"
-        onMouseDown={onResizerDown}
-        onDoubleClick={resetContextW}
-        className="hidden xl:block cursor-col-resize relative bg-transparent group"
-      >
-        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[2px] h-10 bg-border group-hover:bg-accent-border rounded-full transition-colors" />
-        <span className="absolute inset-y-0 left-0 right-0 border-l border-r border-border-soft" />
-      </div>
+      {/* Toggle button — fixed at top-right; hidden on narrow screens (where mobile uses a tab) */}
+      {!contextOpen && (
+        <button
+          type="button"
+          data-testid="app-context-toggle"
+          aria-label="展开 context"
+          title="展开 context"
+          onClick={() => setContextOpen(true)}
+          className="hidden xl:flex fixed top-3 right-3 z-30 items-center gap-1 px-2 py-1 rounded text-[11px] text-text-dim hover:text-text bg-bg/90 border border-border-soft shadow-sm"
+        >
+          context ‹
+        </button>
+      )}
 
+      {/* Floating context drawer */}
       <aside
         data-testid="app-context"
-        className="border-l border-border-soft bg-surface overflow-y-auto hidden xl:block"
+        aria-hidden={!contextOpen}
+        className={
+          "hidden xl:flex flex-col fixed top-0 right-0 h-[100dvh] z-20 " +
+          "border-l border-border-soft bg-surface shadow-xl " +
+          "transition-transform duration-200 ease-out"
+        }
+        style={{
+          width: `${contextW}px`,
+          transform: contextOpen ? "translateX(0)" : "translateX(100%)",
+        }}
       >
-        {context}
+        {/* Resizer hairline on the drawer's left edge */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动调整宽度"
+          title="拖动调整宽度 · 双击重置"
+          onMouseDown={onResizerDown}
+          onDoubleClick={resetContextW}
+          className="absolute left-0 top-0 bottom-0 w-[6px] -translate-x-1/2 cursor-col-resize group z-10"
+        >
+          <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[2px] h-10 bg-border group-hover:bg-accent-border rounded-full transition-colors" />
+        </div>
+
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border-soft">
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-text-dim">
+            context
+          </span>
+          <button
+            type="button"
+            aria-label="收起 context"
+            title="收起 context"
+            onClick={() => setContextOpen(false)}
+            className="w-6 h-6 grid place-items-center rounded text-text-dim hover:text-text hover:bg-surface-hover text-[13px]"
+          >
+            ›
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">{context}</div>
       </aside>
 
       {bottomTabs}
