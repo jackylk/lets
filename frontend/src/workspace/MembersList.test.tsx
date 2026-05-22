@@ -52,8 +52,8 @@ describe("<MembersList />", () => {
 
   it("renders agent caption with owner_name", () => {
     render(<MembersList members={[agentMember]} onInvite={vi.fn()} />);
-    expect(screen.getByText("Claude Code - Neo")).toBeInTheDocument();
-    expect(screen.getByText(/agent · Neo/)).toBeInTheDocument();
+    expect(screen.getByText("Link")).toBeInTheDocument();
+    expect(screen.getByText(/Claude Code · Neo 管理/)).toBeInTheDocument();
   });
 
   it("calls onInvite when invite button is clicked", () => {
@@ -68,7 +68,7 @@ describe("<MembersList />", () => {
       <MembersList members={[ownerMember, agentMember]} onInvite={vi.fn()} />,
     );
     expect(screen.getByText("Neo")).toBeInTheDocument();
-    expect(screen.getByText("Claude Code - Neo")).toBeInTheDocument();
+    expect(screen.getByText("Link")).toBeInTheDocument();
   });
 
   it("adds owner name when two agents have the same display name", () => {
@@ -85,8 +85,8 @@ describe("<MembersList />", () => {
         onInvite={vi.fn()}
       />,
     );
-    expect(screen.getByText("Claude Code - Neo")).toBeInTheDocument();
-    expect(screen.getByText("Claude Code - Trinity")).toBeInTheDocument();
+    expect(screen.getByText("Link · Neo")).toBeInTheDocument();
+    expect(screen.getByText("Link · Trinity")).toBeInTheDocument();
   });
 
   it("renders 邀请 agent button only when onInviteAgent is provided", () => {

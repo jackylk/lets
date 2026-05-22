@@ -1,5 +1,5 @@
 import type { WorkspaceMember } from "../api/types";
-import { agentDisplayName } from "../agent/display";
+import { agentShortName, roleTitle } from "../agent/display";
 
 interface Props {
   workspaceName?: string;
@@ -15,7 +15,7 @@ export function MembersList({ workspaceName, members, onInvite, onInviteAgent, o
   const agentNameCounts = new Map<string, number>();
   for (const member of members) {
     if (member.kind !== "agent") continue;
-    const name = agentDisplayName(member);
+    const name = agentShortName(member);
     agentNameCounts.set(name, (agentNameCounts.get(name) ?? 0) + 1);
   }
 
@@ -46,7 +46,7 @@ export function MembersList({ workspaceName, members, onInvite, onInviteAgent, o
             );
           }
 
-          const name = agentDisplayName(m);
+          const name = agentShortName(m);
           const duplicateName = (agentNameCounts.get(name) ?? 0) > 1;
           return (
             <button
@@ -59,7 +59,7 @@ export function MembersList({ workspaceName, members, onInvite, onInviteAgent, o
                 {duplicateName ? `${name} · ${m.owner_name}` : name}
               </span>
               <span className="text-[10px] text-text-dim">
-                agent · {m.owner_name}
+                {roleTitle(m.role)} · {m.owner_name} 管理
                 {m.paused_at ? " · 已暂停" : ""}
                 {m.deleted_at ? " · 已退役" : ""}
               </span>

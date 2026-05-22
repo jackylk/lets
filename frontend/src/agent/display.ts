@@ -31,7 +31,7 @@ function isGeneratedMatrixName(name: string) {
   return MATRIX_NAMES.some((base) => name === base || name.startsWith(`${base} `));
 }
 
-function roleTitle(role: string) {
+export function roleTitle(role: string) {
   if (role === "codex") return "Codex";
   if (role === "claude") return "Claude Code";
   return role;

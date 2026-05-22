@@ -6,7 +6,7 @@ import {
   useResumeAgent,
   useUpdateAgentDisplayName,
 } from "../api/queries";
-import { agentShortName, agentStatusLabel } from "./display";
+import { agentShortName, agentStatusLabel, roleTitle } from "./display";
 
 interface Props {
   agentId: number;
@@ -54,7 +54,7 @@ export function AgentDetail({ agentId, onBack }: Props) {
           <div>
             <h1 className="text-2xl font-semibold text-text">{agentShortName(agent)}</h1>
             <div className="mt-1 text-sm text-text-dim">
-              {agent.role} · 由 {agent.human_name} 管理 · {status}
+              {roleTitle(agent.role)} · 由 {agent.human_name} 管理 · {status}
             </div>
           </div>
           <div className="flex gap-2">
@@ -122,7 +122,7 @@ export function AgentDetail({ agentId, onBack }: Props) {
             </button>
           </form>
           <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
-            <Info label="Role" value={agent.role} />
+            <Info label="Type" value={roleTitle(agent.role)} />
             <Info label="Model" value={agent.model || "-"} />
             <Info label="Device" value={agent.device_label || "-"} />
             <Info label="Last activity" value={agent.last_seen_at || "-"} />
