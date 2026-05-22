@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export function ContextPane({ children }: { children: ReactNode }) {
-  return <div className="flex flex-col gap-4 p-4">{children}</div>;
+  return <div className="flex flex-col gap-3 md:gap-4 p-3 md:p-4">{children}</div>;
 }
 
 interface BlockProps { label: string; right?: ReactNode; hint?: string; children: ReactNode }

@@ -25,7 +25,7 @@ export function AttentionView({ userName }: Props) {
   const peer = messages.filter((m) => m.type === "question");
 
   return (
-    <div className="flex flex-col gap-6 px-8 py-6 overflow-y-auto h-full">
+    <div className="flex flex-col gap-4 md:gap-6 px-3 py-4 md:px-8 md:py-6 overflow-y-auto h-full">
       <div>
         <h2 className="font-[var(--font-display)] text-2xl">早上好，{userName}。</h2>
         <p className="text-text-muted text-[14px] mt-1">

@@ -100,7 +100,7 @@ function TopicRow({ topic, active, onSelect, onRename }: TopicRowProps) {
         <button
           type="button"
           onClick={onSelect}
-          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 md:py-1 text-left"
         >
           <span className="w-12 flex-shrink-0 font-mono text-[11px] text-text-dim">
             {topic.slug.slice(0, 6).toUpperCase()}
@@ -220,7 +220,7 @@ export function Sidebar({
                 title: "新话题",
               })
             }
-            className="w-5 h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text text-[14px] leading-none"
+            className="w-7 h-7 md:w-5 md:h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text text-[16px] md:text-[14px] leading-none"
           >
             +
           </button>
