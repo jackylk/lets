@@ -141,9 +141,6 @@ function TopicRow({ topic, active, onSelect, onRename }: TopicRowProps) {
           >
             复制链接
           </TopicMenuItem>
-          <div className="my-1 border-t border-border-soft" />
-          <TopicMenuItem disabled>邀请成员</TopicMenuItem>
-          <TopicMenuItem disabled>邀请 agent</TopicMenuItem>
           <TopicMenuItem disabled>静音</TopicMenuItem>
           <div className="my-1 border-t border-border-soft" />
           <TopicMenuItem disabled>归档</TopicMenuItem>
