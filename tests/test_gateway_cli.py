@@ -556,6 +556,52 @@ def test_read_topic_with_after_id_keeps_ascending(monkeypatch):
     assert [m["id"] for m in msgs] == [11, 12]
 
 
+def test_proactive_join_requires_multi_human_discussion_density():
+    from app import gateway
+
+    recent = [
+        {"id": 1, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "A"},
+        {"id": 2, "type": "chat", "actor_type": "human", "actor_id": 2, "body": "B"},
+        {"id": 3, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "C"},
+        {"id": 4, "type": "chat", "actor_type": "human", "actor_id": 2, "body": "D"},
+    ]
+
+    assert gateway._should_proactively_join(recent, recent[-1], my_agent_id=7) is True
+
+
+def test_proactive_join_stays_quiet_for_single_human():
+    from app import gateway
+
+    recent = [
+        {"id": 1, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "A"},
+        {"id": 2, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "B"},
+        {"id": 3, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "C"},
+        {"id": 4, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "D"},
+    ]
+
+    assert gateway._should_proactively_join(recent, recent[-1], my_agent_id=7) is False
+
+
+def test_proactive_prompt_tells_agent_not_to_take_over():
+    from app import gateway
+
+    me = gateway.Identity(1, "Jacky", 7, "codex", "mac")
+    recent = [
+        {"id": 1, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "先做 IM"},
+        {"id": 2, "type": "chat", "actor_type": "human", "actor_id": 2, "body": "还要 context"},
+        {"id": 3, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "agent 要旁听"},
+        {"id": 4, "type": "chat", "actor_type": "human", "actor_id": 2, "body": "何时发言？"},
+    ]
+    _, user_prompt = gateway._build_prompt_split(
+        me, "T", recent, recent[-1], intervention_mode="proactive",
+    )
+
+    assert "proactive observer" in user_prompt
+    assert "living discussion memo" in user_prompt
+    assert "broaden the option space" in user_prompt
+    assert "avoid taking over" in user_prompt
+
+
 def test_build_prompt_split_isolates_stable_persona():
     """The new split separates stable persona+protocol (cacheable) from
     variable history+message (per-turn). Cache-hit rate depends on the

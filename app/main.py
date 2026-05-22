@@ -1251,10 +1251,51 @@ def _maybe_rename_topic_from_first_chat(topic_id: int, body: str) -> str | None:
     return snippet
 
 
-def _default_addressee_for(actor_id: int | None) -> str | None:
-    """If the poster owns exactly one currently-online agent, address it by
-    agent identity. With 0 or 2+ online agents, force explicit @."""
+def _topic_human_count_for_auto_address(topic_id: int, actor_id: int) -> int:
+    """Return the human conversation size used for default agent addressing."""
+    with connect() as conn:
+        topic = conn.execute(
+            "SELECT workspace_id FROM topics WHERE id = ?",
+            (topic_id,),
+        ).fetchone()
+        if topic is None:
+            return 0
+        workspace_id = topic["workspace_id"]
+        if workspace_id is not None:
+            row = conn.execute(
+                """
+                SELECT COUNT(DISTINCT human_id) AS n
+                FROM workspace_members
+                WHERE workspace_id = ?
+                """,
+                (workspace_id,),
+            ).fetchone()
+            return int(row["n"] or 0) if row else 0
+        row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT human_id) AS n
+            FROM (
+                SELECT ? AS human_id
+                UNION
+                SELECT actor_id AS human_id
+                FROM messages
+                WHERE topic_id = ? AND actor_type = 'human'
+            ) humans
+            """,
+            (actor_id, topic_id),
+        ).fetchone()
+        return int(row["n"] or 0) if row else 0
+
+
+def _default_addressee_for(topic_id: int, actor_id: int | None) -> str | None:
+    """Default-address only in the DM-like case: one human + one online agent.
+
+    Multi-human topics keep human-to-human conversation primary. The gateway
+    can still join proactively on stronger discussion signals.
+    """
     if actor_id is None:
+        return None
+    if _topic_human_count_for_auto_address(topic_id, actor_id) != 1:
         return None
     with connect() as conn:
         row = conn.execute(
@@ -1298,16 +1339,17 @@ async def post_message_endpoint(
         )
 
     addressed_to = payload.addressed_to
-    # Auto-address rule: when a human types a chat without @mentioning anyone
-    # and they have exactly ONE online agent, treat the message as addressed
-    # to that agent — no need to type @cc every turn. With 2+ online agents
-    # we stay quiet, forcing the user to disambiguate.
+    # Auto-address rule: in a one-human + one-online-agent topic, treat plain
+    # chat like a DM so the agent replies one question at a time. Multi-human
+    # topics keep human-to-human chat primary; the gateway may still
+    # proactively join on stronger signals, but this endpoint does not wake it
+    # for every message.
     if (
         not addressed_to
         and payload.actor_type == "human"
         and payload.type == "chat"
     ):
-        addressed_to = _default_addressee_for(payload.actor_id)
+        addressed_to = _default_addressee_for(payload.topic_id, payload.actor_id)
 
     # First-chat-renames-topic: replace the auto-created "新话题" with a
     # short snippet of the first human message so the sidebar + header

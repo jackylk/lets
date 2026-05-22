@@ -240,6 +240,46 @@ def _addressed_to_me(msg: dict, my_agent_id: int, my_human_id: int | None = None
     return my_human_id is not None and str(my_human_id) in parts
 
 
+_PROACTIVE_REPLY_TYPES = {
+    "chat", "finding", "decision", "question", "handoff", "review",
+    "artifact_revision", "spec_change", "nudge", "proactive_finding",
+}
+
+
+def _should_proactively_join(recent: list[dict], trigger: dict, my_agent_id: int) -> bool:
+    """Conservative observer-mode trigger for multi-human conversations.
+
+    Direct mentions are handled elsewhere. This path is for "agent can speak at
+    the right time": after several consecutive human chat messages, and only
+    when at least two humans are actually participating, join with a broadening
+    thought instead of answering every line.
+    """
+    if trigger.get("actor_type") != "human" or trigger.get("type") != "chat":
+        return False
+    recent_human_ids = {
+        int(m["actor_id"])
+        for m in recent[-12:]
+        if m.get("actor_type") == "human"
+        and m.get("type") == "chat"
+        and m.get("actor_id") is not None
+    }
+    if len(recent_human_ids) < 2:
+        return False
+
+    human_msgs_since_agent = 0
+    for m in reversed(recent):
+        if (
+            m.get("actor_type") == "agent"
+            and int(m.get("actor_id") or 0) == my_agent_id
+            and m.get("type") in _PROACTIVE_REPLY_TYPES
+        ):
+            break
+        if m.get("actor_type") == "human" and m.get("type") == "chat":
+            human_msgs_since_agent += 1
+
+    return human_msgs_since_agent >= 4 and human_msgs_since_agent % 4 == 0
+
+
 # Compact pane-updates spec — same parser, fraction of the tokens.
 # "headline" is a ≤30-char one-liner the UI shows when the agent's full
 # reply is folded ("AI 折叠" view mode). Should capture the essence of this
@@ -360,6 +400,7 @@ def _build_prompt_split(
     recent: list[dict],
     trigger: dict,
     persona: str = "default",
+    intervention_mode: str = "direct",
 ) -> tuple[str, str]:
     """Return ``(system_prompt, user_prompt)``.
 
@@ -409,11 +450,22 @@ def _build_prompt_split(
     )
 
     sender = "human" if trigger["actor_type"] == "human" else "agent"
+    if intervention_mode == "proactive":
+        intervention_note = (
+            "\nIntervention mode: proactive observer. The human did not "
+            "explicitly @mention you. Act as a living discussion memo: briefly "
+            "summarize the current goal/方案, broaden the option space, surface "
+            "one concrete blind spot/risk/decision point, and suggest a next "
+            "step. Keep it concise and avoid taking over the conversation.\n"
+        )
+    else:
+        intervention_note = ""
     user_prompt = (
         f"Topic: {topic_title}\n\n"
         f"Recent:\n{history}\n"
         f"{annotation_section}"
         f"{resolved_section}\n"
+        f"{intervention_note}"
         f"New {sender} msg:\n{trigger.get('body', '')}"
     )
 
@@ -1870,13 +1922,16 @@ def main(argv: list[str] | None = None) -> int:
         f"(will respond to messages newer than current head)"
     )
 
-    # Pending state: messages addressed-to-me that I haven't replied to yet.
-    # Burst coalescing — wait until the topic has been quiet for a few seconds
-    # before invoking the LLM, so multi-message bursts collapse into one reply.
-    #   pending[tid] = { trigger_ids: list[int], last_msg_at: float, urgent: bool }
+    # Pending state: messages I haven't replied to yet.
+    # Direct one-human/one-agent turns should feel like DM. Observer-mode turns
+    # use a longer pause and only fire when recent human discussion is dense
+    # enough that the agent likely has something useful to add.
+    #   pending[tid] = { trigger_ids: list[int], last_msg_at: float,
+    #                    urgent: bool, proactive: bool }
     pending: dict[int, dict] = {}
-    QUIET_WINDOW_URGENT = 2.0  # @-mentioned messages: short window
-    QUIET_WINDOW_NORMAL = 6.0  # otherwise: longer, so user can keep typing
+    QUIET_WINDOW_URGENT = 1.0
+    QUIET_WINDOW_NORMAL = 6.0
+    QUIET_WINDOW_PROACTIVE = 10.0
 
     while True:
         try:
@@ -1897,24 +1952,56 @@ def main(argv: list[str] | None = None) -> int:
                     if (m.get("actor_type") == "agent"
                             and int(m.get("actor_id") or 0) == me.agent_instance_id):
                         continue  # own posts
-                    if not _addressed_to_me(m, me.agent_instance_id, me.human_id):
-                        continue
+                    addressed = _addressed_to_me(m, me.agent_instance_id, me.human_id)
+                    proactive = False
+                    if not addressed:
+                        if m.get("actor_type") == "human" and m.get("type") == "chat":
+                            try:
+                                proactive = _should_proactively_join(
+                                    _read_topic(args.host, args.token, tid, None),
+                                    m,
+                                    me.agent_instance_id,
+                                )
+                            except Exception as e:
+                                print(f"  WARN: proactive check failed: {e}", file=sys.stderr)
+                        if not proactive:
+                            existing = pending.get(tid)
+                            if (
+                                existing
+                                and existing.get("proactive")
+                                and m.get("actor_type") == "human"
+                                and m.get("type") == "chat"
+                            ):
+                                existing["trigger_ids"].append(int(m["id"]))
+                                existing["last_msg_at"] = time.time()
+                            continue
+                    body_lc = (m.get("body") or "").lower()
+                    urgent = addressed and (
+                        "@" in body_lc or str(m.get("addressed_to") or "").startswith("agent:")
+                    )
                     p = pending.setdefault(
                         tid,
-                        {"trigger_ids": [], "last_msg_at": 0.0, "urgent": False},
+                        {
+                            "trigger_ids": [],
+                            "last_msg_at": 0.0,
+                            "urgent": False,
+                            "proactive": proactive,
+                        },
                     )
                     p["trigger_ids"].append(int(m["id"]))
                     p["last_msg_at"] = time.time()
-                    # @ in body means the user wants a fast reply
-                    body_lc = (m.get("body") or "").lower()
-                    if "@" in body_lc:
+                    p["proactive"] = p["proactive"] and proactive
+                    if urgent:
                         p["urgent"] = True
 
             # ── Phase 2: fire on any topic that's been quiet long enough ──
             now = time.time()
             for tid in list(pending.keys()):
                 p = pending[tid]
-                window = QUIET_WINDOW_URGENT if p["urgent"] else QUIET_WINDOW_NORMAL
+                if p.get("proactive") and not p["urgent"]:
+                    window = QUIET_WINDOW_PROACTIVE
+                else:
+                    window = QUIET_WINDOW_URGENT if p["urgent"] else QUIET_WINDOW_NORMAL
                 if now - p["last_msg_at"] < window:
                     continue  # still typing — wait
 
@@ -1947,10 +2034,12 @@ def main(argv: list[str] | None = None) -> int:
                     recent=recent,
                     trigger=trigger,
                     persona=args.persona,
+                    intervention_mode="proactive" if p.get("proactive") else "direct",
                 )
                 print(
                     f"[topic {tid}] firing on {len(trigger_ids)} message(s) "
-                    f"(burst {trigger_ids[0]}→{trigger_ids[-1]}, urgent={p['urgent']})"
+                    f"(burst {trigger_ids[0]}→{trigger_ids[-1]}, urgent={p['urgent']}, "
+                    f"proactive={p.get('proactive', False)})"
                 )
 
                 # Post a "thinking" status so the human sees something happening

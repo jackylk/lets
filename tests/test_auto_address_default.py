@@ -1,8 +1,8 @@
-"""When a human posts a chat with no addressed_to and they own exactly
-one currently-online agent, the server fills in addressed_to so the
+"""When a human posts a chat with no addressed_to in a DM-like topic and they
+own exactly one currently-online agent, the server fills in addressed_to so the
 gateway picks the message up — no need to type @cc every turn.
 
-With 0 or 2+ online agents we leave it null (force explicit @)."""
+With 0 or 2+ online agents, or multi-human topics, we leave it null."""
 from __future__ import annotations
 
 import pytest
@@ -22,6 +22,27 @@ def _make_topic(slug: str) -> int:
     with connect() as conn:
         c = conn.execute(f"INSERT INTO topics (slug, title) VALUES ('{slug}', 't')")
         return int(c.lastrowid)
+
+
+def _make_workspace_topic(slug: str, human_ids: list[int]) -> int:
+    from app.db import connect
+    with connect() as conn:
+        w = conn.execute(
+            "INSERT INTO workspaces (slug, name) VALUES (?, ?)",
+            (f"ws-{slug}", f"WS {slug}"),
+        )
+        workspace_id = int(w.lastrowid)
+        for human_id in human_ids:
+            conn.execute(
+                "INSERT INTO workspace_members (workspace_id, human_id, role) "
+                "VALUES (?, ?, 'member') RETURNING workspace_id",
+                (workspace_id, human_id),
+            )
+        t = conn.execute(
+            "INSERT INTO topics (slug, title, workspace_id) VALUES (?, 't', ?)",
+            (slug, workspace_id),
+        )
+        return int(t.lastrowid)
 
 
 def _mark_token_online(token_id: int) -> None:
@@ -75,6 +96,31 @@ def test_two_online_agents_does_not_auto_address(client, auth):
         "actor_type": "human",
         "actor_id": jacky,
         "body": "hi",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["addressed_to"] is None
+
+
+def test_multi_human_topic_does_not_auto_address_plain_chat(client, auth):
+    """One online agent + multiple humans → keep the agent observing unless
+    it is explicitly addressed or a later proactive gateway rule joins."""
+    from app.auth import issue_token
+    from app.identity import ensure_human, ensure_agent_instance
+
+    jacky = ensure_human("Jacky-auto-multi")
+    friend = ensure_human("Friend-auto-multi")
+    jacky_token, _ = issue_token(human_id=jacky, label="jacky-human")
+    cc = ensure_agent_instance(role="claude", human_id=jacky, device_label="mac")
+    _, tok_id = issue_token(human_id=jacky, agent_instance_id=cc, label="cc")
+    _mark_token_online(tok_id)
+
+    tid = _make_workspace_topic("auto-multi", [jacky, friend])
+    r = client.post("/api/messages", headers={"Authorization": f"Bearer {jacky_token}"}, json={
+        "topic_id": tid,
+        "type": "chat",
+        "actor_type": "human",
+        "actor_id": jacky,
+        "body": "我们先自己聊一下",
     })
     assert r.status_code == 200, r.text
     assert r.json()["addressed_to"] is None
