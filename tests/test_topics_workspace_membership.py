@@ -87,3 +87,51 @@ def test_patch_topic_403_if_not_member_of_target(temp_db, client):
         json={"workspace_id": bob_ws},
     )
     assert r.status_code == 403
+
+
+def test_archive_topic_hides_it_from_workspace_list(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "archive-me", "title": "Archive Me"},
+    ).json()
+
+    r = client.post(f"/api/topics/{topic['id']}/archive")
+    assert r.status_code == 200
+    assert r.json()["archived_at"] is not None
+
+    topics = client.get(f"/api/workspaces/{ws['id']}/topics").json()
+    assert all(t["id"] != topic["id"] for t in topics)
+
+
+def test_delete_topic_hides_it_and_blocks_direct_access(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "delete-me", "title": "Delete Me"},
+    ).json()
+
+    r = client.delete(f"/api/topics/{topic['id']}")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+    topics = client.get(f"/api/workspaces/{ws['id']}/topics").json()
+    assert all(t["id"] != topic["id"] for t in topics)
+    assert client.get(f"/api/topics/{topic['id']}").status_code == 404
+
+
+def test_topic_lifecycle_actions_require_membership(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "private-topic", "title": "Private Topic"},
+    ).json()
+
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+
+    assert client.post(f"/api/topics/{topic['id']}/archive").status_code == 403
+    assert client.delete(f"/api/topics/{topic['id']}").status_code == 403

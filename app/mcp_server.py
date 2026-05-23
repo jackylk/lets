@@ -482,6 +482,8 @@ def list_my_topics(limit: int = 50) -> list[dict]:
                 SELECT MAX(id) FROM messages WHERE topic_id = t.id
             )
             WHERE {membership_predicate}
+              AND t.archived_at IS NULL
+              AND t.deleted_at IS NULL
             ORDER BY COALESCE(m.created_at, t.created_at) DESC, t.id DESC
             LIMIT ?
             """,

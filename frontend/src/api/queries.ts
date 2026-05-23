@@ -382,6 +382,36 @@ export function useRenameTopic() {
   });
 }
 
+export function useArchiveTopic() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (topicId: number) =>
+      apiRequest<TopicDTO>(`/api/topics/${topicId}/archive`, {
+        method: "POST", body: {}, identity,
+      }),
+    onSuccess: (_res, topicId) => {
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+      qc.invalidateQueries({ queryKey: ["topics", topicId, "info"] });
+    },
+  });
+}
+
+export function useDeleteTopic() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (topicId: number) =>
+      apiRequest<{ ok: boolean }>(`/api/topics/${topicId}`, {
+        method: "DELETE", identity,
+      }),
+    onSuccess: (_res, topicId) => {
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+      qc.removeQueries({ queryKey: ["topics", topicId] });
+    },
+  });
+}
+
 export function useLogout() {
   const identity = useIdentity();
   const qc = useQueryClient();

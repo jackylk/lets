@@ -20,6 +20,8 @@ interface Props {
   onRenameWorkspace?: (id: number, name: string) => void | Promise<unknown>;
   onDeleteWorkspace?: (id: number) => void;
   onRenameTopic?: (id: number, title: string) => void | Promise<unknown>;
+  onArchiveTopic?: (id: number) => void | Promise<unknown>;
+  onDeleteTopic?: (id: number) => void | Promise<unknown>;
   onInviteMember: () => void;
   onInviteAgent?: () => void;
   onClickSettings?: () => void;
@@ -32,9 +34,11 @@ interface TopicRowProps {
   active: boolean;
   onSelect: () => void;
   onRename?: (id: number, title: string) => void | Promise<unknown>;
+  onArchive?: (id: number) => void | Promise<unknown>;
+  onDelete?: (id: number) => void | Promise<unknown>;
 }
 
-function TopicRow({ topic, active, onSelect, onRename }: TopicRowProps) {
+function TopicRow({ topic, active, onSelect, onRename, onArchive, onDelete }: TopicRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -135,17 +139,24 @@ function TopicRow({ topic, active, onSelect, onRename }: TopicRowProps) {
             重命名
           </TopicMenuItem>
           <TopicMenuItem
-            onClick={() => {
-              void navigator.clipboard?.writeText(window.location.href);
+            onClick={async () => {
               setMenuOpen(false);
+              await onArchive?.(topic.id);
             }}
           >
-            复制链接
+            归档
           </TopicMenuItem>
-          <TopicMenuItem disabled>静音</TopicMenuItem>
           <div className="my-1 border-t border-border-soft" />
-          <TopicMenuItem disabled>归档</TopicMenuItem>
-          <TopicMenuItem danger disabled>删除</TopicMenuItem>
+          <TopicMenuItem
+            danger
+            onClick={async () => {
+              setMenuOpen(false);
+              if (!window.confirm(`删除话题「${topic.title}」？`)) return;
+              await onDelete?.(topic.id);
+            }}
+          >
+            删除
+          </TopicMenuItem>
         </div>
       )}
     </div>
@@ -165,6 +176,8 @@ export function Sidebar({
   onRenameWorkspace,
   onDeleteWorkspace,
   onRenameTopic,
+  onArchiveTopic,
+  onDeleteTopic,
   onInviteMember,
   onInviteAgent,
   onClickSettings,
@@ -237,6 +250,8 @@ export function Sidebar({
                 active={activeTopicId === t.id}
                 onSelect={() => onSelectTopic(t.id)}
                 onRename={onRenameTopic}
+                onArchive={onArchiveTopic}
+                onDelete={onDeleteTopic}
               />
             ))
           )}

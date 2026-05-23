@@ -2297,6 +2297,8 @@ def list_topics_in_workspace(
             SELECT id, slug, title, workspace_id, mode, created_at, updated_at
             FROM topics
             WHERE workspace_id = ?
+              AND archived_at IS NULL
+              AND deleted_at IS NULL
             ORDER BY updated_at DESC
             """,
             (workspace_id,),
@@ -2335,7 +2337,7 @@ def _require_topic_member(topic_id: int, human_id: int) -> int:
     from .workspaces import require_workspace_member
     with connect() as conn:
         row = conn.execute(
-            "SELECT workspace_id FROM topics WHERE id = ?", (topic_id,)
+            "SELECT workspace_id FROM topics WHERE id = ? AND deleted_at IS NULL", (topic_id,)
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="topic not found")
@@ -2374,7 +2376,8 @@ def _require_workspace_actor(workspace_id: int, principal: dict) -> None:
 def _require_topic_actor(topic_id: int, principal: dict) -> int:
     with connect() as conn:
         row = conn.execute(
-            "SELECT workspace_id FROM topics WHERE id = ?", (topic_id,)
+            "SELECT workspace_id FROM topics WHERE id = ? AND deleted_at IS NULL",
+            (topic_id,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="topic not found")
@@ -2694,6 +2697,53 @@ def update_topic(
             tuple(vals),
         ).fetchone()
     return dict(row)
+
+
+@app.post("/api/topics/{topic_id}/archive")
+def archive_topic(
+    topic_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    _require_topic_member(topic_id, human_id)
+    with connect() as conn:
+        row = conn.execute(
+            """
+            UPDATE topics
+            SET archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND deleted_at IS NULL
+            RETURNING id, slug, title, workspace_id, mode,
+                      archived_at, deleted_at, created_at, updated_at
+            """,
+            (topic_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return dict(row)
+
+
+@app.delete("/api/topics/{topic_id}")
+def delete_topic(
+    topic_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    _require_topic_member(topic_id, human_id)
+    with connect() as conn:
+        row = conn.execute(
+            """
+            UPDATE topics
+            SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            RETURNING id
+            """,
+            (topic_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

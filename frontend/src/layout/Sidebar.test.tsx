@@ -84,6 +84,42 @@ describe("<Sidebar />", () => {
     expect(onSelectTopic).toHaveBeenCalledWith(10);
   });
 
+  it("renders only enabled topic menu actions", () => {
+    renderWithProviders(<Sidebar {...defaultProps} />);
+    fireEvent.click(screen.getByRole("button", { name: "新话题 话题操作" }));
+
+    expect(screen.getByText("重命名")).toBeEnabled();
+    expect(screen.getByText("归档")).toBeEnabled();
+    expect(screen.getByText("删除")).toBeEnabled();
+    expect(screen.queryByText("复制链接")).not.toBeInTheDocument();
+    expect(screen.queryByText("静音")).not.toBeInTheDocument();
+  });
+
+  it("calls archive and delete handlers from the topic menu", () => {
+    const onArchiveTopic = vi.fn();
+    const onDeleteTopic = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderWithProviders(
+      <Sidebar
+        {...defaultProps}
+        onArchiveTopic={onArchiveTopic}
+        onDeleteTopic={onDeleteTopic}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "新话题 话题操作" }));
+    fireEvent.click(screen.getByText("归档"));
+    expect(onArchiveTopic).toHaveBeenCalledWith(10);
+
+    fireEvent.click(screen.getByRole("button", { name: "新话题 话题操作" }));
+    fireEvent.click(screen.getByText("删除"));
+    expect(confirm).toHaveBeenCalled();
+    expect(onDeleteTopic).toHaveBeenCalledWith(10);
+
+    confirm.mockRestore();
+  });
+
   it("shows create-workspace inline form when + is clicked", () => {
     renderWithProviders(<Sidebar {...defaultProps} />);
     fireEvent.click(screen.getByRole("button", { name: "新建工作区" }));
