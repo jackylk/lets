@@ -8,7 +8,7 @@ import { TopicHeader } from "./TopicHeader";
 import { AgentListenStatus } from "./AgentListenStatus";
 import { Stream } from "./Stream";
 import { ViewModeToggle } from "./ViewModeToggle";
-import { ExportSpecButton } from "./ExportSpecButton";
+import { TopicSpecMenu } from "./TopicSpecMenu";
 import { StreamProvider } from "../messages/StreamContext";
 import { DiagramOverlay } from "../messages/DiagramOverlay";
 import { Composer, type MentionCandidate, type MentionResolver } from "./Composer";
@@ -191,10 +191,10 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
           goal={goal}
           headerRight={
             <div className="flex items-center gap-2">
-              <ExportSpecButton topicId={topicId} />
               <ViewModeToggle />
             </div>
           }
+          topicMenu={<TopicSpecMenu topicId={topicId} />}
         />
         <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-4">
           {initial.isLoading && <div className="text-text-dim">加载中…</div>}
