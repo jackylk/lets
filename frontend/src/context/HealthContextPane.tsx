@@ -27,12 +27,19 @@ interface HealthMedication {
   sourceId: number;
 }
 
+interface HealthSuggestion {
+  title: string;
+  body: string;
+  tone: "urgent" | "caution" | "plain";
+}
+
 interface HealthContext {
   latestHumanMessage: MessageDTO | null;
   facts: HealthFact[];
   redFlags: HealthFlag[];
   missingQuestions: string[];
   medications: HealthMedication[];
+  suggestions: HealthSuggestion[];
 }
 
 export function isHealthTopic(messages: MessageDTO[], title = ""): boolean {
@@ -67,6 +74,7 @@ export function buildHealthContext(messages: MessageDTO[]): HealthContext {
   ];
 
   const medications = collectMedications(humanChats);
+  const matchedRedFlags = redFlags.filter((f) => f.matched);
   const missingQuestions = [
     hasAny(text, /(右下腹|左下腹|上腹|下腹|肚脐周围|胃部|腹部|肚子|小腹)/) ? null : "疼痛具体位置在哪里？",
     hasAny(text, /(刚刚|今天|昨晚|昨天|前天|小时|分钟|天|持续)/) ? null : "从什么时候开始，持续多久了？",
@@ -76,7 +84,14 @@ export function buildHealthContext(messages: MessageDTO[]): HealthContext {
     hasAny(text, /(过敏|孕|怀孕|胃溃疡|肝|肾|高血压|抗凝|儿童|老人)/) ? null : "有没有药物过敏、怀孕、胃溃疡、肝肾问题或正在吃的药？",
   ].filter(Boolean) as string[];
 
-  return { latestHumanMessage, facts, redFlags, missingQuestions, medications };
+  const suggestions = buildSuggestions({
+    text,
+    medications,
+    hasRedFlags: matchedRedFlags.length > 0,
+    missingQuestions,
+  });
+
+  return { latestHumanMessage, facts, redFlags, missingQuestions, medications, suggestions };
 }
 
 export function HealthContextPane({ messages }: { messages: MessageDTO[] }) {
@@ -166,8 +181,20 @@ export function HealthContextPane({ messages }: { messages: MessageDTO[] }) {
             <EmptyHealth>还没有记录药名、剂量和服用时间。</EmptyHealth>
           )}
           <div className="rounded border border-border-soft bg-surface-elev p-2.5 text-[11.5px] leading-relaxed text-text-dim">
-            用药前先核对说明书、年龄/孕期/过敏/基础病；不要重复服用含同一成分的药。腹痛时尤其要谨慎使用 NSAIDs 类止痛药，拿不准时先问医生或药师。
+            用药前先核对说明书、年龄/孕期/过敏/基础病；不要重复服用含同一成分的药。腹痛时尤其要谨慎使用布洛芬、萘普生等非甾体抗炎止痛药，拿不准时先问医生或药师。
           </div>
+        </div>
+      </ContextBlock>
+
+      <ContextBlock
+        label="建议"
+        right={ctx.suggestions.length > 0 ? `${ctx.suggestions.length}` : undefined}
+        hint="包含观察、用药方向、联系医生或去医院的建议"
+      >
+        <div className="flex flex-col gap-2">
+          {ctx.suggestions.map((s) => (
+            <SuggestionCard key={s.title} suggestion={s} />
+          ))}
         </div>
       </ContextBlock>
 
@@ -203,6 +230,109 @@ function FactCard({ fact }: { fact: HealthFact }) {
       <div className="mt-1 text-[13px] leading-relaxed text-text">{fact.value}</div>
     </button>
   );
+}
+
+function SuggestionCard({ suggestion }: { suggestion: HealthSuggestion }) {
+  const tone =
+    suggestion.tone === "urgent"
+      ? "border-accent-border bg-accent-soft text-accent-text"
+      : suggestion.tone === "caution"
+        ? "border-border bg-surface-elev text-text"
+        : "border-border-soft bg-surface-elev text-text";
+  return (
+    <div className={`rounded border p-2.5 ${tone}`}>
+      <div className="text-[12.5px] font-semibold">{suggestion.title}</div>
+      <div className="mt-1 text-[11.5px] leading-relaxed">{suggestion.body}</div>
+    </div>
+  );
+}
+
+function buildSuggestions({
+  text,
+  medications,
+  hasRedFlags,
+  missingQuestions,
+}: {
+  text: string;
+  medications: HealthMedication[];
+  hasRedFlags: boolean;
+  missingQuestions: string[];
+}): HealthSuggestion[] {
+  if (hasRedFlags) {
+    return [
+      {
+        title: "优先去医院 / 急诊",
+        body: "已经提到危险信号。不要只靠自行用药观察，建议尽快联系医生、急诊或当地急救服务。",
+        tone: "urgent",
+      },
+      {
+        title: "带上用药和症状记录",
+        body: "就医时带上疼痛开始时间、位置、强度、伴随症状，以及已经吃过的药名、剂量和时间。",
+        tone: "plain",
+      },
+    ];
+  }
+
+  const suggestions: HealthSuggestion[] = [
+    {
+      title: "先补齐关键信息",
+      body: missingQuestions.length > 0
+        ? "现在还缺少一些用药前关键信息。先确认疼痛位置、持续时间、严重程度、伴随症状和过敏/基础病。"
+        : "关键信息基本齐了。继续记录症状变化、体温和已采取措施。",
+      tone: "plain",
+    },
+    {
+      title: "可先做低风险护理",
+      body: "在没有危险信号时，可以先休息、少量多次补水、清淡饮食，避免酒精和刺激性食物，并观察是否加重。",
+      tone: "plain",
+    },
+  ];
+
+  if (hasAny(text, /(腹泻|拉肚子|呕吐)/)) {
+    suggestions.push({
+      title: "腹泻/呕吐时优先防脱水",
+      body: "重点是补液和观察尿量、精神状态。若持续呕吐、喝不下水、明显脱水或便血，应及时就医。",
+      tone: "caution",
+    });
+  }
+
+  if (hasAny(text, /(胃痛|胃疼|上腹|烧心|反酸)/)) {
+    suggestions.push({
+      title: "像胃部不适时可问药师",
+      body: "如果更像烧心、反酸或胃部不适，可以咨询药师是否适合抗酸/胃部不适类非处方药；有黑便、呕血或剧烈疼痛则不要自行处理。",
+      tone: "caution",
+    });
+  }
+
+  suggestions.push({
+    title: "止痛/退热药要谨慎",
+    body: "如果考虑非处方止痛或退热药，先核对说明书和禁忌。腹痛时不要盲目用布洛芬、萘普生等非甾体抗炎止痛药；有胃溃疡、肾病、抗凝药、孕期等情况尤其要先问医生/药师。",
+    tone: "caution",
+  });
+
+  if (medications.some((m) => /对乙酰氨基酚|泰诺|扑热息痛|acetaminophen/i.test(m.name))) {
+    suggestions.push({
+      title: "注意对乙酰氨基酚重复成分",
+      body: "很多感冒药/止痛药都可能含对乙酰氨基酚。不要和其他同成分药重复服用，避免超量；肝病或饮酒情况更要谨慎。",
+      tone: "caution",
+    });
+  }
+
+  if (medications.length > 0) {
+    suggestions.push({
+      title: "补充剂量和时间",
+      body: "已提到药名，但还需要记录剂量、服用时间、是否还吃了其他药，方便判断是否重复或超量。",
+      tone: "plain",
+    });
+  } else {
+    suggestions.push({
+      title: "用药前先问清禁忌",
+      body: "还没有用药记录。吃药前先确认年龄、是否怀孕、过敏史、胃溃疡、肝肾问题、正在服用的药；拿不准时问医生或药师。",
+      tone: "plain",
+    });
+  }
+
+  return suggestions;
 }
 
 function addFirstMatch(
