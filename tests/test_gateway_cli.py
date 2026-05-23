@@ -486,6 +486,23 @@ def test_parse_pane_updates_malformed_json_extracts_inner_sections(capsys):
     assert "权限过滤" in updates["blind_spots"][0]["body"]
 
 
+def test_parse_pane_updates_recovers_nested_real_block():
+    from app.gateway import _parse_pane_updates
+
+    chat, updates = _parse_pane_updates(
+        """我先说明：回复里带 `<pane_updates>` JSON 会更新右侧面板。
+<pane_updates>
+` JSON 后会被拆成 typed messages。
+真正内容如下：
+<pane_updates>{"headline":"方案收敛","decisions":[{"body":"目标：自然语言找文件并解释命中原因"}]}</pane_updates>
+</pane_updates>"""
+    )
+
+    assert "<pane_updates>" not in chat
+    assert updates["headline"] == "方案收敛"
+    assert updates["decisions"][0]["body"].startswith("目标：自然语言找文件")
+
+
 def test_post_pane_updates_posts_one_typed_message_per_item(monkeypatch):
     from app import gateway
 

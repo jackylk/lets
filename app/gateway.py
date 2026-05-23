@@ -558,6 +558,9 @@ def _parse_pane_updates(output: str) -> tuple[str, dict]:
     inner = (m.group(1) or "").strip()
     if not inner:
         return chat_body, {}
+    nested = _parse_pane_updates_json_candidate(inner)
+    if nested is not None:
+        return chat_body, nested
     try:
         updates = json.loads(inner)
     except json.JSONDecodeError:
@@ -569,6 +572,50 @@ def _parse_pane_updates(output: str) -> tuple[str, dict]:
     if not isinstance(updates, dict):
         return chat_body, {}
     return chat_body, updates
+
+
+def _parse_pane_updates_json_candidate(text: str) -> dict | None:
+    """Recover JSON when the model explains the protocol before the real block."""
+    marker = "<pane_updates>"
+    lower = text.lower()
+    if marker not in lower:
+        return None
+    start = lower.rfind(marker) + len(marker)
+    candidate = _balanced_json_object(text[start:].strip())
+    if not candidate:
+        return None
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _balanced_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i, ch in enumerate(text[start:], start=start):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
 
 
 def _fallback_pane_updates(chat_body: str) -> dict:
