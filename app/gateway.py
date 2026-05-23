@@ -189,6 +189,31 @@ def _whoami(host: str, token: str) -> Identity:
     )
 
 
+def _is_retryable_network_error(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    if isinstance(exc, urllib.error.URLError):
+        return True
+    return False
+
+
+def _wait_for_identity(host: str, token: str) -> Identity:
+    delay = 2.0
+    while True:
+        try:
+            return _whoami(host, token)
+        except SystemExit:
+            raise
+        except Exception as e:
+            if not _is_retryable_network_error(e):
+                raise
+            print(f"identity check failed; retrying in {delay:.0f}s: {e}", file=sys.stderr)
+            time.sleep(delay)
+            delay = min(delay * 1.5, 30.0)
+
+
 def _list_topics(host: str, token: str) -> list[dict]:
     raw = _mcp_call(host, token, "list_my_topics", {"limit": 50})
     if raw is None:
@@ -1979,7 +2004,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    me = _whoami(args.host, args.token)
+    me = _wait_for_identity(args.host, args.token)
     print(
         f"connected as {me.role}:{me.device_label} "
         f"(human={me.human_name}, agent_instance_id={me.agent_instance_id})"
