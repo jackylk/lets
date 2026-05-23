@@ -45,6 +45,32 @@ interface DiscussionItem {
   answers_question?: string;
 }
 
+function sourceText(item: DiscussionItem): string {
+  const author = item.posted_by_agent ? "agent 总结" : "人手动加入";
+  const source =
+    item.promoted_from && item.promoted_from !== item.id
+      ? `点击看来源 #${item.promoted_from}`
+      : "点击看本条记录";
+  return `${author} · ${source}`;
+}
+
+function SourceMeta({ item }: { item: DiscussionItem }) {
+  return (
+    <span className="text-[10.5px] leading-snug text-text-dim">
+      {sourceText(item)}
+    </span>
+  );
+}
+
+function ItemBodyWithSource({ item }: { item: DiscussionItem }) {
+  return (
+    <span className="min-w-0 flex flex-col gap-1">
+      <span>{item.body}</span>
+      <SourceMeta item={item} />
+    </span>
+  );
+}
+
 function asKind(meta: unknown): DiscussionKind | null {
   if (typeof meta !== "object" || meta === null) return null;
   const k = (meta as Record<string, unknown>).discussion_kind;
@@ -177,7 +203,7 @@ function DotItem({ item, accent }: { item: DiscussionItem; accent: string }) {
         className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[7px]"
         style={{ background: accent }}
       />
-      <span className="min-w-0">{item.body}</span>
+      <ItemBodyWithSource item={item} />
     </button>
   );
 }
@@ -212,6 +238,7 @@ function DecisionItem({ item }: { item: DiscussionItem }) {
           {item.body}
         </span>
       </div>
+      <SourceMeta item={item} />
     </button>
   );
 }
@@ -253,7 +280,9 @@ export function BlindSpotsPanel({ items }: { items: DiscussionItem[] }) {
             >
               漏
             </span>
-            <span className="min-w-0 text-text">{i.body}</span>
+            <span className="min-w-0 text-text">
+              <ItemBodyWithSource item={i} />
+            </span>
           </button>
         );
       })}
@@ -323,7 +352,7 @@ function OpenQuestionItem({ item, topicId }: { item: DiscussionItem; topicId: nu
             className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[7px]"
             style={{ background: "var(--color-accent)" }}
           />
-          <span className="min-w-0">{item.body}</span>
+          <ItemBodyWithSource item={item} />
         </button>
         {!answering && (
           <div className="flex items-center gap-1.5 shrink-0">
@@ -380,7 +409,9 @@ export function CritiquesPanel({ items }: { items: DiscussionItem[] }) {
             >
               反
             </span>
-            <span className="min-w-0 text-text">{i.body}</span>
+            <span className="min-w-0 text-text">
+              <ItemBodyWithSource item={i} />
+            </span>
           </button>
         );
       })}
@@ -412,7 +443,9 @@ export function ExtensionsPanel({ items }: { items: DiscussionItem[] }) {
             >
               延
             </span>
-            <span className="min-w-0 text-text">{i.body}</span>
+            <span className="min-w-0 text-text">
+              <ItemBodyWithSource item={i} />
+            </span>
           </button>
         );
       })}
@@ -450,6 +483,7 @@ export function OptionsPanel({ items }: { items: DiscussionItem[] }) {
             {!i.pros?.length && !i.cons?.length && i.title && (
               <div className="text-[12.5px] text-text-muted leading-relaxed">{i.body}</div>
             )}
+            <SourceMeta item={i} />
           </button>
         );
       })}

@@ -707,10 +707,13 @@ def test_proactive_prompt_tells_agent_not_to_take_over():
         {"id": 3, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "agent 要旁听"},
         {"id": 4, "type": "chat", "actor_type": "human", "actor_id": 2, "body": "何时发言？"},
     ]
-    _, user_prompt = gateway._build_prompt_split(
+    system_prompt, user_prompt = gateway._build_prompt_split(
         me, "T", recent, recent[-1], intervention_mode="proactive",
     )
 
+    assert "not a fourth person competing for airtime" in system_prompt
+    assert "living context pane" in system_prompt
+    assert "pane_updates carry the durable shared structure" in system_prompt
     assert "proactive observer" in user_prompt
     assert "living discussion memo" in user_prompt
     assert "broaden the option space" in user_prompt
