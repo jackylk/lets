@@ -835,6 +835,11 @@ def _migrate_humans_guest_flag(conn) -> None:
 
 def _migrate_topics_lifecycle(conn) -> None:
     """Add soft archive/delete columns for topic list actions."""
+    table = conn.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'topics'"
+    ).fetchone()
+    if table is None:
+        return
     conn.execute("ALTER TABLE IF EXISTS topics ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ")
     conn.execute("ALTER TABLE IF EXISTS topics ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
     conn.execute(
@@ -920,9 +925,9 @@ def init_db() -> None:
             # executescript() tries to build indexes that reference them.
             _migrate_agent_roles_to_types(conn)
             _migrate_projects_to_workspaces(conn)
+            _migrate_topics_lifecycle(conn)
             conn.executescript(_SCHEMA_SQL)
             _migrate_humans_guest_flag(conn)
-            _migrate_topics_lifecycle(conn)
             _migrate_agent_instances_independent(conn)
             _migrate_device_auth_flows_workspace(conn)
             conn.execute("INSERT INTO agent_types (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
