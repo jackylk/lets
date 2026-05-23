@@ -45,9 +45,8 @@ export function GoalAutoPanel({ topicId }: Props) {
       <div className="border border-border-soft rounded bg-surface-elev p-3 flex flex-col gap-2 shadow-sm">
         <div className="flex items-center gap-2">
           <span className="text-[11px] uppercase tracking-wider text-text-dim font-semibold">
-            意图（自动识别）
+            意图
           </span>
-          <span className="ml-auto text-[10px] text-text-dim italic">自动总结</span>
         </div>
         <p className="text-[13px] text-text leading-relaxed">{inferredIntent}</p>
       </div>

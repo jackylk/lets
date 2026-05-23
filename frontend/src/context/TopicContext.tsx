@@ -27,6 +27,10 @@ export function TopicContext({ topicId }: Props) {
 
   return (
     <ContextPane>
+      <div className="px-1 text-[11px] leading-relaxed text-text-dim">
+        这里由 agent 自动总结当前话题，方便快速回看上下文。
+      </div>
+
       <ContextBlock label="正在讨论">
         <GoalAutoPanel topicId={topicId} />
       </ContextBlock>
