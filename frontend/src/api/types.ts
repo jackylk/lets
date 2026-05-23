@@ -18,6 +18,7 @@ export interface MessageDTO {
   body: string;
   metadata: Record<string, unknown>;
   ref_event_id: number | null;
+  addressed_to?: string | null;
   created_at: string;
 }
 
@@ -130,6 +131,8 @@ export interface WorkspaceMemberHuman {
   avatar_url: string | null;
   role: "owner" | "member";
   joined_at: string;
+  last_seen_at: string | null;
+  is_online: number;
 }
 
 export interface WorkspaceMemberAgent {
@@ -144,6 +147,8 @@ export interface WorkspaceMemberAgent {
   paused_at: string | null;
   deleted_at: string | null;
   joined_at: string;
+  last_seen_at: string | null;
+  is_online: number;
 }
 
 export type WorkspaceMember = WorkspaceMemberHuman | WorkspaceMemberAgent;

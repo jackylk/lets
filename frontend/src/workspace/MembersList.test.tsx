@@ -11,6 +11,8 @@ const ownerMember: WorkspaceMember = {
   avatar_url: null,
   role: "owner",
   joined_at: "2026-01-01T00:00:00Z",
+  last_seen_at: "2026-01-01T00:00:00Z",
+  is_online: 1,
 };
 
 const regularMember: WorkspaceMember = {
@@ -21,6 +23,8 @@ const regularMember: WorkspaceMember = {
   avatar_url: null,
   role: "member",
   joined_at: "2026-01-01T00:00:00Z",
+  last_seen_at: null,
+  is_online: 0,
 };
 
 const agentMember: WorkspaceMember = {
@@ -35,6 +39,8 @@ const agentMember: WorkspaceMember = {
   paused_at: null,
   deleted_at: null,
   joined_at: "2026-01-01T00:00:00Z",
+  last_seen_at: "2026-01-01T00:00:00Z",
+  is_online: 1,
 };
 
 describe("<MembersList />", () => {
@@ -53,7 +59,9 @@ describe("<MembersList />", () => {
   it("renders agent caption with owner_name", () => {
     render(<MembersList members={[agentMember]} />);
     expect(screen.getByText("Link")).toBeInTheDocument();
-    expect(screen.getByText(/Claude Code · Neo 管理/)).toBeInTheDocument();
+    expect(screen.getByText(/Claude Code/)).toBeInTheDocument();
+    expect(screen.getByText("在线")).toBeInTheDocument();
+    expect(screen.getByLabelText("Link 在线")).toBeInTheDocument();
   });
 
   it("does not duplicate workspace invite actions in the members section", () => {

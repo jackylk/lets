@@ -1231,15 +1231,10 @@ def _maybe_rename_topic_from_first_chat(topic_id: int, body: str) -> str | None:
     else None."""
     if not body:
         return None
-    snippet = body.strip()
-    # Drop leading @mention so titles aren't "@cc ..." everywhere.
-    import re as _re
-    snippet = _re.sub(r"^@[\w一-鿿-]+\s*", "", snippet)
-    snippet = snippet.split("\n", 1)[0].strip()
+    from .topic_intent import summarize_topic_intent
+    snippet = summarize_topic_intent(body)
     if not snippet:
         return None
-    if len(snippet) > 28:
-        snippet = snippet[:28] + "…"
 
     with connect() as conn:
         row = conn.execute(
@@ -1979,10 +1974,18 @@ def list_workspace_members(
     with connect() as conn:
         human_rows = conn.execute(
             """
-            SELECT h.id, h.name, h.email, h.avatar_url, wm.role, wm.joined_at
+            SELECT h.id, h.name, h.email, h.avatar_url, wm.role, wm.joined_at,
+                   MAX(s.last_used_at) AS last_seen_at,
+                   CASE
+                     WHEN MAX(s.last_used_at) IS NOT NULL
+                      AND MAX(s.last_used_at) >= datetime('now', '-5 minutes')
+                     THEN 1 ELSE 0
+                   END AS is_online
             FROM workspace_members wm
             JOIN humans h ON h.id = wm.human_id
+            LEFT JOIN sessions s ON s.human_id = h.id AND s.revoked_at IS NULL
             WHERE wm.workspace_id = ?
+            GROUP BY h.id, h.name, h.email, h.avatar_url, wm.role, wm.joined_at
             ORDER BY wm.joined_at ASC
             """,
             (workspace_id,),
@@ -1993,12 +1996,22 @@ def list_workspace_members(
                    ai.display_name, ai.paused_at, ai.deleted_at,
                    ai.owner_human_id AS owner_human_id,
                    h.name AS owner_name,
-                   wam.joined_at
+                   wam.joined_at,
+                   MAX(t.last_used_at) AS last_seen_at,
+                   CASE
+                     WHEN MAX(t.last_used_at) IS NOT NULL
+                      AND MAX(t.last_used_at) >= datetime('now', '-5 minutes')
+                     THEN 1 ELSE 0
+                   END AS is_online
             FROM workspace_agent_members wam
             JOIN agent_instances ai ON ai.id = wam.agent_instance_id
             JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans h ON h.id = ai.owner_human_id
+            LEFT JOIN tokens t ON t.agent_instance_id = ai.id AND t.revoked_at IS NULL
             WHERE wam.workspace_id = ?
+            GROUP BY ai.id, ar.name, ai.device_label, ai.model,
+                     ai.display_name, ai.paused_at, ai.deleted_at,
+                     ai.owner_human_id, h.name, wam.joined_at
             ORDER BY wam.joined_at ASC
             """,
             (workspace_id,),

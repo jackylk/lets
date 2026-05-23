@@ -5,7 +5,6 @@ import {
 } from "../api/queries";
 import { useTopicStream } from "../api/sse";
 import { TopicHeader } from "./TopicHeader";
-import { AgentListenStatus } from "./AgentListenStatus";
 import { Stream } from "./Stream";
 import { ViewModeToggle } from "./ViewModeToggle";
 import { StreamProvider } from "../messages/StreamContext";
@@ -206,9 +205,6 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
           mentionCandidates={mentionCandidates}
           disabled={postMessage.isPending}
         />
-        {/* Status strip lives below the composer so the user can see the agent's
-            state while typing (eyes are already at the bottom of the screen). */}
-        <AgentListenStatus messages={merged} workspaceMembers={workspaceMembers} />
       </div>
       <DiagramOverlay />
     </StreamProvider>

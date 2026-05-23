@@ -3,6 +3,7 @@ import { WorkspaceSwitcher } from "../workspace/WorkspaceSwitcher";
 import { WorkspaceSection } from "../workspace/WorkspaceSection";
 import { CreateWorkspaceInline } from "../workspace/CreateWorkspaceInline";
 import { MembersList } from "../workspace/MembersList";
+import { useTopicMessages } from "../api/queries";
 import { cn } from "../lib/cn";
 import type { TopicDTO, Workspace, WorkspaceMember } from "../api/types";
 
@@ -171,6 +172,7 @@ export function Sidebar({
   onSelectAgent,
 }: Props) {
   const [creating, setCreating] = useState(false);
+  const activeMessages = useTopicMessages(activeTopicId);
 
   const otherWorkspaces = workspaces.filter(
     (w) => w.id !== activeWorkspace?.id,
@@ -263,6 +265,7 @@ export function Sidebar({
       <MembersList
         workspaceName={activeWorkspace?.name}
         members={members}
+        messages={activeMessages.data?.messages ?? []}
         onSelectAgent={onSelectAgent}
       />
 

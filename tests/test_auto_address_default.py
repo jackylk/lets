@@ -172,7 +172,7 @@ def test_explicit_addressed_to_is_respected(client, auth):
 
 def test_first_chat_renames_topic_from_generic_default(client, auth):
     """When a topic still has its auto-created '主频道' title and a human
-    posts the first chat, the title gets replaced with a snippet of the
+    posts the first chat, the title gets replaced with a compact summary of the
     message body so the sidebar isn't a sea of identical '主频道' rows."""
     from app.identity import ensure_human
     from app.db import connect
@@ -200,6 +200,33 @@ def test_first_chat_renames_topic_from_generic_default(client, auth):
     assert "罗马" in title
     # The leading @mention should be stripped.
     assert not title.startswith("@")
+
+
+def test_first_chat_title_summarizes_discussion_object(client, auth):
+    from app.identity import ensure_human
+    from app.db import connect
+
+    jacky = ensure_human("Jacky-title-summary")
+    with connect() as conn:
+        c = conn.execute(
+            "INSERT INTO topics (slug, title) VALUES ('rename-summary', '新话题')"
+        )
+        topic_id = c.lastrowid
+
+    r = client.post("/api/messages", headers=auth, json={
+        "topic_id": topic_id,
+        "type": "chat",
+        "actor_type": "human",
+        "actor_id": jacky,
+        "body": "有人在吗？我想讨论一个支持自然语言的文件检索工具",
+    })
+    assert r.status_code == 200, r.text
+
+    with connect() as conn:
+        title = conn.execute(
+            "SELECT title FROM topics WHERE id = ?", (topic_id,)
+        ).fetchone()["title"]
+    assert title == "自然语言文件检索工具"
 
 
 def test_real_title_is_not_overwritten(client, auth):

@@ -1,16 +1,9 @@
 import { useMemo } from "react";
 import { useTopicMessages } from "../api/queries";
+import { summarizeTopicGoal } from "../topic/intentSummary";
 
 interface Props {
   topicId: number;
-}
-
-function inferGoalFromChat(body: string): string {
-  let s = body.trim();
-  s = s.replace(/^@[\p{L}\p{N}_-]+\s*/u, "");  // strip leading @mention
-  s = s.split(/\n/, 1)[0]?.trim() ?? s;
-  if (s.length > 80) s = s.slice(0, 80) + "…";
-  return s;
 }
 
 export function GoalAutoPanel({ topicId }: Props) {
@@ -25,7 +18,7 @@ export function GoalAutoPanel({ topicId }: Props) {
   const inferredIntent = useMemo(() => {
     if (formalGoal) return null;
     const first = msgs.find((m) => m.actor_type === "human" && m.type === "chat");
-    return first ? inferGoalFromChat(first.body) : null;
+    return first ? summarizeTopicGoal(first.body) : null;
   }, [msgs, formalGoal]);
 
   if (messages.isLoading) {
@@ -54,7 +47,7 @@ export function GoalAutoPanel({ topicId }: Props) {
           <span className="text-[11px] uppercase tracking-wider text-text-dim font-semibold">
             意图（自动识别）
           </span>
-          <span className="ml-auto text-[10px] text-text-dim italic">来自首条消息</span>
+          <span className="ml-auto text-[10px] text-text-dim italic">自动总结</span>
         </div>
         <p className="text-[13px] text-text leading-relaxed">{inferredIntent}</p>
       </div>

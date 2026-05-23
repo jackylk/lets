@@ -1,4 +1,5 @@
 import type { MessageDTO, TopicDTO } from "../api/types";
+import { summarizeTopicIntent } from "./intentSummary";
 
 const GENERIC_TITLES = new Set([
   "new",
@@ -9,11 +10,6 @@ const GENERIC_TITLES = new Set([
   "主频道",  // legacy default; kept for back-compat
   "general",
 ]);
-
-function cleanFirstLine(body: string): string {
-  // Strip leading @mention so titles aren't dominated by "@cc ..."
-  return body.trim().replace(/^@[\p{L}\p{N}_-]+\s*/u, "").trim();
-}
 
 export function topicDisplayTitle(topic: TopicDTO | undefined, messages: MessageDTO[]): string {
   const rawTitle = topic?.title?.trim();
@@ -26,6 +22,5 @@ export function topicDisplayTitle(topic: TopicDTO | undefined, messages: Message
   if (/^@?(cc|claude)\s*在吗[？?]?$/i.test(body)) return "等待 CC 回复";
   if (/^@?(cx|codex)\s*在吗[？?]?$/i.test(body)) return "等待 Codex 回复";
 
-  const clean = cleanFirstLine(body);
-  return clean.length > 28 ? `${clean.slice(0, 28)}…` : clean;
+  return summarizeTopicIntent(body) || rawTitle || "新对话";
 }

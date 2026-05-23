@@ -68,6 +68,8 @@ describe("<Sidebar />", () => {
         avatar_url: null,
         role: "owner",
         joined_at: "2026-01-01T00:00:00Z",
+        last_seen_at: "2026-01-01T00:00:00Z",
+        is_online: 1,
       },
     ];
     renderWithProviders(<Sidebar {...defaultProps} members={members} />);

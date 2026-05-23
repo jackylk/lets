@@ -22,6 +22,8 @@ def test_list_members_includes_owner(temp_db, client):
     humans = [m for m in members if m["kind"] == "human"]
     assert len(humans) == 1
     assert humans[0]["role"] == "owner"
+    assert humans[0]["is_online"] == 1
+    assert humans[0]["last_seen_at"] is not None
 
 
 def test_list_members_includes_agents(temp_db, client):
@@ -51,6 +53,36 @@ def test_list_members_includes_agents(temp_db, client):
     agents = [m for m in r.json() if m["kind"] == "agent"]
     assert len(agents) == 1
     assert agents[0]["role"] == "claude"
+    assert agents[0]["is_online"] == 0
+    assert agents[0]["last_seen_at"] is None
+
+
+def test_list_members_marks_online_agent(temp_db, client):
+    alice_id = _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    from app.auth import issue_token
+    from app.identity import ensure_agent_instance
+    from app.db import connect
+
+    agent_id = ensure_agent_instance(role="codex", human_id=alice_id, device_label="mac")
+    _, token_id = issue_token(human_id=alice_id, agent_instance_id=agent_id, label="codex")
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO workspace_agent_members "
+            "(workspace_id, agent_instance_id, joined_by_human_id) VALUES (?, ?, ?) "
+            "RETURNING workspace_id",
+            (ws["id"], agent_id, alice_id),
+        )
+        conn.execute(
+            "UPDATE tokens SET last_used_at = datetime('now') WHERE id = ?",
+            (token_id,),
+        )
+
+    r = client.get(f"/api/workspaces/{ws['id']}/members")
+    assert r.status_code == 200
+    agent = next(m for m in r.json() if m["kind"] == "agent")
+    assert agent["is_online"] == 1
+    assert agent["last_seen_at"] is not None
 
 
 def test_remove_member_owner_only(temp_db, client):

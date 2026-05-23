@@ -197,11 +197,13 @@ export interface TopicMessagesResponse {
   drift_context: DriftContextDTO;
 }
 
-export function useTopicMessages(topicId: number) {
+export function useTopicMessages(topicId: number | null) {
   const identity = useIdentity();
   return useQuery({
     queryKey: ["topics", topicId, "messages"],
+    enabled: topicId !== null,
     queryFn: () => apiRequest<TopicMessagesResponse>(`/api/topics/${topicId}/messages`, { identity }),
+    refetchInterval: 3_000,
   });
 }
 
@@ -329,6 +331,7 @@ export function useWorkspaceMembers(workspaceId: number | null) {
     enabled: workspaceId != null,
     queryFn: () =>
       apiRequest<WorkspaceMember[]>(`/api/workspaces/${workspaceId}/members`, { identity }),
+    refetchInterval: 30_000,
   });
 }
 
