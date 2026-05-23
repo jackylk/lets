@@ -375,6 +375,41 @@ _PERSONA_OVERLAYS = {
 }
 
 
+_HEALTH_TOPIC_RE = re.compile(
+    r"肚子疼|肚子痛|腹痛|胃痛|胃疼|腹泻|拉肚子|呕吐|恶心|发烧|发热|"
+    r"头疼|头痛|用药|吃药|布洛芬|对乙酰氨基酚|泰诺|扑热息痛|阿司匹林|"
+    r"止痛药|过敏|ibuprofen|acetaminophen|aspirin",
+    re.IGNORECASE,
+)
+
+
+_HEALTH_SAFETY_INSTRUCTIONS = (
+    "\n\nHEALTH SAFETY MODE: this topic appears to involve symptoms, pain, "
+    "medication, or family health decisions. You are not a doctor and must "
+    "not diagnose or prescribe. Help the family think clearly and safely: "
+    "summarize symptoms, timeline, medications already taken, allergies, "
+    "pregnancy/child/elderly status, and relevant conditions. Prioritize red "
+    "flags: severe or worsening pain, fever, blood in vomit/stool or black "
+    "stool, persistent vomiting/dehydration, pregnancy, recent surgery/trauma, "
+    "chest pain, fainting, or breathing trouble. If red flags are present, "
+    "advise urgent medical care / local emergency services. For medication, "
+    "tell users to read labels, avoid duplicate active ingredients, respect "
+    "dose limits, and ask a doctor/pharmacist when unsure. Be concise, "
+    "practical, and conservative."
+)
+
+
+def _is_health_topic(topic_title: str, recent: list[dict], trigger: dict) -> bool:
+    text = "\n".join(
+        [
+            topic_title,
+            *(str(m.get("body") or "") for m in recent[-12:]),
+            str(trigger.get("body") or ""),
+        ]
+    )
+    return bool(_HEALTH_TOPIC_RE.search(text))
+
+
 def _discussion_partner_persona(role: str, persona: str = "default") -> str:
     base = (
         "You are a sharp design partner — like a senior teammate, not a "
@@ -484,8 +519,10 @@ def _build_prompt_split(
     # right pane clean and avoids the "agent re-raises stale issues" feel.
     resolved_section = _collect_resolved_questions_section(recent)
 
+    health_mode = _is_health_topic(topic_title, recent, trigger)
     system_prompt = (
         f"{_discussion_partner_persona(me.role, persona)}\n\n{_PANE_UPDATE_INSTRUCTIONS}"
+        f"{_HEALTH_SAFETY_INSTRUCTIONS if health_mode else ''}"
     )
 
     sender = "human" if trigger["actor_type"] == "human" else "agent"
@@ -499,6 +536,12 @@ def _build_prompt_split(
         )
     else:
         intervention_note = ""
+    if health_mode:
+        intervention_note += (
+            "\nThis is health-related. Do not brainstorm like a design topic. "
+            "First help the family confirm severity, red flags, timeline, "
+            "medication history, and whether professional care is needed.\n"
+        )
     user_prompt = (
         f"Topic: {topic_title}\n\n"
         f"Recent:\n{history}\n"

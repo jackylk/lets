@@ -720,6 +720,27 @@ def test_proactive_prompt_tells_agent_not_to_take_over():
     assert "avoid taking over" in user_prompt
 
 
+def test_health_prompt_switches_to_safety_mode():
+    from app import gateway
+
+    me = gateway.Identity(1, "Jacky", 7, "codex", "mac")
+    trigger = {
+        "id": 1,
+        "type": "chat",
+        "actor_type": "human",
+        "actor_id": 1,
+        "body": "我现在肚子疼，想和家人聊一下怎么用药",
+    }
+    system_prompt, user_prompt = gateway._build_prompt_split(
+        me, "新话题", [trigger], trigger,
+    )
+
+    assert "HEALTH SAFETY MODE" in system_prompt
+    assert "must not diagnose or prescribe" in system_prompt
+    assert "red flags" in system_prompt
+    assert "Do not brainstorm like a design topic" in user_prompt
+
+
 def test_build_prompt_split_isolates_stable_persona():
     """The new split separates stable persona+protocol (cacheable) from
     variable history+message (per-turn). Cache-hit rate depends on the
