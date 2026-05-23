@@ -2214,11 +2214,22 @@ def _unique_guest_name(conn, display_name: str) -> str:
 def join_by_token(token: str) -> RedirectResponse | FileResponse:
     """Magic-link landing.
 
-    Always serve the SPA. `JoinTokenPage` checks whether a session exists:
-    signed-in users accept with `POST /api/invites/:token/accept`, while
-    signed-out users can create a lightweight guest session.
+    Serve the SPA without redirecting. `JoinTokenPage` needs the browser URL to
+    remain `/join/:token`; redirecting through `/app` loses the token and sends
+    signed-out invitees to the ordinary login page instead of guest join.
     """
-    return home()  # type: ignore[return-value]
+    import pathlib as _pl
+
+    dist_env = os.environ.get("LETS_FRONTEND_DIST")
+    dist_root = (
+        _pl.Path(dist_env)
+        if dist_env
+        else _pl.Path(__file__).parent.parent / "frontend" / "dist"
+    )
+    index = dist_root / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return FileResponse("web/index.html")
 
 
 @app.post("/api/invites/{token}/accept")

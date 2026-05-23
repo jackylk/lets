@@ -1,37 +1,114 @@
+import { useEffect, useRef, useState } from "react";
+
 interface Props {
   workspaceName: string;
   joinUrl: string;
   onClose: () => void;
 }
 
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fall through to the selection-based fallback below.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    return document.execCommand?.("copy") === true;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 export function InviteDialog({ workspaceName, joinUrl, onClose }: Props) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const onCopy = async () => {
+    const ok = await copyText(joinUrl);
+    if (ok) {
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 1600);
+      return;
+    }
+    inputRef.current?.select();
+    setCopyState("failed");
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/40 grid place-items-center z-50">
-      <div className="bg-bg border border-border rounded p-6 max-w-md w-full">
-        <h2 className="text-lg font-[var(--font-display)] mb-3">
-          邀请新成员加入「{workspaceName}」
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invite-dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
+        className="w-full max-w-md rounded border border-border bg-bg p-6 shadow-[0_18px_56px_rgba(44,42,38,0.18)]"
+      >
+        <h2
+          id="invite-dialog-title"
+          className="mb-3 font-[var(--font-display)] text-lg text-text"
+        >
+          邀请成员加入「{workspaceName}」
         </h2>
-        <p className="text-sm text-text-dim mb-3">把这个链接发给 ta：</p>
-        <div className="flex items-center gap-2 mb-4">
-          <code className="flex-1 bg-hover px-3 py-2 rounded text-xs break-all">
-            {joinUrl}
-          </code>
-          <button
-            type="button"
-            onClick={() => navigator.clipboard.writeText(joinUrl)}
-            className="text-xs px-3 py-2 border border-border rounded hover:bg-hover"
-          >
-            复制
-          </button>
-        </div>
-        <p className="text-xs text-text-dim mb-4">
-          收到链接的人点击进入，登录 GitHub 后会自动成为成员。
+        <p className="mb-4 text-sm leading-6 text-text-dim">
+          复制这个邀请链接发给对方。对方输入显示名即可作为访客加入，也可以用 GitHub 继续。
         </p>
+
+        <div className="mb-4 rounded border border-border bg-surface-elev p-2.5">
+          <div className="flex items-center gap-2">
+            <input
+              ref={inputRef}
+              id="invite-url"
+              aria-label="邀请链接"
+              readOnly
+              value={joinUrl}
+              onFocus={(event) => event.currentTarget.select()}
+              className="min-w-0 flex-1 bg-transparent font-mono text-[13px] text-text outline-none"
+            />
+            <button
+              type="button"
+              onClick={onCopy}
+              className="shrink-0 rounded bg-text px-2.5 py-1 text-[12px] font-medium text-bg hover:opacity-90"
+            >
+              {copyState === "copied" ? "已复制" : "复制"}
+            </button>
+          </div>
+        </div>
+        {copyState === "failed" && (
+          <div className="-mt-2 mb-4 text-[11px] text-text-dim">
+            浏览器没有允许自动复制，链接已选中，可以按 Cmd/Ctrl+C。
+          </div>
+        )}
+
         <div className="flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="text-sm px-4 py-2 border border-border rounded hover:bg-hover"
+            className="rounded bg-text px-3 py-1.5 text-[13px] font-medium text-bg hover:opacity-90"
           >
             完成
           </button>

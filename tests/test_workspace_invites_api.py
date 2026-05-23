@@ -131,7 +131,8 @@ def test_join_token_unauthenticated_returns_spa(temp_db, client):
     inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
     client.post("/api/auth/logout")
     r = client.get(f"/join/{inv['token']}", follow_redirects=False)
-    assert r.status_code in (200, 307)
+    assert r.status_code == 200
+    assert "/app/assets/" in r.text or "web/index" not in r.text
 
 
 def test_join_token_authenticated_returns_spa(temp_db, client):
@@ -142,8 +143,7 @@ def test_join_token_authenticated_returns_spa(temp_db, client):
     client.post("/api/auth/logout")
     _login(client, "bob", "b@b")
     r = client.get(f"/join/{inv['token']}", follow_redirects=False)
-    # Either 200 (SPA HTML) or 307 (redirect to /app when frontend/dist exists)
-    assert r.status_code in (200, 307)
+    assert r.status_code == 200
     # The membership add does NOT happen on this GET — it's the SPA's accept call that does it.
     bobs_ws_before_accept = client.get("/api/workspaces").json()
     assert ws["id"] not in [w["id"] for w in bobs_ws_before_accept]
