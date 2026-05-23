@@ -263,8 +263,6 @@ export function Sidebar({
       <MembersList
         workspaceName={activeWorkspace?.name}
         members={members}
-        onInvite={onInviteMember}
-        onInviteAgent={onInviteAgent}
         onSelectAgent={onSelectAgent}
       />
 

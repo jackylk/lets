@@ -4,12 +4,10 @@ import { agentShortName, roleTitle } from "../agent/display";
 interface Props {
   workspaceName?: string;
   members: WorkspaceMember[];
-  onInvite: () => void;
-  onInviteAgent?: () => void;
   onSelectAgent?: (agentId: number) => void;
 }
 
-export function MembersList({ workspaceName, members, onInvite, onInviteAgent, onSelectAgent }: Props) {
+export function MembersList({ workspaceName, members, onSelectAgent }: Props) {
   const humanCount = members.filter((m) => m.kind === "human").length;
   const agentCount = members.filter((m) => m.kind === "agent").length;
   const agentNameCounts = new Map<string, number>();
@@ -68,24 +66,6 @@ export function MembersList({ workspaceName, members, onInvite, onInviteAgent, o
         })}
         {members.length === 0 && (
           <div className="text-xs text-text-dim italic">暂无成员</div>
-        )}
-      </div>
-      <div className="mt-2 flex flex-col gap-1 items-start">
-        <button
-          type="button"
-          onClick={onInvite}
-          className="text-xs text-text-dim hover:text-text"
-        >
-          ＋ 邀请人加入这个工作区
-        </button>
-        {onInviteAgent && (
-          <button
-            type="button"
-            onClick={onInviteAgent}
-            className="text-xs text-text-dim hover:text-text"
-          >
-            ＋ 邀请 agent 加入这个工作区
-          </button>
         )}
       </div>
     </div>

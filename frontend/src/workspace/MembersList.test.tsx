@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { MembersList } from "./MembersList";
 import type { WorkspaceMember } from "../api/types";
 
@@ -39,33 +39,32 @@ const agentMember: WorkspaceMember = {
 
 describe("<MembersList />", () => {
   it("renders owner badge for human with owner role", () => {
-    render(<MembersList members={[ownerMember]} onInvite={vi.fn()} />);
+    render(<MembersList members={[ownerMember]} />);
     expect(screen.getByText("Neo")).toBeInTheDocument();
     expect(screen.getByText("owner")).toBeInTheDocument();
   });
 
   it("does not render owner badge for non-owner human", () => {
-    render(<MembersList members={[regularMember]} onInvite={vi.fn()} />);
+    render(<MembersList members={[regularMember]} />);
     expect(screen.getByText("Trinity")).toBeInTheDocument();
     expect(screen.queryByText("owner")).toBeNull();
   });
 
   it("renders agent caption with owner_name", () => {
-    render(<MembersList members={[agentMember]} onInvite={vi.fn()} />);
+    render(<MembersList members={[agentMember]} />);
     expect(screen.getByText("Link")).toBeInTheDocument();
     expect(screen.getByText(/Claude Code · Neo 管理/)).toBeInTheDocument();
   });
 
-  it("calls onInvite when invite button is clicked", () => {
-    const onInvite = vi.fn();
-    render(<MembersList members={[]} onInvite={onInvite} />);
-    fireEvent.click(screen.getByText(/邀请人加入这个工作区/));
-    expect(onInvite).toHaveBeenCalledOnce();
+  it("does not duplicate workspace invite actions in the members section", () => {
+    render(<MembersList members={[]} />);
+    expect(screen.queryByText(/邀请人加入这个工作区/)).toBeNull();
+    expect(screen.queryByText(/邀请 agent 加入这个工作区/)).toBeNull();
   });
 
   it("renders mixed humans and agents in order", () => {
     render(
-      <MembersList members={[ownerMember, agentMember]} onInvite={vi.fn()} />,
+      <MembersList members={[ownerMember, agentMember]} />,
     );
     expect(screen.getByText("Neo")).toBeInTheDocument();
     expect(screen.getByText("Link")).toBeInTheDocument();
@@ -82,28 +81,15 @@ describe("<MembersList />", () => {
     render(
       <MembersList
         members={[{ ...agentMember, display_name: "Link" }, secondAgent]}
-        onInvite={vi.fn()}
       />,
     );
     expect(screen.getByText("Link · Neo")).toBeInTheDocument();
     expect(screen.getByText("Link · Trinity")).toBeInTheDocument();
   });
 
-  it("renders 邀请 agent button only when onInviteAgent is provided", () => {
-    const { rerender } = render(
-      <MembersList members={[]} onInvite={vi.fn()} />,
-    );
+  it("keeps invite actions out of the members section", () => {
+    render(<MembersList members={[]} />);
+    expect(screen.queryByText(/邀请人/)).toBeNull();
     expect(screen.queryByText(/邀请 agent/)).toBeNull();
-
-    const onInviteAgent = vi.fn();
-    rerender(
-      <MembersList
-        members={[]}
-        onInvite={vi.fn()}
-        onInviteAgent={onInviteAgent}
-      />,
-    );
-    fireEvent.click(screen.getByText(/邀请 agent/));
-    expect(onInviteAgent).toHaveBeenCalledOnce();
   });
 });
