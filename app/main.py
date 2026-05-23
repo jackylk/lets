@@ -5,6 +5,7 @@ import html
 import json
 import importlib
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager
 from typing import Any, Literal
@@ -1223,6 +1224,15 @@ def list_activity() -> list[dict]:
 
 _GENERIC_TOPIC_TITLES = {"新话题", "主频道", "新对话", "general", "untitled", "new", "topic"}
 
+_HEALTH_WAKE_RE = re.compile(
+    r"("
+    r"肚子疼|肚子痛|腹痛|胃痛|胃疼|头疼|头痛|发烧|发热|咳嗽|胸痛|胸闷|"
+    r"拉肚子|腹泻|呕吐|恶心|过敏|皮疹|流血|出血|摔伤|扭伤|烫伤|"
+    r"吃药|用药|止痛药|退烧药|药量|剂量|去医院|急诊|看医生"
+    r")",
+    re.IGNORECASE,
+)
+
 
 def _maybe_rename_topic_from_first_chat(topic_id: int, body: str) -> str | None:
     """If the topic is still on its auto-created generic name ("新话题" etc.)
@@ -1318,6 +1328,42 @@ def _default_addressee_for(topic_id: int, actor_id: int | None) -> str | None:
     return f"agent:{int(row['agent_instance_id'])}"
 
 
+def _health_addressee_for(topic_id: int, actor_id: int | None, body: str) -> str | None:
+    """Wake the only online workspace agent for obvious health/help requests.
+
+    The normal rule keeps multi-human topics quiet. Health and medication
+    questions are different: the first message should bring the agent in if
+    there is a single unambiguous online helper in the current workspace.
+    """
+    if actor_id is None or not _HEALTH_WAKE_RE.search(body or ""):
+        return None
+    with connect() as conn:
+        topic = conn.execute(
+            "SELECT workspace_id FROM topics WHERE id = ?",
+            (topic_id,),
+        ).fetchone()
+        workspace_id = topic["workspace_id"] if topic else None
+        if workspace_id is not None:
+            row = conn.execute(
+                """
+                SELECT COUNT(DISTINCT ai.id) AS n, MIN(ai.id) AS agent_instance_id
+                FROM workspace_agent_members wam
+                JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+                JOIN tokens t ON t.agent_instance_id = ai.id
+                WHERE wam.workspace_id = ?
+                  AND ai.paused_at IS NULL
+                  AND ai.deleted_at IS NULL
+                  AND t.revoked_at IS NULL
+                  AND t.last_used_at IS NOT NULL
+                  AND t.last_used_at >= datetime('now', '-5 minutes')
+                """,
+                (workspace_id,),
+            ).fetchone()
+            if row is not None and row["n"] == 1:
+                return f"agent:{int(row['agent_instance_id'])}"
+    return _default_addressee_for(topic_id, actor_id)
+
+
 @app.post("/api/messages")
 async def post_message_endpoint(
     payload: MessageCreate,
@@ -1342,15 +1388,16 @@ async def post_message_endpoint(
     addressed_to = payload.addressed_to
     # Auto-address rule: in a one-human + one-online-agent topic, treat plain
     # chat like a DM so the agent replies one question at a time. Multi-human
-    # topics keep human-to-human chat primary; the gateway may still
-    # proactively join on stronger signals, but this endpoint does not wake it
-    # for every message.
+    # topics keep human-to-human chat primary, except obvious health/help
+    # requests where a single online workspace agent should join immediately.
     if (
         not addressed_to
         and payload.actor_type == "human"
         and payload.type == "chat"
     ):
-        addressed_to = _default_addressee_for(payload.topic_id, payload.actor_id)
+        addressed_to = _health_addressee_for(
+            payload.topic_id, payload.actor_id, payload.body
+        ) or _default_addressee_for(payload.topic_id, payload.actor_id)
 
     # First-chat-renames-topic: replace the auto-created "新话题" with a
     # short snippet of the first human message so the sidebar + header
@@ -2287,6 +2334,7 @@ def accept_invite_as_guest(token: str, payload: GuestInviteAccept) -> JSONRespon
 @app.get("/api/workspaces/{workspace_id}/topics")
 def list_topics_in_workspace(
     workspace_id: int,
+    archived: bool = False,
     principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     from .workspaces import require_workspace_member
@@ -2294,13 +2342,13 @@ def list_topics_in_workspace(
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, slug, title, workspace_id, mode, created_at, updated_at
+            SELECT id, slug, title, workspace_id, mode, archived_at, created_at, updated_at
             FROM topics
             WHERE workspace_id = ?
-              AND archived_at IS NULL
+              AND archived_at IS {archived_predicate}
               AND deleted_at IS NULL
             ORDER BY updated_at DESC
-            """,
+            """.format(archived_predicate="NOT NULL" if archived else "NULL"),
             (workspace_id,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -2655,6 +2703,7 @@ def get_topic_participants(
             SELECT DISTINCT
                 ai.id,
                 ai.device_label,
+                ai.display_name,
                 ar.name AS role,
                 ah.name AS human_name
             FROM messages m
@@ -2711,6 +2760,30 @@ def archive_topic(
             """
             UPDATE topics
             SET archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND deleted_at IS NULL
+            RETURNING id, slug, title, workspace_id, mode,
+                      archived_at, deleted_at, created_at, updated_at
+            """,
+            (topic_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    return dict(row)
+
+
+@app.post("/api/topics/{topic_id}/restore")
+def restore_topic(
+    topic_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    _require_topic_member(topic_id, human_id)
+    with connect() as conn:
+        row = conn.execute(
+            """
+            UPDATE topics
+            SET archived_at = NULL,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ? AND deleted_at IS NULL
             RETURNING id, slug, title, workspace_id, mode,

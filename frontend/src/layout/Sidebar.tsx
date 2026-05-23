@@ -11,6 +11,7 @@ interface Props {
   activeWorkspace: Workspace | undefined;
   workspaces: Workspace[];
   topics: TopicDTO[];
+  archivedTopics: TopicDTO[];
   members: WorkspaceMember[];
   activeTopicId: number | null;
   onSelectTopic: (id: number) => void;
@@ -21,6 +22,7 @@ interface Props {
   onDeleteWorkspace?: (id: number) => void;
   onRenameTopic?: (id: number, title: string) => void | Promise<unknown>;
   onArchiveTopic?: (id: number) => void | Promise<unknown>;
+  onRestoreTopic?: (id: number) => void | Promise<unknown>;
   onDeleteTopic?: (id: number) => void | Promise<unknown>;
   onInviteMember: () => void;
   onInviteAgent?: () => void;
@@ -35,10 +37,21 @@ interface TopicRowProps {
   onSelect: () => void;
   onRename?: (id: number, title: string) => void | Promise<unknown>;
   onArchive?: (id: number) => void | Promise<unknown>;
+  onRestore?: (id: number) => void | Promise<unknown>;
   onDelete?: (id: number) => void | Promise<unknown>;
+  archived?: boolean;
 }
 
-function TopicRow({ topic, active, onSelect, onRename, onArchive, onDelete }: TopicRowProps) {
+function TopicRow({
+  topic,
+  active,
+  onSelect,
+  onRename,
+  onArchive,
+  onRestore,
+  onDelete,
+  archived = false,
+}: TopicRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -138,14 +151,25 @@ function TopicRow({ topic, active, onSelect, onRename, onArchive, onDelete }: To
           >
             重命名
           </TopicMenuItem>
-          <TopicMenuItem
-            onClick={async () => {
-              setMenuOpen(false);
-              await onArchive?.(topic.id);
-            }}
-          >
-            归档
-          </TopicMenuItem>
+          {archived ? (
+            <TopicMenuItem
+              onClick={async () => {
+                setMenuOpen(false);
+                await onRestore?.(topic.id);
+              }}
+            >
+              恢复
+            </TopicMenuItem>
+          ) : (
+            <TopicMenuItem
+              onClick={async () => {
+                setMenuOpen(false);
+                await onArchive?.(topic.id);
+              }}
+            >
+              归档
+            </TopicMenuItem>
+          )}
           <div className="my-1 border-t border-border-soft" />
           <TopicMenuItem
             danger
@@ -167,6 +191,7 @@ export function Sidebar({
   activeWorkspace,
   workspaces,
   topics,
+  archivedTopics,
   members,
   activeTopicId,
   onSelectTopic,
@@ -177,6 +202,7 @@ export function Sidebar({
   onDeleteWorkspace,
   onRenameTopic,
   onArchiveTopic,
+  onRestoreTopic,
   onDeleteTopic,
   onInviteMember,
   onInviteAgent,
@@ -185,6 +211,7 @@ export function Sidebar({
   onSelectAgent,
 }: Props) {
   const [creating, setCreating] = useState(false);
+  const [topicListMode, setTopicListMode] = useState<"active" | "archived">("active");
   const activeMessages = useTopicMessages(activeTopicId);
 
   const otherWorkspaces = workspaces.filter(
@@ -221,29 +248,53 @@ export function Sidebar({
       <div className="p-3 pt-1 border-b border-border-soft">
         <div className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-[11px] font-semibold text-text-dim">
           <span className="flex-1">话题</span>
-          <span className="font-mono font-medium">{topics.length}</span>
+          <button
+            type="button"
+            onClick={() => setTopicListMode("active")}
+            className={cn(
+              "rounded-[3px] px-1.5 py-0.5 font-medium",
+              topicListMode === "active"
+                ? "bg-surface-elev text-text"
+                : "text-text-dim hover:bg-surface-hover hover:text-text",
+            )}
+          >
+            当前 {topics.length}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTopicListMode("archived")}
+            className={cn(
+              "rounded-[3px] px-1.5 py-0.5 font-medium",
+              topicListMode === "archived"
+                ? "bg-surface-elev text-text"
+                : "text-text-dim hover:bg-surface-hover hover:text-text",
+            )}
+          >
+            归档 {archivedTopics.length}
+          </button>
           <button
             type="button"
             aria-label="新建话题"
             title="新建话题"
+            disabled={topicListMode === "archived"}
             onClick={() =>
               onCreateTopic({
                 slug: `topic-${Date.now().toString(36)}`,
                 title: "新话题",
               })
             }
-            className="w-7 h-7 md:w-5 md:h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text text-[16px] md:text-[14px] leading-none"
+            className="w-7 h-7 md:w-5 md:h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40 text-[16px] md:text-[14px] leading-none"
           >
             +
           </button>
         </div>
         <div className="mt-1 flex flex-col gap-0.5">
-          {topics.length === 0 ? (
+          {(topicListMode === "active" ? topics : archivedTopics).length === 0 ? (
             <div className="px-3 py-1 text-[11px] text-text-dim italic">
-              还没有话题
+              {topicListMode === "active" ? "还没有话题" : "没有已归档话题"}
             </div>
           ) : (
-            topics.map((t) => (
+            (topicListMode === "active" ? topics : archivedTopics).map((t) => (
               <TopicRow
                 key={t.id}
                 topic={t}
@@ -251,7 +302,12 @@ export function Sidebar({
                 onSelect={() => onSelectTopic(t.id)}
                 onRename={onRenameTopic}
                 onArchive={onArchiveTopic}
+                onRestore={async (id) => {
+                  await onRestoreTopic?.(id);
+                  setTopicListMode("active");
+                }}
                 onDelete={onDeleteTopic}
+                archived={topicListMode === "archived"}
               />
             ))
           )}

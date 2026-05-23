@@ -345,13 +345,16 @@ export function useCreateInvite() {
   });
 }
 
-export function useTopicsInWorkspace(workspaceId: number | null) {
+export function useTopicsInWorkspace(workspaceId: number | null, archived = false) {
   const identity = useIdentity();
   return useQuery({
-    queryKey: ["workspace-topics", workspaceId],
+    queryKey: ["workspace-topics", workspaceId, archived ? "archived" : "active"],
     enabled: workspaceId != null,
     queryFn: () =>
-      apiRequest<TopicDTO[]>(`/api/workspaces/${workspaceId}/topics`, { identity }),
+      apiRequest<TopicDTO[]>(
+        `/api/workspaces/${workspaceId}/topics${archived ? "?archived=true" : ""}`,
+        { identity },
+      ),
   });
 }
 
@@ -388,6 +391,21 @@ export function useArchiveTopic() {
   return useMutation({
     mutationFn: (topicId: number) =>
       apiRequest<TopicDTO>(`/api/topics/${topicId}/archive`, {
+        method: "POST", body: {}, identity,
+      }),
+    onSuccess: (_res, topicId) => {
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+      qc.invalidateQueries({ queryKey: ["topics", topicId, "info"] });
+    },
+  });
+}
+
+export function useRestoreTopic() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (topicId: number) =>
+      apiRequest<TopicDTO>(`/api/topics/${topicId}/restore`, {
         method: "POST", body: {}, identity,
       }),
     onSuccess: (_res, topicId) => {

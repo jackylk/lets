@@ -104,6 +104,30 @@ def test_archive_topic_hides_it_from_workspace_list(temp_db, client):
     topics = client.get(f"/api/workspaces/{ws['id']}/topics").json()
     assert all(t["id"] != topic["id"] for t in topics)
 
+    archived = client.get(f"/api/workspaces/{ws['id']}/topics?archived=true").json()
+    assert [t["id"] for t in archived] == [topic["id"]]
+
+
+def test_restore_topic_returns_it_to_workspace_list(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "restore-me", "title": "Restore Me"},
+    ).json()
+
+    assert client.post(f"/api/topics/{topic['id']}/archive").status_code == 200
+
+    r = client.post(f"/api/topics/{topic['id']}/restore")
+    assert r.status_code == 200
+    assert r.json()["archived_at"] is None
+
+    topics = client.get(f"/api/workspaces/{ws['id']}/topics").json()
+    assert [t["id"] for t in topics] == [topic["id"]]
+
+    archived = client.get(f"/api/workspaces/{ws['id']}/topics?archived=true").json()
+    assert all(t["id"] != topic["id"] for t in archived)
+
 
 def test_delete_topic_hides_it_and_blocks_direct_access(temp_db, client):
     _login(client, "alice")
@@ -134,4 +158,5 @@ def test_topic_lifecycle_actions_require_membership(temp_db, client):
     _login(client, "bob", "b@b")
 
     assert client.post(f"/api/topics/{topic['id']}/archive").status_code == 403
+    assert client.post(f"/api/topics/{topic['id']}/restore").status_code == 403
     assert client.delete(f"/api/topics/{topic['id']}").status_code == 403

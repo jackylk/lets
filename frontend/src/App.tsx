@@ -17,7 +17,7 @@ import {
   useWorkspaces, useTopicsInWorkspace, useWorkspaceMembers,
   useCreateWorkspace, useAttention, useSessionMe, useAllAgents,
   useCreateInvite, useRenameWorkspace, useDeleteWorkspace, useRenameTopic,
-  useArchiveTopic, useDeleteTopic,
+  useArchiveTopic, useRestoreTopic, useDeleteTopic,
 } from "./api/queries";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "./api/client";
@@ -69,6 +69,8 @@ function Workspace() {
 
   const topicsQuery = useTopicsInWorkspace(activeWorkspaceId);
   const topics = topicsQuery.data ?? [];
+  const archivedTopicsQuery = useTopicsInWorkspace(activeWorkspaceId, true);
+  const archivedTopics = archivedTopicsQuery.data ?? [];
 
   const membersQuery = useWorkspaceMembers(activeWorkspaceId);
   const members = membersQuery.data ?? [];
@@ -122,6 +124,7 @@ function Workspace() {
   const deleteWorkspace = useDeleteWorkspace();
   const renameTopic = useRenameTopic();
   const archiveTopic = useArchiveTopic();
+  const restoreTopic = useRestoreTopic();
   const deleteTopic = useDeleteTopic();
 
   const handleCreateWorkspace = (name: string) => {
@@ -163,6 +166,14 @@ function Workspace() {
       onSuccess: () => clearActiveTopic(id),
     });
 
+  const handleRestoreTopic = (id: number) =>
+    restoreTopic.mutateAsync(id, {
+      onSuccess: () => {
+        setView({ kind: "topic", id });
+        setTopicId(id);
+      },
+    });
+
   const handleDeleteTopic = (id: number) =>
     deleteTopic.mutateAsync(id, {
       onSuccess: () => clearActiveTopic(id),
@@ -195,6 +206,7 @@ function Workspace() {
       activeWorkspace={activeWorkspace}
       workspaces={workspaces}
       topics={topics}
+      archivedTopics={archivedTopics}
       members={members}
       activeTopicId={view.kind === "topic" ? view.id : null}
       onSelectTopic={handleSelectTopic}
@@ -211,6 +223,7 @@ function Workspace() {
       onDeleteWorkspace={handleDeleteWorkspace}
       onRenameTopic={handleRenameTopic}
       onArchiveTopic={handleArchiveTopic}
+      onRestoreTopic={handleRestoreTopic}
       onDeleteTopic={handleDeleteTopic}
       onInviteMember={handleInviteMember}
       onInviteAgent={handleInviteAgent}

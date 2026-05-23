@@ -17,7 +17,7 @@ function renderStream(messages: MessageDTO[], topicId: number) {
 
 const directory: Directory = {
   humans: [{ id: 1, name: "Jacky" }],
-  agentInstances: [{ id: 4, role: "claude", device_label: "mac16", human_id: 1 }],
+  agentInstances: [{ id: 4, role: "codex", device_label: "mac16", display_name: "Neo", human_id: 1 }],
 };
 
 function msg(over: Partial<MessageDTO>): MessageDTO {
@@ -70,9 +70,18 @@ describe("<Stream />", () => {
       msg({ id: 4, type: "chat", actor_type: "human", actor_id: 1, body: "follow-up #4" }),
     ];
     renderStream(messages, 1);
-    expect(screen.getByText(/CC 已读到此处/)).toBeInTheDocument();
+    expect(screen.getByText(/Agent 已读到此处/)).toBeInTheDocument();
     // Two human messages after the cursor should be marked unread.
     expect(screen.getAllByText("未读").length).toBe(2);
+  });
+
+  it("uses the agent instance display name in message headers", () => {
+    const messages: MessageDTO[] = [
+      msg({ id: 1, type: "chat", actor_type: "agent", actor_id: 4, body: "reply" }),
+    ];
+    renderStream(messages, 1);
+    expect(screen.getByText("Neo")).toBeInTheDocument();
+    expect(screen.queryByText("Codex")).toBeNull();
   });
 
   it("default 'collapsed' mode folds agent chat into a one-line summary", () => {
@@ -99,7 +108,7 @@ describe("<Stream />", () => {
       msg({ id: 4, type: "chat", actor_type: "human", actor_id: 1, body: "h2" }),
     ];
     renderStream(messages, 43);
-    expect(screen.getByText(/CC 中间说了 2 条/)).toBeInTheDocument();
+    expect(screen.getByText(/Agent 中间说了 2 条/)).toBeInTheDocument();
     expect(screen.queryByText("a1")).toBeNull();
     expect(screen.queryByText("a2")).toBeNull();
     expect(screen.getByText("h1")).toBeInTheDocument();

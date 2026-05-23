@@ -55,7 +55,7 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
   const directory = useMemo(() => {
     const p = participants.data;
     const humanById = new Map<number, { id: number; name: string }>();
-    const agentById = new Map<number, { id: number; role: string; device_label: string; human_id: number }>();
+    const agentById = new Map<number, { id: number; role: string; device_label: string; display_name: string | null; human_id: number }>();
     if (me.data?.human) {
       humanById.set(me.data.human.id, {
         id: me.data.human.id,
@@ -70,6 +70,7 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
         id: a.id,
         role: a.role,
         device_label: a.device_label,
+        display_name: a.display_name,
         human_id: 0,
       });
     }
@@ -78,6 +79,7 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
         id: a.agent_instance_id,
         role: a.role,
         device_label: a.device_label,
+        display_name: a.display_name,
         human_id: a.human_id,
       });
     }

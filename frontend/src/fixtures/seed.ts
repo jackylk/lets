@@ -5,7 +5,7 @@ export interface SeedState {
   topics: TopicDTO[];
   messages: MessageDTO[];
   humans: { id: number; name: string }[];
-  agentInstances: { id: number; role: string; device_label: string; human_id: number }[];
+  agentInstances: { id: number; role: string; device_label: string; display_name: string | null; human_id: number }[];
   taskTrees: TaskTreeDTO[];
   taskItems: TaskItemDTO[];
   driftNudges: Array<{
@@ -38,16 +38,24 @@ export function makeSeed(): SeedState {
     { id: 3, name: "Morpheus" },
   ];
   const agentInstances = [
-    { id: 11, role: "claude", device_label: "neo-mbp", human_id: 1 },
-    { id: 12, role: "claude", device_label: "trinity-air", human_id: 2 },
-    { id: 13, role: "codex", device_label: "neo-mbp", human_id: 1 },
+    { id: 11, role: "claude", device_label: "neo-mbp", display_name: "Neo", human_id: 1 },
+    { id: 12, role: "claude", device_label: "trinity-air", display_name: "Trinity", human_id: 2 },
+    { id: 13, role: "codex", device_label: "neo-mbp", display_name: "Morpheus", human_id: 1 },
   ];
-  const topics: TopicDTO[] = [{
-    id: 1, slug: "t-ppt", title: "为 Agent 记忆写一个研讨 PPT",
-    project_id: 1,
-    created_at: "2026-05-19T09:14:00Z",
-    updated_at: "2026-05-19T10:32:00Z",
-  }];
+  const topics: TopicDTO[] = [
+    {
+      id: 1, slug: "t-ppt", title: "为 Agent 记忆写一个研讨 PPT",
+      project_id: 1, workspace_id: 1, archived_at: null,
+      created_at: "2026-05-19T09:14:00Z",
+      updated_at: "2026-05-19T10:32:00Z",
+    },
+    {
+      id: 2, slug: "old-brief", title: "旧版活动 brief",
+      project_id: 1, workspace_id: 1, archived_at: "2026-05-18T10:00:00Z",
+      created_at: "2026-05-18T09:00:00Z",
+      updated_at: "2026-05-18T10:00:00Z",
+    },
+  ];
   const messages: MessageDTO[] = [
     mk(1, 1, "chat", "human", 1,
       "下周三的 AI 研讨会，我答应讲 30min agent 记忆。@Trinity @Morpheus 一起搞吧？受众是技术研究者。",

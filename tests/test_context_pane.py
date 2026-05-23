@@ -53,10 +53,12 @@ def test_artifacts_by_topic(client, auth, tmp_path, monkeypatch):
 
 
 def test_participants_endpoint(client, auth):
-    from app.identity import ensure_human
+    from app.identity import ensure_agent_instance, ensure_human
+    from app.messages import post_message
     from app.db import connect
     neo = ensure_human("Neo")
     trinity = ensure_human("Trinity")
+    agent_id = ensure_agent_instance("codex", neo, "neo-mbp")
     with connect() as conn:
         c = conn.execute("INSERT INTO topics (slug, title) VALUES ('p-t', 'P')")
         topic_id = c.lastrowid
@@ -66,13 +68,20 @@ def test_participants_endpoint(client, auth):
             "actor_id": hid, "body": "hi",
         })
         assert r.status_code == 200, r.text
+    post_message(topic_id, "chat", "agent", agent_id, "agent reply")
 
     r = client.get(f"/api/topics/{topic_id}/participants", headers=auth)
     assert r.status_code == 200
     data = r.json()
     names = {p["name"] for p in data["humans"]}
     assert names == {"Neo", "Trinity"}
-    assert data.get("agents") == []
+    assert data["agents"] == [{
+        "id": agent_id,
+        "device_label": "neo-mbp",
+        "display_name": "Neo",
+        "role": "codex",
+        "human_name": "Neo",
+    }]
 
 
 def test_git_status_endpoint(client, auth, tmp_path):

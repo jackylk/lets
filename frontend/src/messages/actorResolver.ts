@@ -1,13 +1,18 @@
 import type { MessageDTO } from "../api/types";
+import { agentShortName } from "../agent/display";
 
 export interface DirectoryEntry {
   human?: { id: number; name: string };
-  agentInstance?: { id: number; role: string; device_label: string };
+  agentInstance?: { id: number; role: string; device_label: string; display_name: string | null };
 }
 
 export interface Directory {
   humans: { id: number; name: string }[];
-  agentInstances: { id: number; role: string; device_label: string; human_id: number }[];
+  agentInstances: { id: number; role: string; device_label: string; display_name: string | null; human_id: number }[];
+}
+
+function agentInitial(displayName: string) {
+  return displayName.trim().slice(0, 1).toUpperCase() || "?";
 }
 
 export function makeActorResolver(dir: Directory) {
@@ -23,10 +28,8 @@ export function makeActorResolver(dir: Directory) {
     const a = dir.agentInstances.find((x) => x.id === m.actor_id);
     const role = a?.role;
     const kind = role === "codex" ? ("codex" as const) : ("claude" as const);
-    const initial = role === "codex" ? "CX" : "CC";
-    const display = a
-      ? role === "codex" ? "Codex" : role === "claude" ? "CC" : `${role} · ${a.device_label}`
-      : `agent#${m.actor_id}`;
+    const display = a ? agentShortName(a) : `agent#${m.actor_id}`;
+    const initial = a ? agentInitial(display) : "?";
     return { kind, initial, displayName: display };
   };
 }

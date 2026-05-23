@@ -836,7 +836,8 @@ def _migrate_humans_guest_flag(conn) -> None:
 def _migrate_topics_lifecycle(conn) -> None:
     """Add soft archive/delete columns for topic list actions."""
     table = conn.execute(
-        "SELECT 1 FROM information_schema.tables WHERE table_name = 'topics'"
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema = current_schema() AND table_name = 'topics'"
     ).fetchone()
     if table is None:
         return

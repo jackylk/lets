@@ -36,7 +36,7 @@ export const handlers = [
         (() => {
           const row = {
             id: 100 + seed.agentInstances.length,
-            role, device_label: device, human_id: humanRow.id,
+            role, device_label: device, display_name: null, human_id: humanRow.id,
           };
           seed.agentInstances.push(row);
           return row;
@@ -241,7 +241,13 @@ export const handlers = [
       human: { id: 2, name: body.name ?? "Guest", is_guest: true },
     });
   }),
-  http.get("/api/workspaces/:id/topics", () => HttpResponse.json(seed.topics)),
+  http.get("/api/workspaces/:id/topics", ({ request }) => {
+    const url = new URL(request.url);
+    const archived = url.searchParams.get("archived") === "true";
+    return HttpResponse.json(
+      seed.topics.filter((t) => archived ? t.archived_at : !t.archived_at),
+    );
+  }),
 
   // ---- v1.5 chrome (projects, single topic, participants, artifacts, git, attention)
   http.get("/api/projects", () =>
@@ -278,6 +284,26 @@ export const handlers = [
       });
     return HttpResponse.json(topic);
   }),
+  http.post("/api/topics/:id/archive", ({ params }) => {
+    const topic = seed.topics.find((t) => t.id === Number(params.id));
+    if (!topic)
+      return new HttpResponse(JSON.stringify({ detail: "topic not found" }), {
+        status: 404,
+      });
+    topic.archived_at = topic.archived_at ?? new Date().toISOString();
+    topic.updated_at = topic.archived_at;
+    return HttpResponse.json(topic);
+  }),
+  http.post("/api/topics/:id/restore", ({ params }) => {
+    const topic = seed.topics.find((t) => t.id === Number(params.id));
+    if (!topic)
+      return new HttpResponse(JSON.stringify({ detail: "topic not found" }), {
+        status: 404,
+      });
+    topic.archived_at = null;
+    topic.updated_at = new Date().toISOString();
+    return HttpResponse.json(topic);
+  }),
   http.get("/api/topics/:id/participants", ({ params }) => {
     const topicId = Number(params.id);
     const msgs = seed.messages.filter((m) => m.topic_id === topicId);
@@ -295,7 +321,7 @@ export const handlers = [
       agents: seed.agentInstances
         .filter((a) => agentIds.has(a.id))
         .map((a) => ({
-          id: a.id, role: a.role, device_label: a.device_label,
+          id: a.id, role: a.role, device_label: a.device_label, display_name: a.display_name,
           human_name: seed.humans.find((h) => h.id === a.human_id)?.name ?? "",
         })),
     });

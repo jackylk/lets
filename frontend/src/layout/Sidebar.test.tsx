@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { renderWithProviders } from "../../test/render";
 import { Sidebar } from "./Sidebar";
 import type { Workspace, TopicDTO, WorkspaceMember } from "../api/types";
@@ -32,6 +32,7 @@ const defaultProps = {
   activeWorkspace: ws1,
   workspaces: [ws1, ws2],
   topics: [makeTopic(10, "topic-abc12", "新话题")],
+  archivedTopics: [] as TopicDTO[],
   members: [] as WorkspaceMember[],
   activeTopicId: null,
   onSelectTopic: vi.fn(),
@@ -54,8 +55,7 @@ describe("<Sidebar />", () => {
 
   it("shows the topic count in the topics section header", () => {
     renderWithProviders(<Sidebar {...defaultProps} />);
-    // The topics section should show count "1"
-    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "当前 1" })).toBeInTheDocument();
   });
 
   it("renders members section", () => {
@@ -118,6 +118,24 @@ describe("<Sidebar />", () => {
     expect(onDeleteTopic).toHaveBeenCalledWith(10);
 
     confirm.mockRestore();
+  });
+
+  it("shows archived topics and calls restore from the topic menu", async () => {
+    const onRestoreTopic = vi.fn();
+    renderWithProviders(
+      <Sidebar
+        {...defaultProps}
+        archivedTopics={[makeTopic(11, "old-one", "旧话题")]}
+        onRestoreTopic={onRestoreTopic}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("归档 1"));
+    expect(screen.getByText("旧话题")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "旧话题 话题操作" }));
+    fireEvent.click(screen.getByText("恢复"));
+    await waitFor(() => expect(onRestoreTopic).toHaveBeenCalledWith(11));
   });
 
   it("shows create-workspace inline form when + is clicked", () => {

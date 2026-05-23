@@ -2,7 +2,9 @@
 own exactly one currently-online agent, the server fills in addressed_to so the
 gateway picks the message up — no need to type @cc every turn.
 
-With 0 or 2+ online agents, or multi-human topics, we leave it null."""
+With 0 or 2+ online agents, or multi-human topics, we leave it null. Obvious
+health/help requests are the exception: a single online workspace agent should
+join immediately."""
 from __future__ import annotations
 
 import pytest
@@ -43,6 +45,20 @@ def _make_workspace_topic(slug: str, human_ids: list[int]) -> int:
             (slug, workspace_id),
         )
         return int(t.lastrowid)
+
+
+def _add_workspace_agent_member(topic_id: int, agent_instance_id: int, joined_by: int) -> None:
+    from app.db import connect
+    with connect() as conn:
+        workspace_id = conn.execute(
+            "SELECT workspace_id FROM topics WHERE id = ?",
+            (topic_id,),
+        ).fetchone()["workspace_id"]
+        conn.execute(
+            "INSERT INTO workspace_agent_members (workspace_id, agent_instance_id, joined_by_human_id) "
+            "VALUES (?, ?, ?) RETURNING workspace_id",
+            (workspace_id, agent_instance_id, joined_by),
+        )
 
 
 def _mark_token_online(token_id: int) -> None:
@@ -121,6 +137,63 @@ def test_multi_human_topic_does_not_auto_address_plain_chat(client, auth):
         "actor_type": "human",
         "actor_id": jacky,
         "body": "我们先自己聊一下",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["addressed_to"] is None
+
+
+def test_health_message_auto_addresses_single_online_workspace_agent(client, auth):
+    """Health/help requests wake the only online workspace agent even in a
+    multi-human topic, because waiting for the slower proactive rule feels
+    wrong in family-care use cases."""
+    from app.auth import issue_token
+    from app.identity import ensure_human, ensure_agent_instance
+
+    jacky = ensure_human("Jacky-auto-health")
+    family = ensure_human("Family-auto-health")
+    jacky_token, _ = issue_token(human_id=jacky, label="jacky-health-human")
+    cc = ensure_agent_instance(role="codex", human_id=jacky, device_label="mac")
+    _, tok_id = issue_token(human_id=jacky, agent_instance_id=cc, label="cc-health")
+    _mark_token_online(tok_id)
+
+    tid = _make_workspace_topic("auto-health", [jacky, family])
+    _add_workspace_agent_member(tid, cc, jacky)
+    r = client.post("/api/messages", headers={"Authorization": f"Bearer {jacky_token}"}, json={
+        "topic_id": tid,
+        "type": "chat",
+        "actor_type": "human",
+        "actor_id": jacky,
+        "body": "我肚子疼，想问问怎么用药",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["addressed_to"] == f"agent:{cc}"
+
+
+def test_health_message_does_not_auto_address_ambiguous_workspace_agents(client, auth):
+    """If multiple workspace agents are online, do not guess which one should
+    answer medical-adjacent questions."""
+    from app.auth import issue_token
+    from app.identity import ensure_human, ensure_agent_instance
+
+    jacky = ensure_human("Jacky-auto-health-ambiguous")
+    family = ensure_human("Family-auto-health-ambiguous")
+    jacky_token, _ = issue_token(human_id=jacky, label="jacky-health-ambiguous")
+    cc = ensure_agent_instance(role="codex", human_id=jacky, device_label="mac")
+    neo = ensure_agent_instance(role="claude", human_id=jacky, device_label="laptop")
+    _, tok_id_1 = issue_token(human_id=jacky, agent_instance_id=cc, label="cc-health-amb")
+    _, tok_id_2 = issue_token(human_id=jacky, agent_instance_id=neo, label="neo-health-amb")
+    _mark_token_online(tok_id_1)
+    _mark_token_online(tok_id_2)
+
+    tid = _make_workspace_topic("auto-health-ambiguous", [jacky, family])
+    _add_workspace_agent_member(tid, cc, jacky)
+    _add_workspace_agent_member(tid, neo, jacky)
+    r = client.post("/api/messages", headers={"Authorization": f"Bearer {jacky_token}"}, json={
+        "topic_id": tid,
+        "type": "chat",
+        "actor_type": "human",
+        "actor_id": jacky,
+        "body": "我肚子疼，想问问怎么用药",
     })
     assert r.status_code == 200, r.text
     assert r.json()["addressed_to"] is None

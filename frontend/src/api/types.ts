@@ -27,6 +27,9 @@ export interface TopicDTO {
   slug: string;
   title: string;
   project_id: number | null;
+  workspace_id?: number | null;
+  mode?: "exploratory" | "actionable";
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -162,7 +165,7 @@ export interface WorkspaceInvite {
 
 export interface ParticipantsDTO {
   humans: Array<{ id: number; name: string; email: string | null }>;
-  agents: Array<{ id: number; device_label: string; role: string; human_name: string }>;
+  agents: Array<{ id: number; device_label: string; display_name: string | null; role: string; human_name: string }>;
 }
 
 export interface GitStatusDTO {

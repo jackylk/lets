@@ -140,7 +140,7 @@ function StreamBody({ messages, directory }: Props) {
                 className="text-text-dim hover:text-accent-text font-mono uppercase tracking-[0.04em] not-italic"
                 onClick={() => r.ids.forEach(toggleExpanded)}
               >
-                CC 中间说了 {r.count} 条 · 展开
+                Agent 中间说了 {r.count} 条 · 展开
               </button>
               <span className="flex-1 border-t border-dashed border-border-soft" />
             </div>
