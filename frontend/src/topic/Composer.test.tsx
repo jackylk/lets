@@ -133,6 +133,36 @@ describe("<Composer />", () => {
     expect(textarea.value).toBe("@cc ");
   });
 
+  it("does not show unresolved while a partial mention has candidates", async () => {
+    const onSend = vi.fn();
+    const resolver = {
+      resolveAddresses: vi.fn((mentions: string[]) => {
+        const map: Record<string, string> = { neo: "agent:7" };
+        return mentions.map((m) => map[m]).filter((v): v is string => typeof v === "string");
+      }),
+      resolveHumanIds: vi.fn(() => []),
+    };
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Composer
+        onSend={onSend}
+        resolver={resolver}
+        mentionCandidates={[
+          { key: "neo", label: "Neo", detail: "online · by Jacky Li", kind: "agent" },
+        ]}
+      />,
+    );
+
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(textarea, "@n");
+    expect(screen.getByText("Neo")).toBeInTheDocument();
+    expect(screen.queryByText(/无法解析/)).toBeNull();
+
+    await user.keyboard("{Enter}");
+    expect(textarea.value).toBe("@neo ");
+    expect(screen.getByText(/@neo to agent:7/)).toBeInTheDocument();
+  });
+
   it("Enter during IME composition does not send (Sogou/Pinyin candidate confirm)", async () => {
     const { fireEvent } = await import("@testing-library/react");
     const onSend = vi.fn();

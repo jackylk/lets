@@ -177,6 +177,7 @@ export function Composer({
         ? resolver.resolveAddresses(mentions)
         : resolver.resolveHumanIds(mentions).map((id) => String(id))
       : [];
+  const isChoosingMention = mentionQuery !== null && mentionOptions.length > 0;
 
   return (
     <div className="px-3 py-2 md:px-6 md:py-3 border-t border-border-soft bg-bg">
@@ -230,7 +231,7 @@ export function Composer({
               {mentions.map((m) => `@${m}`).join(" ")}
               {resolvedAddresses.length > 0
                 ? ` to ${resolvedAddresses.join(",")}`
-                : " (无法解析)"}
+                : isChoosingMention ? "" : " (无法解析)"}
             </span>
           )}
           <div className="flex-1" />
