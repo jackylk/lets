@@ -4,13 +4,12 @@ import { agentShortName, roleTitle } from "../agent/display";
 import { parseBackendTs } from "../lib/time";
 
 interface Props {
-  workspaceName?: string;
   members: WorkspaceMember[];
   messages?: MessageDTO[];
   onSelectAgent?: (agentId: number) => void;
 }
 
-export function MembersList({ workspaceName, members, messages = [], onSelectAgent }: Props) {
+export function MembersList({ members, messages = [], onSelectAgent }: Props) {
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((x) => x + 1), 15_000);
@@ -32,11 +31,9 @@ export function MembersList({ workspaceName, members, messages = [], onSelectAge
         <div className="text-[10px] font-semibold uppercase tracking-wider text-text-dim">
           当前工作区成员
         </div>
-        {workspaceName && (
-          <div className="mt-0.5 truncate text-[12px] text-text-muted">
-            {workspaceName} · {humanCount} 人 · {agentCount} agent
-          </div>
-        )}
+        <div className="mt-0.5 truncate text-[12px] text-text-muted">
+          {humanCount} 人 · {agentCount} agent
+        </div>
       </div>
       <div className="flex flex-col gap-0.5">
         {members.map((m) => {

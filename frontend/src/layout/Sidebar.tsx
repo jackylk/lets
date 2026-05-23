@@ -278,7 +278,6 @@ export function Sidebar({
 
       {/* Members list */}
       <MembersList
-        workspaceName={activeWorkspace?.name}
         members={members}
         messages={activeMessages.data?.messages ?? []}
         onSelectAgent={onSelectAgent}

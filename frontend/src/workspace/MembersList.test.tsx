@@ -74,8 +74,15 @@ describe("<MembersList />", () => {
     render(
       <MembersList members={[ownerMember, agentMember]} />,
     );
+    expect(screen.getByText("1 人 · 1 agent")).toBeInTheDocument();
     expect(screen.getByText("Neo")).toBeInTheDocument();
     expect(screen.getByText("Link")).toBeInTheDocument();
+  });
+
+  it("keeps the workspace name out of the members summary", () => {
+    render(<MembersList members={[ownerMember, agentMember]} />);
+    expect(screen.getByText("当前工作区成员")).toBeInTheDocument();
+    expect(screen.queryByText(/我的工作区/)).toBeNull();
   });
 
   it("adds owner name when two agents have the same display name", () => {

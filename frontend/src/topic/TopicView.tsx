@@ -12,6 +12,7 @@ import { DiagramOverlay } from "../messages/DiagramOverlay";
 import { Composer, type MentionCandidate, type MentionResolver } from "./Composer";
 import { topicDisplayTitle } from "./topicSummary";
 import type { MessageDTO, TaskTreeProposalMeta, WorkspaceMember } from "../api/types";
+import { agentShortName } from "../agent/display";
 
 interface Props {
   topicId: number;
@@ -96,12 +97,13 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
       const online = Boolean(
         (agents.data ?? []).find((a) => a.agent_instance_id === m.id && a.is_online),
       );
-      const key = m.role === "claude" ? "cc" : m.role === "codex" ? "cx" : m.role.toLowerCase();
+      const displayName = agentShortName(m);
+      const key = mentionKey(displayName);
       if (!seen.has(`agent:${key}`)) {
         seen.add(`agent:${key}`);
         out.push({
           key,
-          label: `${m.display_name || m.role} · ${m.device_label || "device"}`,
+          label: displayName,
           detail: `${online ? "online" : "offline"} · by ${m.owner_name}`,
           kind: "agent",
         });
@@ -130,6 +132,7 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
         continue;
       }
       if (m.deleted_at) continue;
+      lookup[mentionKey(agentShortName(m))] = `agent:${m.id}`;
       lookup[m.role.toLowerCase()] = `agent:${m.id}`;
       if (m.device_label) lookup[m.device_label.toLowerCase()] = `agent:${m.id}`;
       if (m.display_name) lookup[m.display_name.toLowerCase()] = `agent:${m.id}`;
@@ -209,4 +212,8 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
       <DiagramOverlay />
     </StreamProvider>
   );
+}
+
+function mentionKey(name: string) {
+  return name.trim().toLowerCase().replace(/\s+/g, "-");
 }
