@@ -562,10 +562,10 @@ def _parse_pane_updates(output: str) -> tuple[str, dict]:
         updates = json.loads(inner)
     except json.JSONDecodeError:
         print(
-            f"  WARN: pane_updates JSON malformed, ignoring: {inner[:200]}",
+            f"  WARN: pane_updates JSON malformed, falling back to prose extraction: {inner[:200]}",
             file=sys.stderr,
         )
-        return chat_body, {}
+        return chat_body, _fallback_pane_updates(inner)
     if not isinstance(updates, dict):
         return chat_body, {}
     return chat_body, updates
@@ -2211,6 +2211,8 @@ def main(argv: list[str] | None = None) -> int:
                     chat_body, updates = _parse_pane_updates(output)
                     if not updates:
                         updates = _fallback_pane_updates(chat_body or output)
+                    if not updates and output != chat_body:
+                        updates = _fallback_pane_updates(output)
                     # Pull out headline (separate from the array fields the
                     # right pane consumes). It lives on the chat message
                     # metadata so the frontend's folded view can show it.

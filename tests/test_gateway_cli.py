@@ -457,6 +457,35 @@ def test_parse_pane_updates_malformed_json_degrades_gracefully(capsys):
     assert updates == {}
 
 
+def test_parse_pane_updates_malformed_json_extracts_inner_sections(capsys):
+    from app.gateway import _parse_pane_updates
+
+    chat, updates = _parse_pane_updates(
+        """可见回复
+<pane_updates>
+不是 JSON。
+
+**目标**
+
+让团队能用自然语言找到本地和共享空间里的文件。
+
+**候选方案**
+
+1. Embedding 语义检索
+把文件切块向量化后按语义召回。
+
+**风险**
+
+- 权限过滤如果后置，会泄露文件标题。
+</pane_updates>"""
+    )
+
+    assert chat == "可见回复"
+    assert updates["decisions"][0]["body"].startswith("让团队能用自然语言")
+    assert updates["options"][0]["title"] == "Embedding"
+    assert "权限过滤" in updates["blind_spots"][0]["body"]
+
+
 def test_post_pane_updates_posts_one_typed_message_per_item(monkeypatch):
     from app import gateway
 
