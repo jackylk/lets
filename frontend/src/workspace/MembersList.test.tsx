@@ -91,8 +91,9 @@ describe("<MembersList />", () => {
         members={[{ ...agentMember, display_name: "Link" }, secondAgent]}
       />,
     );
-    expect(screen.getByText("Link · Neo")).toBeInTheDocument();
-    expect(screen.getByText("Link · Trinity")).toBeInTheDocument();
+    expect(screen.getAllByText("Link")).toHaveLength(2);
+    expect(screen.getByText(/Neo 管理/)).toBeInTheDocument();
+    expect(screen.getByText(/Trinity 管理/)).toBeInTheDocument();
   });
 
   it("keeps invite actions out of the members section", () => {

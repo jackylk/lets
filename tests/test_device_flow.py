@@ -42,6 +42,7 @@ def test_device_flow_authorizes_gateway_token(client):
     assert body["token"].startswith("lets_")
     assert body["agent_instance"]["role"] == "claude"
     assert body["agent_instance"]["device_label"] == "device-mbp"
+    assert body["agent_instance"]["human_name"] == "Device Human"
 
     principal = verify_token(body["token"])
     assert principal is not None
@@ -91,6 +92,7 @@ def test_device_flow_with_workspace(temp_db, client, monkeypatch):
     assert poll.status_code == 200
     agent = poll.json()["agent"]
     assert agent["workspace_id"] == ws["id"]
+    assert agent["human_name"] == "alice"
     from app import db
     with db.connect() as conn:
         membership = conn.execute(

@@ -26,13 +26,6 @@ export function MembersList({ workspaceName, members, messages = [], onSelectAge
     }
     return out;
   }, [members, messages]);
-  const agentNameCounts = new Map<string, number>();
-  for (const member of members) {
-    if (member.kind !== "agent") continue;
-    const name = agentShortName(member);
-    agentNameCounts.set(name, (agentNameCounts.get(name) ?? 0) + 1);
-  }
-
   return (
     <div className="px-3 py-2 border-t border-border">
       <div className="mb-2">
@@ -62,29 +55,29 @@ export function MembersList({ workspaceName, members, messages = [], onSelectAge
           }
 
           const name = agentShortName(m);
-          const duplicateName = (agentNameCounts.get(name) ?? 0) > 1;
           const topicStatus = agentStatuses.get(m.id) ?? { label: "", tone: "idle" };
           const online = Boolean(m.is_online);
+          const statusLabel = topicStatus.label || (online ? "在线" : "离线");
           return (
             <button
               key={`a-${m.id}`}
               type="button"
               onClick={() => onSelectAgent?.(m.id)}
-              className="flex flex-col py-0.5 text-left rounded hover:bg-surface-hover"
+              className="flex w-full min-w-0 items-center gap-2 py-0.5 text-left rounded hover:bg-surface-hover"
             >
-              <span className="flex items-center gap-2 text-[12.5px] text-text">
-                <PresenceDot online={online} active={topicStatus.tone === "working"} label={`${name} ${online ? "在线" : "离线"}`} />
-                <span>{duplicateName ? `${name} · ${m.owner_name}` : name}</span>
-              </span>
-              <span className="ml-3.5 text-[10px] text-text-dim">
-                {roleTitle(m.role)} · {m.owner_name} 管理
-                {m.paused_at ? " · 已暂停" : ""}
-                {m.deleted_at ? " · 已退役" : ""}
-                {" · "}
+              <PresenceDot online={online} active={topicStatus.tone === "working"} label={`${name} ${online ? "在线" : "离线"}`} />
+              <span className="min-w-0 truncate text-[12.5px] text-text">{name}</span>
+              <span className="min-w-0 truncate text-[10px] text-text-dim">
+                {roleTitle(m.role)} · {m.owner_name} 管理 ·{" "}
                 <span className={topicStatus.tone === "working" ? "text-accent-text" : ""}>
-                  {topicStatus.label || (online ? "在线" : "离线")}
+                  {statusLabel}
                 </span>
               </span>
+              {(m.paused_at || m.deleted_at) && (
+                <span className="shrink-0 text-[10px] text-text-dim">
+                  {m.paused_at ? "已暂停" : "已退役"}
+                </span>
+              )}
             </button>
           );
         })}

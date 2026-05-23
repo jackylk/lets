@@ -3366,9 +3366,10 @@ def device_flow_poll(device_code: str) -> dict:
         agent = conn.execute(
             """
             SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
-                   ai.display_name, ai.owner_human_id
+                   ai.display_name, ai.owner_human_id, h.name AS human_name
             FROM agent_instances ai
             JOIN agent_types ar ON ar.id = ai.agent_type_id
+            JOIN humans h ON h.id = ai.owner_human_id
             WHERE ai.id = ?
             """,
             (row["agent_instance_id"],),
@@ -3486,9 +3487,10 @@ def api_device_flow_poll(device_code: str) -> dict:
         agent = conn.execute(
             """
             SELECT ai.id, ar.name AS role, ai.device_label, ai.model,
-                   ai.display_name, ai.owner_human_id
+                   ai.display_name, ai.owner_human_id, h.name AS human_name
             FROM agent_instances ai
             JOIN agent_types ar ON ar.id = ai.agent_type_id
+            JOIN humans h ON h.id = ai.owner_human_id
             WHERE ai.id = ?
             """,
             (row["agent_instance_id"],),
