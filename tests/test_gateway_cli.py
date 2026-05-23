@@ -74,6 +74,44 @@ def test_gateway_login_no_open(monkeypatch, tmp_path):
     assert polls == 1
 
 
+def test_gateway_status_uses_human_name_and_human_id_fallback(monkeypatch, tmp_path, capsys):
+    import json
+    from app import gateway
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    (tmp_path / "token").write_text("lets_test_token")
+    (tmp_path / "token.json").write_text(json.dumps({
+        "host": "https://lets.test",
+        "agent_instance": {
+            "id": 7,
+            "role": "codex",
+            "device_label": "mac16",
+            "owner_human_id": 1,
+        },
+    }))
+
+    rc = gateway.main(["status"])
+
+    assert rc == 0
+    assert "human=id:1" in capsys.readouterr().out
+
+    (tmp_path / "token.json").write_text(json.dumps({
+        "host": "https://lets.test",
+        "agent_instance": {
+            "id": 7,
+            "role": "codex",
+            "device_label": "mac16",
+            "human_name": "Jacky Li",
+            "owner_human_id": 1,
+        },
+    }))
+
+    rc = gateway.main(["status"])
+
+    assert rc == 0
+    assert "human=Jacky Li" in capsys.readouterr().out
+
+
 def test_gateway_turn_reuses_claude_session_by_topic_and_engine(monkeypatch, tmp_path):
     from app import gateway
 
@@ -375,6 +413,37 @@ def test_parse_pane_updates_no_fence_passes_through():
     chat, updates = _parse_pane_updates("just a reply, no JSON")
     assert chat == "just a reply, no JSON"
     assert updates == {}
+
+
+def test_fallback_pane_updates_extracts_design_sections():
+    from app.gateway import _fallback_pane_updates
+
+    updates = _fallback_pane_updates(
+        """
+我先把这个想法拆成三块。
+
+**目标**
+
+做一个支持自然语言的文件检索工具，让用户不用记文件名也能找文件。
+
+**候选方案**
+
+1. 传统关键词搜索增强版
+基于文件名、路径、正文索引，再加自然语言 query rewrite。
+
+2. Embedding 语义检索
+把文件内容切块后向量化，按语义相似度召回。
+
+**风险**
+
+- 权限和隐私边界容易做错。
+"""
+    )
+
+    assert updates["decisions"][0]["body"].startswith("做一个支持自然语言")
+    assert len(updates["options"]) == 2
+    assert updates["options"][0]["title"] == "传统关键词搜索增强版"
+    assert "权限和隐私" in updates["blind_spots"][0]["body"]
 
 
 def test_parse_pane_updates_malformed_json_degrades_gracefully(capsys):

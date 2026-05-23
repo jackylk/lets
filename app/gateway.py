@@ -289,6 +289,10 @@ _PANE_UPDATE_INSTRUCTIONS = (
     "append pane_updates whenever this turn adds or refines a decision, option, "
     "constraint, open question, blind spot, critique, or extension. Omit only "
     "when there is truly no durable context to save.\n"
+    "For brainstorming/design discussions, you MUST usually write at least: "
+    "one decision or current goal, 2-4 options when alternatives appear, and "
+    "one blind_spot or critique when there is a real risk. The pane is the "
+    "product's shared memory, not an optional appendix.\n"
     "<pane_updates>{\"headline\":\"≤30字 中文一句话本轮要点\","
     "\"decisions\":[{\"body\":\"…\"}],"
     "\"options\":[{\"title\":\"…\",\"body\":\"…\",\"pros\":[\"…\"],\"cons\":[\"…\"]}],"
@@ -540,6 +544,95 @@ def _parse_pane_updates(output: str) -> tuple[str, dict]:
     if not isinstance(updates, dict):
         return chat_body, {}
     return chat_body, updates
+
+
+def _fallback_pane_updates(chat_body: str) -> dict:
+    """Best-effort context-pane extraction when the agent forgets pane_updates.
+
+    The model often writes useful sections in prose ("目标", "候选方案",
+    "风险") but omits the machine-readable block. Keep the product useful by
+    promoting those sections into pane cards.
+    """
+    updates: dict[str, Any] = {}
+    headline = _first_nonempty_line(chat_body)
+    if headline:
+        updates["headline"] = headline[:60]
+
+    goals = _section_items(chat_body, ("目标", "核心目标"))
+    if goals:
+        updates["decisions"] = [{"body": goals[0][:220]}]
+
+    options = _section_items(chat_body, ("候选方案", "方案", "路线"))
+    if options:
+        updates["options"] = [
+            {"title": _compact_title(item), "body": item[:260]}
+            for item in options[:4]
+        ]
+
+    risks = _section_items(chat_body, ("风险", "问题", "盲点"))
+    if risks:
+        updates["blind_spots"] = [{"body": item[:180]} for item in risks[:2]]
+
+    return updates if any(k in updates for k in ("decisions", "options", "blind_spots")) else {}
+
+
+def _first_nonempty_line(text: str) -> str:
+    for line in text.splitlines():
+        s = line.strip().strip("*# ")
+        if s:
+            return s
+    return ""
+
+
+def _section_items(text: str, headings: tuple[str, ...]) -> list[str]:
+    lines = text.splitlines()
+    capture = False
+    out: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        if not current:
+            return
+        item = " ".join(part.strip() for part in current if part.strip()).strip()
+        current.clear()
+        if item:
+            out.append(item)
+
+    heading_re = re.compile(r"^\s*(?:#{1,4}\s*)?\*{0,2}([^*#：:]+)[：:]?\*{0,2}\s*$")
+    item_re = re.compile(r"^\s*(?:[-*]\s+|\d+[.、]\s+)(.*)$")
+
+    for line in lines:
+        raw = line.strip()
+        hm = heading_re.match(raw)
+        if hm:
+            title = hm.group(1).strip()
+            if any(h in title for h in headings):
+                flush()
+                capture = True
+                continue
+            if capture and re.search(r"目标|方案|风险|问题|盲点|约束|下一步|总结|核心", title):
+                flush()
+                capture = False
+        if not capture:
+            continue
+        im = item_re.match(raw)
+        if im:
+            flush()
+            current.append(im.group(1).strip())
+        elif raw:
+            current.append(raw)
+        else:
+            flush()
+    flush()
+    return out
+
+
+def _compact_title(text: str) -> str:
+    title = re.sub(r"^[\d.、\s]+", "", text).strip()
+    title = re.split(r"[。:：]|\s{2,}", title, maxsplit=1)[0].strip()
+    if len(title) > 18 and re.search(r"(版|索|检索|方案|路线|RAG|Embedding|关键词)", title):
+        title = re.split(r"\s+", title, maxsplit=1)[0].strip()
+    return title[:32] or "候选方案"
 
 
 _KIND_TO_TYPE = {
@@ -1145,9 +1238,14 @@ def _status(argv: list[str]) -> int:
     ai = meta.get("agent_instance") or {}
     print(f"logged in to {meta.get('host', '?')}")
     if ai:
+        human_label = ai.get("human_name")
+        if not human_label and ai.get("owner_human_id") is not None:
+            human_label = f"id:{ai.get('owner_human_id')}"
+        if not human_label:
+            human_label = "?"
         print(
             f"  as {ai.get('role', '?')}:{ai.get('device_label', '?')} "
-            f"(human={ai.get('human_name', '?')}, "
+            f"(human={human_label}, "
             f"agent_instance_id={ai.get('id', '?')})"
         )
     print(f"  token: {token_path}")
@@ -2086,6 +2184,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 if ok:
                     chat_body, updates = _parse_pane_updates(output)
+                    if not updates:
+                        updates = _fallback_pane_updates(chat_body or output)
                     # Pull out headline (separate from the array fields the
                     # right pane consumes). It lives on the chat message
                     # metadata so the frontend's folded view can show it.
