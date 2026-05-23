@@ -43,9 +43,26 @@ export function ResolveQuestionInline({ topicId, questionId, questionBody, onDon
   }
 
   return (
-    <div className="mt-1 border border-border-soft rounded bg-bg p-2 flex flex-col gap-1.5">
+    <div className="mt-1 border border-border-soft rounded bg-bg p-2 flex flex-col gap-2">
       <div className="text-[10.5px] text-text-dim italic line-clamp-2">
         {questionBody}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {["先按这个方向", "需要再比较", "暂不决定"].map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            onClick={() => setDraft(preset)}
+            className={
+              "rounded-[3px] border px-2 py-1 text-[11.5px] " +
+              (draft === preset
+                ? "border-accent-border bg-accent-soft text-accent-text"
+                : "border-border-soft text-text-dim hover:border-border hover:text-text")
+            }
+          >
+            {preset}
+          </button>
+        ))}
       </div>
       <textarea
         autoFocus
@@ -61,7 +78,7 @@ export function ResolveQuestionInline({ topicId, questionId, questionBody, onDon
             onDone();
           }
         }}
-        className="bg-transparent outline-none resize-none text-[12.5px] leading-relaxed"
+        className="rounded border border-border-soft bg-surface-elev px-2 py-1.5 outline-none resize-none text-[12.5px] leading-relaxed focus:border-accent-border"
       />
       <div className="flex items-center gap-2 justify-end">
         <button

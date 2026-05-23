@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ContextBlock } from "../layout/ContextPane";
 import type { MessageDTO } from "../api/types";
 import { jumpToMessage } from "./jumpToMessage";
+import { useIdentityMe, usePostMessage } from "../api/queries";
 
 const HEALTH_KEYWORDS = [
   "肚子疼", "肚子痛", "腹痛", "胃痛", "胃疼", "腹泻", "拉肚子", "呕吐",
@@ -33,11 +34,18 @@ interface HealthSuggestion {
   tone: "urgent" | "caution" | "plain";
 }
 
+interface HealthQuestion {
+  id: string;
+  prompt: string;
+  quickAnswers: string[];
+  placeholder: string;
+}
+
 interface HealthContext {
   latestHumanMessage: MessageDTO | null;
   facts: HealthFact[];
   redFlags: HealthFlag[];
-  missingQuestions: string[];
+  missingQuestions: HealthQuestion[];
   medications: HealthMedication[];
   suggestions: HealthSuggestion[];
 }
@@ -76,13 +84,25 @@ export function buildHealthContext(messages: MessageDTO[]): HealthContext {
   const medications = collectMedications(humanChats);
   const matchedRedFlags = redFlags.filter((f) => f.matched);
   const missingQuestions = [
-    hasAny(text, /(右下腹|左下腹|上腹|下腹|肚脐周围|胃部|腹部|肚子|小腹)/) ? null : "疼痛具体位置在哪里？",
-    hasAny(text, /(刚刚|今天|昨晚|昨天|前天|小时|分钟|天|持续)/) ? null : "从什么时候开始，持续多久了？",
-    hasAny(text, /(1|2|3|4|5|6|7|8|9|10|轻微|中等|剧烈|严重)/) ? null : "疼痛强度 0-10 分大概几分？",
-    hasAny(text, /(发烧|发热|体温|呕吐|恶心|腹泻|拉肚子|便血|黑便)/) ? null : "有没有发热、呕吐、腹泻、便血或黑便？",
-    medications.length > 0 ? null : "已经吃过什么药？剂量和时间是什么？",
-    hasAny(text, /(过敏|孕|怀孕|胃溃疡|肝|肾|高血压|抗凝|儿童|老人)/) ? null : "有没有药物过敏、怀孕、胃溃疡、肝肾问题或正在吃的药？",
-  ].filter(Boolean) as string[];
+    hasAny(text, /(右下腹|左下腹|上腹|下腹|肚脐周围|胃部|腹部|肚子|小腹)/)
+      ? null
+      : question("location", "疼痛具体位置在哪里？", ["上腹", "下腹", "肚脐周围", "说不清"], "比如：右下腹、胃部、肚脐周围；按压会不会更痛"),
+    hasAny(text, /(刚刚|今天|昨晚|昨天|前天|小时|分钟|天|持续)/)
+      ? null
+      : question("started", "从什么时候开始，持续多久了？", ["刚刚", "今天", "昨晚", "不确定"], "比如：今天中午开始，阵痛/一直痛，持续约 2 小时"),
+    hasAny(text, /(1|2|3|4|5|6|7|8|9|10|轻微|中等|剧烈|严重)/)
+      ? null
+      : question("severity", "疼痛强度 0-10 分大概几分？", ["1-3 轻微", "4-6 中等", "7-10 很痛", "说不清"], "也可以写：能不能正常走路、睡觉、说话"),
+    hasAny(text, /(发烧|发热|体温|呕吐|恶心|腹泻|拉肚子|便血|黑便)/)
+      ? null
+      : question("symptoms", "有没有发热、呕吐、腹泻、便血或黑便？", ["没有", "有", "不确定"], "如果有，写体温、吐了几次、腹泻几次、便血/黑便情况"),
+    medications.length > 0
+      ? null
+      : question("medication", "已经吃过什么药？剂量和时间是什么？", ["还没吃药", "吃过", "不确定"], "比如：布洛芬 1 片，13:00 吃；或写还吃了哪些药"),
+    hasAny(text, /(过敏|孕|怀孕|胃溃疡|肝|肾|高血压|抗凝|儿童|老人)/)
+      ? null
+      : question("risk", "有没有药物过敏、怀孕、胃溃疡、肝肾问题或正在吃的药？", ["没有", "有", "不确定"], "如果有，写具体情况；如果拿不准就写不确定"),
+  ].filter(Boolean) as HealthQuestion[];
 
   const suggestions = buildSuggestions({
     text,
@@ -94,7 +114,7 @@ export function buildHealthContext(messages: MessageDTO[]): HealthContext {
   return { latestHumanMessage, facts, redFlags, missingQuestions, medications, suggestions };
 }
 
-export function HealthContextPane({ messages }: { messages: MessageDTO[] }) {
+export function HealthContextPane({ messages, topicId }: { messages: MessageDTO[]; topicId?: number }) {
   const ctx = useMemo(() => buildHealthContext(messages), [messages]);
   const matchedRedFlags = ctx.redFlags.filter((f) => f.matched);
 
@@ -149,9 +169,7 @@ export function HealthContextPane({ messages }: { messages: MessageDTO[] }) {
         {ctx.missingQuestions.length > 0 ? (
           <div className="flex flex-col gap-1.5">
             {ctx.missingQuestions.map((q) => (
-              <div key={q} className="rounded border border-dashed border-border bg-surface-elev px-2.5 py-1.5 text-[12.5px] text-text-muted">
-                {q}
-              </div>
+              <MissingQuestionCard key={q.id} question={q} topicId={topicId} />
             ))}
           </div>
         ) : (
@@ -211,6 +229,131 @@ export function HealthContextPane({ messages }: { messages: MessageDTO[] }) {
   );
 }
 
+function MissingQuestionCard({
+  question,
+  topicId,
+}: {
+  question: HealthQuestion;
+  topicId?: number;
+}) {
+  if (topicId == null) {
+    return (
+      <div className="rounded border border-dashed border-border bg-surface-elev px-2.5 py-1.5 text-[12.5px] text-text-muted">
+        {question.prompt}
+      </div>
+    );
+  }
+  return <AnswerableMissingQuestionCard question={question} topicId={topicId} />;
+}
+
+function AnswerableMissingQuestionCard({
+  question,
+  topicId,
+}: {
+  question: HealthQuestion;
+  topicId: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [answer, setAnswer] = useState("");
+  const [detail, setDetail] = useState("");
+  const [sent, setSent] = useState(false);
+  const me = useIdentityMe();
+  const post = usePostMessage(topicId);
+  const canPost = me.data?.human.id != null;
+  const trimmedAnswer = answer.trim();
+  const trimmedDetail = detail.trim();
+
+  function submit() {
+    if (!canPost || !trimmedAnswer || post.isPending) return;
+    const body = [
+      "补充健康信息：",
+      `- ${question.prompt} ${trimmedAnswer}`,
+      trimmedDetail ? `- 补充：${trimmedDetail}` : null,
+    ].filter(Boolean).join("\n");
+    post.mutate({
+      topic_id: topicId,
+      type: "chat",
+      actor_type: "human",
+      actor_id: me.data!.human.id,
+      body,
+      metadata: { source: "health_context_question", question_id: question.id },
+    }, {
+      onSuccess: () => {
+        setSent(true);
+        setOpen(false);
+        setAnswer("");
+        setDetail("");
+      },
+    });
+  }
+
+  return (
+    <div className="rounded border border-dashed border-border bg-surface-elev px-2.5 py-2 text-[12.5px] text-text-muted">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 leading-relaxed">{question.prompt}</div>
+        {canPost && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="shrink-0 rounded-[3px] border border-border-soft px-2 py-0.5 text-[11px] text-text-dim hover:border-accent-border hover:text-accent-text"
+          >
+            {open ? "收起" : sent ? "再补充" : "回答"}
+          </button>
+        )}
+      </div>
+
+      {sent && !open && (
+        <div className="mt-1.5 text-[11px] text-text-dim">已发到聊天里，agent 会看到这条补充。</div>
+      )}
+
+      {open && (
+        <div className="mt-2 flex flex-col gap-2">
+          <div className="flex flex-wrap gap-1.5">
+            {question.quickAnswers.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setAnswer(option)}
+                className={
+                  "rounded-[3px] border px-2 py-1 text-[11.5px] " +
+                  (answer === option
+                    ? "border-accent-border bg-accent-soft text-accent-text"
+                    : "border-border-soft bg-bg text-text-dim hover:border-border hover:text-text")
+                }
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+          <textarea
+            rows={2}
+            value={detail}
+            onChange={(e) => setDetail(e.target.value)}
+            placeholder={question.placeholder}
+            className="min-h-[58px] w-full resize-none rounded border border-border-soft bg-bg px-2 py-1.5 text-[12px] leading-relaxed text-text outline-none placeholder:text-text-dim focus:border-accent-border"
+          />
+          <div className="flex items-center justify-between gap-2">
+            <input
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              placeholder="也可以直接输入答案"
+              className="min-w-0 flex-1 rounded border border-border-soft bg-bg px-2 py-1.5 text-[12px] text-text outline-none placeholder:text-text-dim focus:border-accent-border"
+            />
+            <button
+              type="button"
+              disabled={!trimmedAnswer || post.isPending}
+              onClick={submit}
+              className="shrink-0 rounded-[3px] bg-text px-3 py-1.5 text-[12px] text-bg disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {post.isPending ? "发送中" : "发送"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EmptyHealth({ children }: { children: string }) {
   return (
     <div className="rounded border border-dashed border-border p-3 text-center text-[12px] italic text-text-dim">
@@ -256,7 +399,7 @@ function buildSuggestions({
   text: string;
   medications: HealthMedication[];
   hasRedFlags: boolean;
-  missingQuestions: string[];
+  missingQuestions: HealthQuestion[];
 }): HealthSuggestion[] {
   if (hasRedFlags) {
     return [
@@ -333,6 +476,15 @@ function buildSuggestions({
   }
 
   return suggestions;
+}
+
+function question(
+  id: string,
+  prompt: string,
+  quickAnswers: string[],
+  placeholder: string,
+): HealthQuestion {
+  return { id, prompt, quickAnswers, placeholder };
 }
 
 function addFirstMatch(

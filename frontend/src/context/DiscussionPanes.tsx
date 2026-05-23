@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useTopicMessages } from "../api/queries";
+import { usePostMessage, useSessionMe, useTopicMessages } from "../api/queries";
 import type { MessageDTO } from "../api/types";
 import { jumpToMessage } from "./jumpToMessage";
 import { ResolveQuestionInline } from "./ResolveQuestionInline";
@@ -359,15 +359,15 @@ function OpenQuestionItem({ item, topicId }: { item: DiscussionItem; topicId: nu
             <button
               type="button"
               onClick={() => setAnswering(true)}
-              className="text-[10.5px] font-mono uppercase tracking-[0.04em] text-text-dim hover:text-accent-text"
+              className="rounded-[3px] border border-border-soft px-2 py-1 text-[11px] text-text-dim hover:border-accent-border hover:text-accent-text"
               title="把这条问题的答案记为共识，从待回答移除"
-            >答</button>
+            >回答</button>
             <button
               type="button"
               onClick={() => dismiss(item.id)}
-              className="text-[10.5px] font-mono uppercase tracking-[0.04em] text-text-dim hover:text-text"
+              className="rounded-[3px] px-2 py-1 text-[11px] text-text-dim hover:bg-surface-hover hover:text-text"
               title="先不答 — 从待回答移除，仍可在底部「恢复显示」里找回"
-            >略</button>
+            >略过</button>
           </div>
         )}
       </div>
@@ -453,40 +453,111 @@ export function ExtensionsPanel({ items }: { items: DiscussionItem[] }) {
   );
 }
 
-export function OptionsPanel({ items }: { items: DiscussionItem[] }) {
+export function OptionsPanel({ items, topicId }: { items: DiscussionItem[]; topicId?: number }) {
   if (items.length === 0) return <EmptyState>2-4 个备选方向放这里，方便比较</EmptyState>;
   return (
     <div className="flex flex-col gap-2">
       {items.map((i) => {
         const jumpId = i.promoted_from ?? i.id;
         return (
-          <button
-            type="button"
+          <div
             key={i.id}
-            onClick={() => jumpToMessage(jumpId)}
-            title="点击跳到对应的对话上下文"
-            className="bg-surface-elev border border-border-soft rounded p-3 flex flex-col gap-1.5 text-left hover:bg-surface-hover hover:border-accent-border transition-colors w-full"
+            className="bg-surface-elev border border-border-soft rounded p-3 flex flex-col gap-2"
           >
-            <div className="font-[var(--font-display)] font-semibold text-[14px]">
-              {i.title || i.body.slice(0, 40)}
-            </div>
-            {(i.pros?.length || i.cons?.length) && (
-              <div className="text-[12px] flex flex-col gap-0.5">
-                {i.pros?.map((p, j) => (
-                  <span key={`p-${j}`} className="text-status-on">✓ {p}</span>
-                ))}
-                {i.cons?.map((c, j) => (
-                  <span key={`c-${j}`} className="text-accent-text">✗ {c}</span>
-                ))}
+            <button
+              type="button"
+              onClick={() => jumpToMessage(jumpId)}
+              title="点击跳到对应的对话上下文"
+              className="flex flex-col gap-1.5 text-left hover:text-accent-text transition-colors w-full"
+            >
+              <div className="font-[var(--font-display)] font-semibold text-[14px]">
+                {i.title || i.body.slice(0, 40)}
               </div>
-            )}
-            {!i.pros?.length && !i.cons?.length && i.title && (
-              <div className="text-[12.5px] text-text-muted leading-relaxed">{i.body}</div>
-            )}
-            <SourceMeta item={i} />
-          </button>
+              {(i.pros?.length || i.cons?.length) && (
+                <div className="text-[12px] flex flex-col gap-0.5">
+                  {i.pros?.map((p, j) => (
+                    <span key={`p-${j}`} className="text-status-on">✓ {p}</span>
+                  ))}
+                  {i.cons?.map((c, j) => (
+                    <span key={`c-${j}`} className="text-accent-text">✗ {c}</span>
+                  ))}
+                </div>
+              )}
+              {!i.pros?.length && !i.cons?.length && i.title && (
+                <div className="text-[12.5px] text-text-muted leading-relaxed">{i.body}</div>
+              )}
+              <SourceMeta item={i} />
+            </button>
+            {topicId != null && <OptionActions item={i} topicId={topicId} />}
+          </div>
         );
       })}
+    </div>
+  );
+}
+
+function OptionActions({ item, topicId }: { item: DiscussionItem; topicId: number }) {
+  const post = usePostMessage(topicId);
+  const me = useSessionMe();
+  const [sent, setSent] = useState<"adopt" | "ask" | null>(null);
+  const title = item.title || item.body.slice(0, 40);
+  const disabled = !me.data || post.isPending;
+
+  async function postDecision() {
+    if (!me.data || post.isPending) return;
+    await post.mutateAsync({
+      topic_id: topicId,
+      type: "decision",
+      actor_type: "human",
+      actor_id: me.data.human.id,
+      body: `采纳方案：${title}`,
+      metadata: {
+        discussion_kind: "decision",
+        promoted_from: item.id,
+      },
+    });
+    setSent("adopt");
+  }
+
+  async function askMore() {
+    if (!me.data || post.isPending) return;
+    await post.mutateAsync({
+      topic_id: topicId,
+      type: "chat",
+      actor_type: "human",
+      actor_id: me.data.human.id,
+      body: `继续展开这个候选方案：${title}\n\n${item.body}`,
+      metadata: {
+        source: "context_option_action",
+        option_id: item.id,
+      },
+    });
+    setSent("ask");
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-border-soft pt-2">
+      <span className="text-[11px] text-text-dim">
+        {sent === "adopt" ? "已记为共识" : sent === "ask" ? "已发到聊天" : ""}
+      </span>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={postDecision}
+          disabled={disabled}
+          className="rounded-[3px] border border-border-soft px-2 py-1 text-[11px] text-text-dim hover:border-accent-border hover:text-accent-text disabled:opacity-40"
+        >
+          采纳
+        </button>
+        <button
+          type="button"
+          onClick={askMore}
+          disabled={disabled}
+          className="rounded-[3px] bg-text px-2 py-1 text-[11px] text-bg disabled:opacity-40"
+        >
+          追问
+        </button>
+      </div>
     </div>
   );
 }

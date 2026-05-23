@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { HealthContextPane, buildHealthContext, isHealthTopic } from "./HealthContextPane";
 import type { MessageDTO } from "../api/types";
+import { renderWithProviders } from "../../test/render";
 
 function msg(id: number, body: string): MessageDTO {
   return {
@@ -60,5 +61,20 @@ describe("health context pane", () => {
     expect(screen.getByText("可先做低风险护理")).toBeInTheDocument();
     expect(screen.getByText("像胃部不适时可问药师")).toBeInTheDocument();
     expect(screen.getByText("止痛/退热药要谨慎")).toBeInTheDocument();
+  });
+
+  it("lets people answer missing health questions from the pane", async () => {
+    renderWithProviders(
+      <HealthContextPane messages={[msg(1, "我今天肚子疼，疼痛 3 分")]} topicId={1} />,
+    );
+
+    const answerButtons = await screen.findAllByText("回答");
+    fireEvent.click(answerButtons[0]!);
+    fireEvent.click(screen.getByText("没有"));
+    fireEvent.click(screen.getByText("发送"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/已发到聊天/)).toBeInTheDocument();
+    });
   });
 });

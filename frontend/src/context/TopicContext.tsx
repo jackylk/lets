@@ -39,7 +39,7 @@ export function TopicContext({ topicId }: Props) {
       />
 
       {kind.effective === "health" ? (
-        <HealthContextPane messages={allMessages} />
+        <HealthContextPane messages={allMessages} topicId={topicId} />
       ) : (
         <>
           <div className="px-1 text-[11px] leading-relaxed text-text-dim">
@@ -63,7 +63,7 @@ export function TopicContext({ topicId }: Props) {
             right={items.options.length > 0 ? `${items.options.length}` : undefined}
             hint="正在比较的几条路线 — 每张卡片带 ✓✗"
           >
-            <OptionsPanel items={items.options} />
+            <OptionsPanel items={items.options} topicId={topicId} />
           </ContextBlock>
 
           <ContextBlock
