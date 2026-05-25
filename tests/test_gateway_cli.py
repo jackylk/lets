@@ -84,6 +84,13 @@ def test_top_level_help_lists_commands_without_run_options(capsys):
     assert "usage: lets <command> [options]" in out
     assert "leave" in out
     assert "workspaces" in out
+    assert "agents" in out
+    assert "doctor" in out
+    assert "logs" in out
+    assert "update" in out
+    assert "join" in out
+    assert "model set" in out
+    assert "retire" in out
     assert "--persona" not in out
     assert "--poll-interval" not in out
 
@@ -430,6 +437,187 @@ def test_lets_workspaces_lists_current_agent_memberships(monkeypatch, capsys):
     assert "我的工作区" in out
     assert "12" in out
     assert "research" in out
+
+
+def test_lets_agents_lists_local_tokens_with_remote_status(monkeypatch, tmp_path, capsys):
+    from app import gateway
+    import json
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    (tmp_path / "tokens").mkdir()
+    (tmp_path / "tokens" / "codex.json").write_text(json.dumps({
+        "host": "https://h",
+        "token": "lets_codex",
+        "agent_instance": {
+            "id": 7,
+            "role": "codex",
+            "device_label": "mac",
+            "model": "gpt-5-codex",
+        },
+    }))
+
+    def fake_http(host, token, method, path, body=None):
+        assert (host, token, method, path) == ("https://h", "lets_codex", "GET", "/api/agents/mine")
+        return [{
+            "agent_instance_id": 7,
+            "role": "codex",
+            "device_label": "mac",
+            "model": "gpt-5-codex",
+            "is_online": 1,
+            "workspaces": [{"id": 3, "slug": "my-ws", "name": "我的工作区"}],
+        }]
+
+    monkeypatch.setattr(gateway, "_http", fake_http)
+
+    rc = gateway.main(["agents"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "codex" in out
+    assert "mac" in out
+    assert "gpt-5-codex" in out
+    assert "online" in out
+    assert "my-ws" in out
+    assert "codex.json" in out
+
+
+def test_lets_model_set_updates_remote_and_local_token(monkeypatch, tmp_path, capsys):
+    from app import gateway
+    import json
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    (tmp_path / "tokens").mkdir()
+    token_path = tmp_path / "tokens" / "codex.json"
+    token_path.write_text(json.dumps({
+        "host": "https://h",
+        "token": "lets_codex",
+        "agent_instance": {"id": 7, "role": "codex", "device_label": "mac"},
+    }))
+    calls = []
+
+    def fake_http(host, token, method, path, body=None):
+        calls.append((host, token, method, path, body))
+        return {"id": 7, "model": "gpt-5-codex"}
+
+    monkeypatch.setattr(gateway, "_http", fake_http)
+
+    rc = gateway.main(["model", "set", "--agent", "codex", "--model", "gpt-5-codex"])
+
+    assert rc == 0
+    assert calls == [(
+        "https://h",
+        "lets_codex",
+        "PATCH",
+        "/api/agent-instances/7",
+        {"model": "gpt-5-codex"},
+    )]
+    saved = json.loads(token_path.read_text())
+    assert saved["agent_instance"]["model"] == "gpt-5-codex"
+    assert "model set to gpt-5-codex" in capsys.readouterr().out
+
+
+def test_lets_retire_deletes_remote_agent_and_local_token(monkeypatch, tmp_path, capsys):
+    from app import gateway
+    import json
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    (tmp_path / "tokens").mkdir()
+    token_path = tmp_path / "tokens" / "codex.json"
+    token_path.write_text(json.dumps({
+        "host": "https://h",
+        "token": "lets_codex",
+        "agent_instance": {"id": 7, "role": "codex", "device_label": "mac"},
+    }))
+    calls = []
+
+    def fake_http(host, token, method, path, body=None):
+        calls.append((method, path))
+        return {"ok": True}
+
+    monkeypatch.setattr(gateway, "_http", fake_http)
+    monkeypatch.setattr(gateway, "_stop_gateway_for_agent", lambda agent_id: False)
+
+    rc = gateway.main(["retire", "--agent", "codex"])
+
+    assert rc == 0
+    assert calls == [("DELETE", "/api/agents/7")]
+    assert not token_path.exists()
+    out = capsys.readouterr().out
+    assert "retired agent 7" in out
+    assert "codex.json" in out
+
+
+def test_lets_join_reuses_existing_agent_registration(monkeypatch):
+    from app import gateway
+
+    monkeypatch.setattr(
+        gateway,
+        "_load_token_for_agent",
+        lambda role: {
+            "host": "https://h",
+            "token": "lets_codex",
+            "agent_instance": {
+                "id": 7,
+                "role": "codex",
+                "device_label": "mac",
+                "model": "gpt-5-codex",
+            },
+        },
+    )
+    login_args = []
+    monkeypatch.setattr(gateway, "_login", lambda args: login_args.extend(args) or 0)
+
+    rc = gateway.main(["join", "--workspace", "research", "--agent", "codex", "--no-open"])
+
+    assert rc == 0
+    assert login_args == [
+        "--host", "https://h",
+        "--role", "codex",
+        "--device-label", "mac",
+        "--workspace", "research",
+        "--model", "gpt-5-codex",
+        "--no-open",
+    ]
+
+
+def test_lets_logs_prints_agent_log(monkeypatch, tmp_path, capsys):
+    from app import gateway
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "gateway-codex.out.log").write_text("one\ntwo\nthree\n")
+
+    rc = gateway.main(["logs", "--agent", "codex", "--lines", "2"])
+
+    assert rc == 0
+    assert capsys.readouterr().out == "two\nthree\n"
+
+
+def test_lets_update_downloads_gateway(monkeypatch, tmp_path, capsys):
+    from app import gateway
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    monkeypatch.setattr(gateway, "_download_text", lambda host, path: "# new gateway\n")
+
+    rc = gateway.main(["update", "--host", "https://h"])
+
+    assert rc == 0
+    assert (tmp_path / "gateway.py").read_text() == "# new gateway\n"
+    assert "updated" in capsys.readouterr().out
+
+
+def test_lets_doctor_reports_missing_tokens(monkeypatch, tmp_path, capsys):
+    from app import gateway
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+
+    rc = gateway.main(["doctor"])
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "local_agents: 0" in out
+    assert "ERROR no local tokens" in out
 
 
 def test_lets_gateway_with_agent_picks_per_role_token(monkeypatch, tmp_path):

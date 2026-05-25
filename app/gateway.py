@@ -52,6 +52,7 @@ from typing import Any
 # Bypass any system proxy (macOS often injects one for localhost) so urllib
 # doesn't 502 on a 127.0.0.1 backend. Build an opener once.
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+DEFAULT_CODEX_MODEL = "gpt-5.5"
 
 
 def _urlopen(req: urllib.request.Request, timeout: float = 20.0):
@@ -93,6 +94,15 @@ def _http_public(host: str, method: str, path: str) -> Any:
             return json.loads(raw) if raw else None
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"{method} {path} → {e.code}: {e.read().decode('utf-8')}") from e
+
+
+def _download_text(host: str, path: str) -> str:
+    req = urllib.request.Request(f"{host.rstrip('/')}{path}", method="GET")
+    try:
+        with _urlopen(req, timeout=30) as resp:
+            return resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"GET {path} → {e.code}: {e.read().decode('utf-8')}") from e
 
 
 def _mcp_call(host: str, token: str, name: str, arguments: dict) -> Any:
@@ -1228,6 +1238,90 @@ def _save_agent_token(role: str, host: str, token: str, agent_instance: dict | N
     return path
 
 
+def _token_record_path_for(role: str | None, agent_id: int | None = None) -> str | None:
+    if role:
+        path = _agent_token_path(role)
+        if os.path.exists(path):
+            return path
+    legacy = _load_token_meta()
+    if legacy:
+        ai = legacy.get("agent_instance") or {}
+        if (
+            (role is None or ai.get("role") == role)
+            and (agent_id is None or int(ai.get("id") or 0) == int(agent_id))
+        ):
+            return _token_paths()[1]
+    return None
+
+
+def _update_local_agent_meta(role: str | None, agent_id: int, updates: dict) -> None:
+    paths: list[str] = []
+    if role:
+        role_path = _agent_token_path(role)
+        if os.path.exists(role_path):
+            paths.append(role_path)
+    legacy_path = _token_paths()[1]
+    if os.path.exists(legacy_path):
+        paths.append(legacy_path)
+
+    for path in dict.fromkeys(paths):
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        ai = data.get("agent_instance") or {}
+        if int(ai.get("id") or 0) != int(agent_id):
+            continue
+        ai.update(updates)
+        data["agent_instance"] = ai
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        os.chmod(path, 0o600)
+
+
+def _remove_local_agent_token(role: str | None, agent_id: int) -> list[str]:
+    removed: list[str] = []
+    candidate_paths: list[str] = []
+    if role:
+        candidate_paths.append(_agent_token_path(role))
+    legacy_token_path, legacy_json_path = _token_paths()
+    legacy_matches = False
+    legacy = _load_token_meta()
+    if legacy:
+        ai = legacy.get("agent_instance") or {}
+        legacy_matches = int(ai.get("id") or 0) == int(agent_id)
+    candidate_paths.append(legacy_json_path)
+    candidate_paths.append(legacy_token_path)
+
+    for path in dict.fromkeys(candidate_paths):
+        if not os.path.exists(path):
+            continue
+        if path.endswith(".json"):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                ai = data.get("agent_instance") or {}
+                if int(ai.get("id") or 0) != int(agent_id):
+                    continue
+            except (OSError, json.JSONDecodeError):
+                continue
+        elif path == legacy_token_path:
+            if not legacy_matches:
+                continue
+        os.remove(path)
+        removed.append(path)
+    return removed
+
+
+def _agent_id_from_record(host: str, token: str, rec: dict) -> int:
+    ai = rec.get("agent_instance") or {}
+    if ai.get("id") is not None:
+        return int(ai["id"])
+    return _whoami(host, token).agent_instance_id
+
+
 def _login(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lets login")
     parser.add_argument(
@@ -1421,7 +1515,14 @@ def _print_main_help() -> None:
 
 Commands:
   add <claude|codex>     authorize and start a local agent
+  agents                 list local agents and their workspace/status
+  doctor                 check tokens, local CLIs, logs, and autostart
+  logs                   show local gateway logs
+  update                 update the local ~/.lets/gateway.py
   leave                  remove this agent from a workspace
+  join                   add this agent to another workspace
+  model set              set this agent's model
+  retire                 retire an agent and remove local tokens
   workspaces             list workspaces this agent has joined
   gateway                start registered agent gateways in the background
   status                 show local Lets login and autostart status
@@ -1481,6 +1582,85 @@ def _list_agent_workspaces(argv: list[str]) -> int:
         slug = str(workspace.get("slug") or "-")
         name = str(workspace.get("name") or "-")
         print(f"{str(wid):>6}  {slug:<18}  {name}")
+    return 0
+
+
+def _format_workspaces(value: Any) -> str:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return value or "-"
+    if not value:
+        return "-"
+    names: list[str] = []
+    for workspace in value:
+        if not isinstance(workspace, dict):
+            continue
+        names.append(str(workspace.get("slug") or workspace.get("name") or workspace.get("id")))
+    return ",".join(names) if names else "-"
+
+
+def _fetch_agent_detail_map(host: str, token: str) -> dict[int, dict]:
+    rows = _http(host, token, "GET", "/api/agents/mine") or []
+    out: dict[int, dict] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        agent_id = row.get("agent_instance_id") or row.get("id")
+        if agent_id is not None:
+            out[int(agent_id)] = row
+    return out
+
+
+def _list_local_agents(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets agents")
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="Lets backend URL. Defaults to each token's stored host.",
+    )
+    args = parser.parse_args(argv)
+
+    records = _list_agent_tokens()
+    if not records:
+        print("no local agents registered. Run: lets add claude")
+        return 0
+
+    print(f"{'ROLE':<8} {'DEVICE':<18} {'MODEL':<18} {'STATUS':<9} {'WORKSPACES':<24} TOKEN")
+    detail_cache: dict[tuple[str, str], dict[int, dict]] = {}
+    for rec in records:
+        ai = rec.get("agent_instance") or {}
+        role = rec.get("_role") or ai.get("role") or "?"
+        host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "http://127.0.0.1:8000")
+        token = rec.get("token") or ""
+        agent_id = ai.get("id")
+        detail = None
+        if token and agent_id is not None:
+            cache_key = (host, token)
+            if cache_key not in detail_cache:
+                try:
+                    detail_cache[cache_key] = _fetch_agent_detail_map(host, token)
+                except Exception:
+                    detail_cache[cache_key] = {}
+            detail = detail_cache[cache_key].get(int(agent_id))
+
+        source = detail or {}
+        device = source.get("device_label") or ai.get("device_label") or "?"
+        model = source.get("model") or ai.get("model") or "-"
+        if source.get("deleted_at") or ai.get("deleted_at"):
+            status = "retired"
+        elif source.get("paused_at") or ai.get("paused_at"):
+            status = "paused"
+        elif source.get("is_online"):
+            status = "online"
+        elif source:
+            status = "offline"
+        else:
+            status = "local"
+        workspaces = _format_workspaces(source.get("workspaces"))
+        path = rec.get("_path") or _token_record_path_for(str(role), int(agent_id)) if agent_id else rec.get("_path") or "-"
+        print(f"{str(role):<8} {str(device):<18} {str(model):<18} {status:<9} {workspaces:<24} {path}")
     return 0
 
 
@@ -1545,6 +1725,244 @@ def _leave_workspace(argv: list[str]) -> int:
     role = agent.get("role") or args.agent or "agent"
     device = agent.get("device_label") or agent_id
     print(f"{role}:{device} left workspace {workspace.get('name') or workspace.get('slug') or workspace['id']}")
+    return 0
+
+
+def _join_workspace(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets join")
+    parser.add_argument(
+        "--workspace",
+        "-w",
+        required=True,
+        help="Workspace slug to join.",
+    )
+    parser.add_argument(
+        "--agent",
+        default=None,
+        help="Agent role to join with (claude / codex). Defaults to the saved token.",
+    )
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--no-open", action="store_true")
+    args = parser.parse_args(argv)
+
+    rec = _load_token_for_agent(args.agent)
+    if not rec or not rec.get("token"):
+        print("Missing token. Run: lets add claude", file=sys.stderr)
+        return 2
+    ai = rec.get("agent_instance") or {}
+    role = args.agent or ai.get("role")
+    if role not in ("claude", "codex"):
+        print("Could not determine agent role. Pass --agent claude or --agent codex.", file=sys.stderr)
+        return 2
+    host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "https://lets.up.railway.app")
+    login_args = [
+        "--host", host,
+        "--role", str(role),
+        "--device-label", str(ai.get("device_label") or socket.gethostname()),
+        "--workspace", args.workspace,
+    ]
+    model = ai.get("model")
+    if model:
+        login_args.extend(["--model", str(model)])
+    if args.no_open:
+        login_args.append("--no-open")
+    return _login(login_args)
+
+
+def _set_agent_model(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets model set")
+    parser.add_argument("--agent", default=None, help="Agent role (claude / codex).")
+    parser.add_argument("--model", required=True, help="Model alias or full model id.")
+    parser.add_argument("--host", default=None)
+    args = parser.parse_args(argv)
+
+    rec = _load_token_for_agent(args.agent)
+    if not rec or not rec.get("token"):
+        print("Missing token. Run: lets add claude", file=sys.stderr)
+        return 2
+    host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "http://127.0.0.1:8000")
+    agent = rec.get("agent_instance") or {}
+    role = args.agent or agent.get("role")
+    agent_id = _agent_id_from_record(host, rec["token"], rec)
+    try:
+        updated = _http(
+            host,
+            rec["token"],
+            "PATCH",
+            f"/api/agent-instances/{agent_id}",
+            {"model": args.model},
+        )
+    except Exception as e:
+        print(f"Failed to set model: {e}", file=sys.stderr)
+        return 1
+    _update_local_agent_meta(str(role) if role else None, agent_id, {"model": args.model})
+    model = (updated or {}).get("model") or args.model
+    print(f"agent {agent_id} model set to {model}")
+    return 0
+
+
+def _stop_gateway_for_agent(agent_id: int) -> bool:
+    lock_path = _singleton_lock_path(agent_id)
+    if not os.path.exists(lock_path):
+        return False
+    try:
+        with open(lock_path, encoding="utf-8") as f:
+            raw = f.read().strip()
+        pid = int(raw.splitlines()[0]) if raw else 0
+    except (OSError, ValueError):
+        return False
+    if pid and _pid_alive(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+            return True
+        except (ProcessLookupError, PermissionError):
+            return False
+    return False
+
+
+def _retire_agent(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets retire")
+    parser.add_argument("--agent", default=None, help="Agent role to retire (claude / codex).")
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--no-stop", action="store_true", help="Do not try to stop the local gateway process.")
+    parser.add_argument("--keep-token", action="store_true", help="Do not remove local token files.")
+    args = parser.parse_args(argv)
+
+    rec = _load_token_for_agent(args.agent)
+    if not rec or not rec.get("token"):
+        print("Missing token. Run: lets add claude", file=sys.stderr)
+        return 2
+    host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "http://127.0.0.1:8000")
+    ai = rec.get("agent_instance") or {}
+    role = args.agent or ai.get("role")
+    agent_id = _agent_id_from_record(host, rec["token"], rec)
+    try:
+        _http(host, rec["token"], "DELETE", f"/api/agents/{agent_id}")
+    except Exception as e:
+        print(f"Failed to retire agent: {e}", file=sys.stderr)
+        return 1
+    stopped = False if args.no_stop else _stop_gateway_for_agent(agent_id)
+    removed = [] if args.keep_token else _remove_local_agent_token(str(role) if role else None, agent_id)
+    print(f"retired agent {agent_id}")
+    if stopped:
+        print("stopped local gateway")
+    for path in removed:
+        print(f"removed {path}")
+    return 0
+
+
+def _tail_file(path: str, lines: int) -> str:
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        data = f.readlines()
+    return "".join(data[-lines:])
+
+
+def _show_logs(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets logs")
+    parser.add_argument("--agent", default=None, help="Agent role (claude / codex).")
+    parser.add_argument("--err", action="store_true", help="Show stderr log instead of stdout.")
+    parser.add_argument("--lines", type=int, default=80)
+    parser.add_argument("--follow", "-f", action="store_true")
+    args = parser.parse_args(argv)
+
+    out_log, err_log = _log_paths(role=args.agent)
+    path = err_log if args.err else out_log
+    if args.follow:
+        return subprocess.call(["tail", "-n", str(args.lines), "-f", path])
+    text = _tail_file(path, max(args.lines, 1))
+    if not text:
+        print(f"no log yet: {path}")
+        return 0
+    print(text, end="" if text.endswith("\n") else "\n")
+    return 0
+
+
+def _cli_supports_model(executable: str, args: list[str]) -> bool | None:
+    if not shutil.which(executable):
+        return None
+    try:
+        proc = subprocess.run(
+            [executable, *args, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return False
+    return "--model" in ((proc.stdout or "") + (proc.stderr or ""))
+
+
+def _doctor(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets doctor")
+    parser.add_argument("--agent", default=None, help="Agent role to check (claude / codex).")
+    parser.add_argument("--host", default=None)
+    args = parser.parse_args(argv)
+
+    ok = True
+    print(f"lets_home: {_lets_home()}")
+    print(f"gateway: {Path(__file__).resolve()}")
+    records = _list_agent_tokens()
+    print(f"local_agents: {len(records)}")
+    if not records:
+        ok = False
+        print("  ERROR no local tokens. Run: lets add claude")
+
+    selected = [r for r in records if not args.agent or r.get("_role") == args.agent]
+    for rec in selected:
+        ai = rec.get("agent_instance") or {}
+        role = rec.get("_role") or ai.get("role") or "?"
+        host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "http://127.0.0.1:8000")
+        print(f"agent[{role}]: id={ai.get('id', '?')} device={ai.get('device_label', '?')} host={host}")
+        try:
+            me = _whoami(host, rec["token"])
+            print(f"  token: ok human={me.human_name} model={me.model or '-'}")
+        except Exception as e:
+            ok = False
+            print(f"  token: ERROR {e}")
+        cli = "claude" if role == "claude" else "codex" if role == "codex" else None
+        if cli:
+            found = shutil.which(cli)
+            print(f"  cli: {'ok ' + found if found else 'ERROR not found'}")
+            if not found:
+                ok = False
+            support = _cli_supports_model(cli, ["exec"] if cli == "codex" else [])
+            if support is not None:
+                print(f"  --model: {'ok' if support else 'not detected'}")
+        out_log, err_log = _log_paths(role=str(role))
+        print(f"  logs: {out_log} | {err_log}")
+    print(f"autostart: {'installed' if os.path.exists(_launchd_plist_path()) else 'not installed'}")
+    return 0 if ok else 1
+
+
+def _update_gateway(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets update")
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="Lets backend URL. Defaults to saved host or production.",
+    )
+    parser.add_argument(
+        "--target",
+        default=os.path.join(_lets_home(), "gateway.py"),
+        help="Gateway file to update (default: ~/.lets/gateway.py).",
+    )
+    args = parser.parse_args(argv)
+    meta = _load_token_meta() or {}
+    host = args.host or meta.get("host") or os.environ.get("LETS_HOST", "https://lets.up.railway.app")
+    try:
+        source = _download_text(host, "/install/gateway.py")
+    except Exception as e:
+        print(f"Failed to download gateway: {e}", file=sys.stderr)
+        return 1
+    os.makedirs(os.path.dirname(args.target), exist_ok=True)
+    tmp = f"{args.target}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(source)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, args.target)
+    print(f"updated {args.target} from {host}")
     return 0
 
 
@@ -2033,6 +2451,8 @@ def _add_agent(argv: list[str]) -> int:
         help="Workspace slug to bind this agent to (default: caller's first workspace).",
     )
     args = parser.parse_args(argv)
+    if not args.model and args.role == "codex":
+        args.model = DEFAULT_CODEX_MODEL
 
     print(f"Adding agent: {args.role} on {args.device_label}")
     login_args = [
@@ -2146,8 +2566,25 @@ def main(argv: list[str] | None = None) -> int:
         return _start_background(argv[1:])
     if argv and argv[0] in ("add",):
         return _add_agent(argv[1:])
+    if argv and argv[0] in ("agents",):
+        return _list_local_agents(argv[1:])
+    if argv and argv[0] in ("doctor",):
+        return _doctor(argv[1:])
+    if argv and argv[0] in ("logs",):
+        return _show_logs(argv[1:])
+    if argv and argv[0] in ("update",):
+        return _update_gateway(argv[1:])
     if argv and argv[0] in ("leave",):
         return _leave_workspace(argv[1:])
+    if argv and argv[0] in ("join",):
+        return _join_workspace(argv[1:])
+    if argv and argv[0] in ("model",):
+        if len(argv) >= 2 and argv[1] == "set":
+            return _set_agent_model(argv[2:])
+        print("usage: lets model set --agent <claude|codex> --model <model>", file=sys.stderr)
+        return 2
+    if argv and argv[0] in ("retire",):
+        return _retire_agent(argv[1:])
     if argv and argv[0] in ("workspaces", "workspace"):
         return _list_agent_workspaces(argv[1:])
     if argv and argv[0] in ("spec",):
