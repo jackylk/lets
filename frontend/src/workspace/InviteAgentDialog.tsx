@@ -12,7 +12,9 @@ const ROLES = [
 ] as const;
 
 type RoleId = (typeof ROLES)[number]["id"];
-type ClaudeModel = "haiku" | "sonnet" | "opus";
+type ClaudeModel = "haiku" | "sonnet" | "sonnet-4.6" | "claude-opus-4-7";
+const DEFAULT_CLAUDE_MODEL: ClaudeModel = "claude-opus-4-7";
+const DEFAULT_CODEX_MODEL = "gpt-5.5";
 
 function installCommand() {
   const origin =
@@ -46,12 +48,14 @@ async function copyText(value: string) {
 
 export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Props) {
   const [role, setRole] = useState<RoleId>("claude");
-  const [claudeModel, setClaudeModel] = useState<ClaudeModel>("haiku");
-  const [codexModel, setCodexModel] = useState("gpt-5.5");
+  const [claudeModel, setClaudeModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL);
+  const [codexModel, setCodexModel] = useState(DEFAULT_CODEX_MODEL);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const model = role === "claude" ? claudeModel : codexModel.trim();
-  const modelArg = model ? ` --model ${model}` : "";
+  const defaultModel = role === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CODEX_MODEL;
+  const explicitModel = model && model !== defaultModel ? model : "";
+  const modelArg = explicitModel ? ` --model ${explicitModel}` : "";
   const install = installCommand();
   const command = `lets add ${role}${modelArg} --workspace ${workspaceSlug}`;
 
@@ -107,7 +111,8 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
             >
               <option value="haiku">Haiku</option>
               <option value="sonnet">Sonnet</option>
-              <option value="opus">Opus</option>
+              <option value="sonnet-4.6">Sonnet 4.6</option>
+              <option value={DEFAULT_CLAUDE_MODEL}>Opus</option>
             </select>
           ) : (
             <input

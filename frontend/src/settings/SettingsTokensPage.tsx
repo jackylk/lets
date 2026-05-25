@@ -92,7 +92,7 @@ export function SettingsTokensPage() {
                   {t.agent_instance?.role === "claude" && t.agent_instance?.id ? (
                     <select
                       aria-label={`${t.agent_instance.device_label} 模型`}
-                      value={t.agent_instance.model ?? "haiku"}
+                      value={t.agent_instance.model ?? "claude-opus-4-7"}
                       disabled={updateModel.isPending}
                       onChange={(e) =>
                         updateModel.mutate({
@@ -104,7 +104,8 @@ export function SettingsTokensPage() {
                     >
                       <option value="haiku">Haiku</option>
                       <option value="sonnet">Sonnet</option>
-                      <option value="opus">Opus</option>
+                      <option value="sonnet-4.6">Sonnet 4.6</option>
+                      <option value="claude-opus-4-7">Opus</option>
                     </select>
                   ) : (
                     <span className="text-text-dim">-</span>

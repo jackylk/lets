@@ -1,7 +1,9 @@
 import { useState } from "react";
 
 type Role = "claude" | "codex";
-type ClaudeModel = "haiku" | "sonnet" | "opus";
+type ClaudeModel = "haiku" | "sonnet" | "sonnet-4.6" | "claude-opus-4-7";
+const DEFAULT_CLAUDE_MODEL: ClaudeModel = "claude-opus-4-7";
+const DEFAULT_CODEX_MODEL = "gpt-5.5";
 
 interface Props {
   onClose: () => void;
@@ -30,14 +32,16 @@ function useCopy() {
  */
 export function ConnectAgentDialog({ onClose }: Props) {
   const [role, setRole] = useState<Role>("claude");
-  const [model, setModel] = useState<ClaudeModel>("haiku");
-  const [codexModel, setCodexModel] = useState("gpt-5.5");
+  const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL);
+  const [codexModel, setCodexModel] = useState(DEFAULT_CODEX_MODEL);
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://lets.up.railway.app";
   const { copiedKey, copy } = useCopy();
 
   const selectedModel = role === "claude" ? model : codexModel.trim();
-  const modelArg = selectedModel ? ` --model ${selectedModel}` : "";
+  const defaultModel = role === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CODEX_MODEL;
+  const explicitModel = selectedModel && selectedModel !== defaultModel ? selectedModel : "";
+  const modelArg = explicitModel ? ` --model ${explicitModel}` : "";
   const installCmd = `curl -fsSL ${origin}/install | bash`;
   const letsAddCmd = `lets add ${role}${modelArg}`;
 
@@ -82,7 +86,8 @@ export function ConnectAgentDialog({ onClose }: Props) {
               >
                 <option value="haiku">Haiku</option>
                 <option value="sonnet">Sonnet</option>
-                <option value="opus">Opus</option>
+                <option value="sonnet-4.6">Sonnet 4.6</option>
+                <option value={DEFAULT_CLAUDE_MODEL}>Opus</option>
               </select>
             </>
           )}

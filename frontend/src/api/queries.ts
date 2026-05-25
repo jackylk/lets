@@ -289,9 +289,14 @@ export function useUpdateAgentModel() {
         `/api/agent-instances/${agentInstanceId}`,
         { method: "PATCH", body: { model }, identity },
       ),
-    onSuccess: () => {
+    onSuccess: (res, vars) => {
+      qc.setQueryData<AgentDetailDTO>(["agent-instances", vars.agentInstanceId], (old) =>
+        old ? { ...old, model: res.model } : old,
+      );
       qc.invalidateQueries({ queryKey: ["tokens"] });
       qc.invalidateQueries({ queryKey: ["agent-instances"] });
+      qc.invalidateQueries({ queryKey: ["agent-instances", vars.agentInstanceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-members"] });
     },
   });
 }
@@ -305,7 +310,10 @@ export function useUpdateAgentDisplayName() {
         `/api/agent-instances/${agentInstanceId}`,
         { method: "PATCH", body: { display_name: displayName }, identity },
       ),
-    onSuccess: (_res, vars) => {
+    onSuccess: (res, vars) => {
+      qc.setQueryData<AgentDetailDTO>(["agent-instances", vars.agentInstanceId], (old) =>
+        old ? { ...old, display_name: res.display_name } : old,
+      );
       qc.invalidateQueries({ queryKey: ["agent-instances"] });
       qc.invalidateQueries({ queryKey: ["agent-instances", vars.agentInstanceId] });
       qc.invalidateQueries({ queryKey: ["workspace-members"] });

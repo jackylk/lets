@@ -12,7 +12,7 @@ describe("<InviteAgentDialog />", () => {
       />,
     );
     const cmd = screen.getByTestId("invite-agent-command");
-    expect(cmd.textContent).toBe("lets add claude --model haiku --workspace my-ws");
+    expect(cmd.textContent).toBe("lets add claude --workspace my-ws");
     const install = screen.getByTestId("invite-agent-install-command");
     expect(install.textContent).toContain(
       "/install | bash",
@@ -29,7 +29,23 @@ describe("<InviteAgentDialog />", () => {
     );
     fireEvent.click(screen.getByRole("radio", { name: "Codex CLI" }));
     const cmd = screen.getByTestId("invite-agent-command");
-    expect(cmd.textContent).toBe("lets add codex --model gpt-5.5 --workspace my-ws");
+    expect(cmd.textContent).toBe("lets add codex --workspace my-ws");
+  });
+
+  it("can invite Claude with the sonnet-4.6 model", () => {
+    render(
+      <InviteAgentDialog
+        workspaceName="我的工作区"
+        workspaceSlug="my-ws"
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "Claude 模型" }), {
+      target: { value: "sonnet-4.6" },
+    });
+    expect(screen.getByTestId("invite-agent-command").textContent).toBe(
+      "lets add claude --model sonnet-4.6 --workspace my-ws",
+    );
   });
 
   it("calls onClose when the done button is clicked", () => {
@@ -67,7 +83,7 @@ describe("<InviteAgentDialog />", () => {
 
     fireEvent.click(copyButtons[1]!);
     await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith("lets add claude --model haiku --workspace my-ws"),
+      expect(writeText).toHaveBeenCalledWith("lets add claude --workspace my-ws"),
     );
   });
 });

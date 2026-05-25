@@ -19,16 +19,16 @@ describe("<SettingsTokensPage />", () => {
         text.includes("/install | bash"),
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("lets add claude --model haiku")).toBeInTheDocument();
+    expect(screen.getByText("lets add claude")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: /Claude 模型/i }), "sonnet");
+    await user.selectOptions(screen.getByRole("combobox", { name: /Claude 模型/i }), "sonnet-4.6");
     expect(
       screen.getByText((text) =>
         text.includes("curl -fsSL") &&
         text.includes("/install | bash"),
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("lets add claude --model sonnet")).toBeInTheDocument();
+    expect(screen.getByText("lets add claude --model sonnet-4.6")).toBeInTheDocument();
 
     // Switch to Codex and confirm only the add command depends on role/model.
     await user.selectOptions(screen.getByRole("combobox", { name: /Agent 类型/i }), "codex");
@@ -38,7 +38,7 @@ describe("<SettingsTokensPage />", () => {
         text.includes("/install | bash"),
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("lets add codex --model gpt-5.5")).toBeInTheDocument();
+    expect(screen.getByText("lets add codex")).toBeInTheDocument();
 
     await user.clear(screen.getByRole("textbox", { name: /Codex 模型/i }));
     await user.type(screen.getByRole("textbox", { name: /Codex 模型/i }), "o3");
@@ -62,8 +62,8 @@ describe("<SettingsTokensPage />", () => {
     const select = await screen.findByRole("combobox", { name: /mac16 模型/i });
     expect(select).toHaveValue("haiku");
 
-    await user.selectOptions(select, "sonnet");
-    await waitFor(() => expect(select).toHaveValue("sonnet"));
+    await user.selectOptions(select, "sonnet-4.6");
+    await waitFor(() => expect(select).toHaveValue("sonnet-4.6"));
   });
 
   it("revokes a token that already exists", async () => {

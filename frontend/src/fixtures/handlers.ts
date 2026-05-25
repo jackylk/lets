@@ -154,11 +154,25 @@ export const handlers = [
   }),
 
   http.patch("/api/agent-instances/:id", async ({ params, request }) => {
-    const body = (await request.json()) as { model: string };
+    const body = (await request.json()) as { model?: string; display_name?: string };
+    const agentId = Number(params.id);
+    const seeded = seed.agentInstances.find((a) => a.id === agentId);
+    if (seeded) {
+      const withModel = seeded as typeof seeded & { model?: string | null };
+      if (body.model !== undefined) withModel.model = body.model;
+      if (body.display_name !== undefined) seeded.display_name = body.display_name;
+      return HttpResponse.json({
+        id: seeded.id,
+        role: seeded.role,
+        device_label: seeded.device_label,
+        model: withModel.model ?? null,
+        display_name: seeded.display_name,
+      });
+    }
     const slot = seed as unknown as { fixtureTokens?: TokenRow[] };
     for (const t of slot.fixtureTokens ?? []) {
-      if (t.agent_instance?.id === Number(params.id)) {
-        t.agent_instance.model = body.model;
+      if (t.agent_instance?.id === agentId) {
+        if (body.model !== undefined) t.agent_instance.model = body.model;
         return HttpResponse.json(t.agent_instance);
       }
     }
@@ -356,6 +370,44 @@ export const handlers = [
     return HttpResponse.json([]);
   }),
   http.get("/api/agents/online", () => HttpResponse.json([])),
+  http.get("/api/agents/:id", ({ params }) => {
+    const agentId = Number(params.id);
+    const agent = seed.agentInstances.find((a) => a.id === agentId);
+    if (!agent) return new HttpResponse(null, { status: 404 });
+    const withModel = agent as typeof agent & { model?: string | null };
+    const owner = seed.humans.find((h) => h.id === agent.human_id);
+    return HttpResponse.json({
+      agent_instance_id: agent.id,
+      role: agent.role,
+      device_label: agent.device_label,
+      model: withModel.model ?? (agent.role === "claude" ? "haiku" : null),
+      display_name: agent.display_name,
+      paused_at: null,
+      deleted_at: null,
+      human_id: agent.human_id,
+      human_name: owner?.name ?? "Neo",
+      last_seen_at: null,
+      is_online: 0,
+      created_at: "2026-01-01T00:00:00Z",
+      workspaces: [
+        {
+          id: 1,
+          slug: "my-workspace",
+          name: "我的工作区",
+          joined_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      stats: {
+        message_count: 0,
+        topic_count: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+      },
+      recent_topics: [],
+      usage_started_at: "2026-05-22",
+      quota: null,
+    });
+  }),
   http.get("/api/agent-instances", () => HttpResponse.json([])),
   http.post("/api/projects/:id/topics", async ({ params, request }) => {
     const body = (await request.json()) as { slug: string; title: string };

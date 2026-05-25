@@ -5,6 +5,7 @@ import {
   usePauseAgent,
   useResumeAgent,
   useUpdateAgentDisplayName,
+  useUpdateAgentModel,
 } from "../api/queries";
 import { agentShortName, agentStatusLabel, roleTitle } from "./display";
 
@@ -23,10 +24,15 @@ export function AgentDetail({ agentId, onBack }: Props) {
   const resume = useResumeAgent();
   const revoke = useDeleteAgent();
   const rename = useUpdateAgentDisplayName();
+  const updateModel = useUpdateAgentModel();
   const [draftName, setDraftName] = useState("");
+  const [draftModel, setDraftModel] = useState("");
 
   useEffect(() => {
     if (detail.data) setDraftName(agentShortName(detail.data));
+  }, [detail.data]);
+  useEffect(() => {
+    if (detail.data) setDraftModel(detail.data.model ?? "");
   }, [detail.data]);
 
   if (detail.isLoading) return <div className="p-6 text-text-dim">加载中...</div>;
@@ -116,6 +122,42 @@ export function AgentDetail({ agentId, onBack }: Props) {
             <button
               type="submit"
               disabled={rename.isPending || !draftName.trim() || draftName.trim() === agentShortName(agent)}
+              className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-50"
+            >
+              保存
+            </button>
+          </form>
+          <form
+            className="mb-5 flex max-w-md items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const next = draftModel.trim();
+              if (!next || next === (agent.model ?? "")) return;
+              updateModel.mutate({ agentInstanceId: agentId, model: next });
+            }}
+          >
+            <label className="min-w-0 flex-1">
+              <span className="block text-xs text-text-dim">模型</span>
+              <input
+                value={draftModel}
+                onChange={(e) => setDraftModel(e.target.value)}
+                maxLength={128}
+                list={agent.role === "claude" ? "claude-model-suggestions" : undefined}
+                placeholder={agent.role === "codex" ? "gpt-5.5" : "sonnet-4.6"}
+                className="mt-1 w-full rounded border border-border bg-surface-elev px-2 py-1.5 text-sm text-text"
+              />
+              {agent.role === "claude" && (
+                <datalist id="claude-model-suggestions">
+                  <option value="haiku" />
+                  <option value="sonnet" />
+                  <option value="sonnet-4.6" />
+                  <option value="claude-opus-4-7" />
+                </datalist>
+              )}
+            </label>
+            <button
+              type="submit"
+              disabled={updateModel.isPending || !draftModel.trim() || draftModel.trim() === (agent.model ?? "")}
               className="rounded border border-border px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-50"
             >
               保存
