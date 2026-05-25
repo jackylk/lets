@@ -47,6 +47,8 @@ interface TopicRowProps {
   onRestore?: (id: number) => void | Promise<unknown>;
   onDelete?: (id: number) => void | Promise<unknown>;
   archived?: boolean;
+  canArchive?: boolean;
+  canDelete?: boolean;
 }
 
 function TopicRow({
@@ -58,6 +60,8 @@ function TopicRow({
   onRestore,
   onDelete,
   archived = false,
+  canArchive = true,
+  canDelete = true,
 }: TopicRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -161,7 +165,7 @@ function TopicRow({
             >
               恢复
             </TopicMenuItem>
-          ) : (
+          ) : canArchive ? (
             <TopicMenuItem
               onClick={async () => {
                 setMenuOpen(false);
@@ -170,18 +174,22 @@ function TopicRow({
             >
               归档
             </TopicMenuItem>
+          ) : null}
+          {canDelete && (
+            <>
+              <div className="my-1 border-t border-border-soft" />
+              <TopicMenuItem
+                danger
+                onClick={async () => {
+                  setMenuOpen(false);
+                  if (!window.confirm(`删除话题「${topic.title}」？`)) return;
+                  await onDelete?.(topic.id);
+                }}
+              >
+                删除
+              </TopicMenuItem>
+            </>
           )}
-          <div className="my-1 border-t border-border-soft" />
-          <TopicMenuItem
-            danger
-            onClick={async () => {
-              setMenuOpen(false);
-              if (!window.confirm(`删除话题「${topic.title}」？`)) return;
-              await onDelete?.(topic.id);
-            }}
-          >
-            删除
-          </TopicMenuItem>
         </div>
       )}
     </div>
@@ -237,6 +245,9 @@ export function Sidebar({
   const otherWorkspaces = workspaces.filter(
     (w) => w.id !== activeWorkspace?.id,
   );
+  const selectedTopics = topicList(effectiveTopicListMode, topics, allTopics, archivedTopics);
+  const publicTopics = effectiveTopicListMode === "archived" ? [] : selectedTopics.filter(isPublicTopic);
+  const regularTopics = selectedTopics.filter((topic) => !isPublicTopic(topic));
 
   return (
     <div className="flex flex-col h-full">
@@ -327,8 +338,33 @@ export function Sidebar({
             </button>
           )}
         </div>
+        {publicTopics.length > 0 && (
+          <div className="mt-1 border-b border-border-soft pb-1">
+            <div className="px-3 pb-0.5 text-[11px] font-medium text-text-dim">全员</div>
+            <div className="flex flex-col gap-0.5">
+              {publicTopics.map((t) => (
+                <TopicRow
+                  key={t.id}
+                  topic={t}
+                  active={activeTopicId === t.id}
+                  onSelect={() => onSelectTopic(t.id)}
+                  onRename={onRenameTopic}
+                  onArchive={onArchiveTopic}
+                  onRestore={async (id) => {
+                    await onRestoreTopic?.(id);
+                    setTopicListMode("mine");
+                  }}
+                  onDelete={onDeleteTopic}
+                  archived={false}
+                  canArchive={false}
+                  canDelete={false}
+                />
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-1 flex flex-col gap-0.5">
-          {topicList(effectiveTopicListMode, topics, allTopics, archivedTopics).length === 0 ? (
+          {selectedTopics.length === 0 ? (
             <div className="px-3 py-1 text-[11px] text-text-dim italic">
               {effectiveTopicListMode === "mine"
                 ? "还没有参与的话题"
@@ -336,8 +372,8 @@ export function Sidebar({
                   ? "还没有话题"
                   : "没有已归档话题"}
             </div>
-          ) : (
-            topicList(effectiveTopicListMode, topics, allTopics, archivedTopics).map((t) => (
+          ) : regularTopics.length > 0 ? (
+            regularTopics.map((t) => (
               <TopicRow
                 key={t.id}
                 topic={t}
@@ -353,7 +389,7 @@ export function Sidebar({
                 archived={effectiveTopicListMode === "archived"}
               />
             ))
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -396,6 +432,10 @@ export function Sidebar({
       )}
     </div>
   );
+}
+
+function isPublicTopic(topic: TopicDTO) {
+  return topic.visibility === "public";
 }
 
 function topicList(

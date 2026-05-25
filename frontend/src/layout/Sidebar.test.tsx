@@ -16,13 +16,19 @@ const makeWorkspace = (id: number, name: string, slug: string): Workspace => ({
   updated_at: "2026-01-01T00:00:00Z",
 });
 
-const makeTopic = (id: number, slug: string, title: string): TopicDTO => ({
+const makeTopic = (
+  id: number,
+  slug: string,
+  title: string,
+  overrides: Partial<TopicDTO> = {},
+): TopicDTO => ({
   id,
   slug,
   title,
   project_id: 1,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+  ...overrides,
 });
 
 const ws1 = makeWorkspace(1, "我的工作区", "my-ws");
@@ -58,6 +64,38 @@ describe("<Sidebar />", () => {
     renderWithProviders(<Sidebar {...defaultProps} canViewAllTopics />);
     expect(screen.getByRole("button", { name: "我的 1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部 1" })).toBeInTheDocument();
+  });
+
+  it("separates the public all-member topic from regular topics", () => {
+    const publicTopic = makeTopic(9, "all-hands-1", "全员话题", { visibility: "public" });
+    renderWithProviders(
+      <Sidebar
+        {...defaultProps}
+        topics={[publicTopic, makeTopic(10, "topic-abc12", "新话题")]}
+        allTopics={[publicTopic, makeTopic(10, "topic-abc12", "新话题")]}
+        canViewAllTopics
+      />,
+    );
+
+    expect(screen.getByText("全员")).toBeInTheDocument();
+    expect(screen.getAllByText("全员话题")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "我的 2" })).toBeInTheDocument();
+  });
+
+  it("does not offer archive or delete actions for the public all-member topic", () => {
+    const publicTopic = makeTopic(9, "all-hands-1", "全员话题", { visibility: "public" });
+    renderWithProviders(
+      <Sidebar
+        {...defaultProps}
+        topics={[publicTopic, makeTopic(10, "topic-abc12", "新话题")]}
+        allTopics={[publicTopic, makeTopic(10, "topic-abc12", "新话题")]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "全员话题 话题操作" }));
+    expect(screen.getByText("重命名")).toBeEnabled();
+    expect(screen.queryByText("归档")).not.toBeInTheDocument();
+    expect(screen.queryByText("删除")).not.toBeInTheDocument();
   });
 
   it("hides owner-only topic tabs and create action for guests", () => {
