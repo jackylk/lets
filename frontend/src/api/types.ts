@@ -164,8 +164,16 @@ export interface WorkspaceInvite {
 }
 
 export interface ParticipantsDTO {
-  humans: Array<{ id: number; name: string; email: string | null }>;
-  agents: Array<{ id: number; device_label: string; display_name: string | null; role: string; human_name: string }>;
+  humans: Array<{ id: number; name: string; email: string | null; role?: "owner" | "member"; created_at?: string }>;
+  agents: Array<{
+    id: number;
+    device_label: string | null;
+    display_name: string | null;
+    role: string;
+    human_name: string;
+    participant_role?: "owner" | "member";
+    created_at?: string;
+  }>;
 }
 
 export interface GitStatusDTO {

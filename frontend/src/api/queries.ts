@@ -63,6 +63,39 @@ export function useTopicParticipants(topicId: number | null) {
   });
 }
 
+export function useAddTopicParticipant(topicId: number) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { participant_type: "human" | "agent"; participant_id: number; role?: "owner" | "member" }) =>
+      apiRequest<ParticipantsDTO>(`/api/topics/${topicId}/participants`, {
+        method: "POST",
+        body: input,
+        identity,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["topics", topicId, "participants"] });
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+    },
+  });
+}
+
+export function useRemoveTopicParticipant(topicId: number) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { participant_type: "human" | "agent"; participant_id: number }) =>
+      apiRequest<ParticipantsDTO>(
+        `/api/topics/${topicId}/participants/${input.participant_type}/${input.participant_id}`,
+        { method: "DELETE", identity },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["topics", topicId, "participants"] });
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+    },
+  });
+}
+
 export function useArtifactsByTopic(topicId: number | null) {
   const identity = useIdentity();
   return useQuery({
@@ -345,14 +378,18 @@ export function useCreateInvite() {
   });
 }
 
-export function useTopicsInWorkspace(workspaceId: number | null, archived = false) {
+export function useTopicsInWorkspace(
+  workspaceId: number | null,
+  archived = false,
+  scope: "mine" | "all" = "all",
+) {
   const identity = useIdentity();
   return useQuery({
-    queryKey: ["workspace-topics", workspaceId, archived ? "archived" : "active"],
+    queryKey: ["workspace-topics", workspaceId, archived ? "archived" : "active", scope],
     enabled: workspaceId != null,
     queryFn: () =>
       apiRequest<TopicDTO[]>(
-        `/api/workspaces/${workspaceId}/topics${archived ? "?archived=true" : ""}`,
+        `/api/workspaces/${workspaceId}/topics?scope=${scope}${archived ? "&archived=true" : ""}`,
         { identity },
       ),
   });

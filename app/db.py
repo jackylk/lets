@@ -849,6 +849,74 @@ def _migrate_topics_lifecycle(conn) -> None:
     )
 
 
+def _migrate_topic_participants(conn) -> None:
+    """Create topic-level participant membership and backfill old topics once."""
+    table = conn.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema = current_schema() AND table_name = 'topic_participants'"
+    ).fetchone()
+    existed = table is not None
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS topic_participants (
+            topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+            participant_type TEXT NOT NULL CHECK (participant_type IN ('human', 'agent')),
+            participant_id BIGINT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
+            added_by_human_id BIGINT REFERENCES humans(id),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (topic_id, participant_type, participant_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_topic_participants_participant "
+        "ON topic_participants(participant_type, participant_id)"
+    )
+
+    if existed:
+        return
+
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        SELECT t.id, 'human', wm.human_id,
+               CASE WHEN wm.role = 'owner' THEN 'owner' ELSE 'member' END,
+               wm.human_id
+        FROM topics t
+        JOIN workspace_members wm ON wm.workspace_id = t.workspace_id
+        WHERE t.workspace_id IS NOT NULL
+        ON CONFLICT DO NOTHING
+        RETURNING topic_id
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        SELECT t.id, 'agent', wam.agent_instance_id, 'member', wam.joined_by_human_id
+        FROM topics t
+        JOIN workspace_agent_members wam ON wam.workspace_id = t.workspace_id
+        WHERE t.workspace_id IS NOT NULL
+        ON CONFLICT DO NOTHING
+        RETURNING topic_id
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role)
+        SELECT DISTINCT topic_id, actor_type, actor_id, 'member'
+        FROM messages
+        WHERE actor_type IN ('human', 'agent') AND actor_id IS NOT NULL
+        ON CONFLICT DO NOTHING
+        RETURNING topic_id
+        """
+    )
+
+
 def _migrate_agent_instances_independent(conn) -> None:
     """Move agent_instances from workspace-scoped rows to owned agent rows.
 
@@ -931,6 +999,7 @@ def init_db() -> None:
             _migrate_humans_guest_flag(conn)
             _migrate_agent_instances_independent(conn)
             _migrate_device_auth_flows_workspace(conn)
+            _migrate_topic_participants(conn)
             conn.execute("INSERT INTO agent_types (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
                          ("claude", "Anthropic Claude Code"))
             conn.execute("INSERT INTO agent_types (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",

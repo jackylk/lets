@@ -448,6 +448,10 @@ def list_my_topics(limit: int = 50) -> list[dict]:
                 SELECT 1
                 FROM workspace_agent_members wam
                 JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+                JOIN topic_participants tp
+                  ON tp.topic_id = t.id
+                 AND tp.participant_type = 'agent'
+                 AND tp.participant_id = wam.agent_instance_id
                 WHERE wam.workspace_id = t.workspace_id
                   AND wam.agent_instance_id = ?
                   AND ai.paused_at IS NULL
@@ -460,7 +464,12 @@ def list_my_topics(limit: int = 50) -> list[dict]:
         membership_predicate = """
             (
               t.workspace_id IS NULL OR EXISTS (
-                SELECT 1 FROM workspace_members wm
+                SELECT 1
+                FROM workspace_members wm
+                JOIN topic_participants tp
+                  ON tp.topic_id = t.id
+                 AND tp.participant_type = 'human'
+                 AND tp.participant_id = wm.human_id
                 WHERE wm.workspace_id = t.workspace_id AND wm.human_id = ?
               )
             )
@@ -510,12 +519,16 @@ def _require_mcp_topic_actor(topic_id: int, principal: dict) -> None:
                 SELECT ai.paused_at, ai.deleted_at
                 FROM workspace_agent_members wam
                 JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+                JOIN topic_participants tp
+                  ON tp.topic_id = ?
+                 AND tp.participant_type = 'agent'
+                 AND tp.participant_id = wam.agent_instance_id
                 WHERE wam.workspace_id = ? AND wam.agent_instance_id = ?
                 """,
-                (workspace_id, int(agent_id)),
+                (topic_id, workspace_id, int(agent_id)),
             ).fetchone()
             if membership is None:
-                raise ValueError("agent is not a member of this topic workspace")
+                raise ValueError("agent is not a participant in this topic")
             if membership["paused_at"] is not None:
                 raise ValueError("agent is paused")
             if membership["deleted_at"] is not None:

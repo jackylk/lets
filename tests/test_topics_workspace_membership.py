@@ -31,6 +31,10 @@ def test_create_topic_member_allowed(temp_db, client):
     assert r.status_code == 200
     assert r.json()["title"] == "OAuth 流程"
 
+    participants = client.get(f"/api/topics/{r.json()['id']}/participants").json()
+    assert [h["name"] for h in participants["humans"]] == ["alice"]
+    assert participants["humans"][0]["role"] == "owner"
+
 
 def test_create_topic_non_member_403(temp_db, client):
     _login(client, "alice")
@@ -127,6 +131,72 @@ def test_restore_topic_returns_it_to_workspace_list(temp_db, client):
 
     archived = client.get(f"/api/workspaces/{ws['id']}/topics?archived=true").json()
     assert all(t["id"] != topic["id"] for t in archived)
+
+
+def test_workspace_topics_scope_mine_filters_to_participation(temp_db, client):
+    alice_id = _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    mine = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "mine", "title": "Mine"},
+    ).json()
+    from app.db import connect
+    with connect() as conn:
+        other = conn.execute(
+            "INSERT INTO topics (slug, title, workspace_id) VALUES ('all-only', 'All Only', ?) RETURNING id",
+            (ws["id"],),
+        ).fetchone()["id"]
+        assert alice_id
+        conn.execute(
+            "DELETE FROM topic_participants WHERE topic_id = ? AND participant_type = 'human'",
+            (other,),
+        )
+
+    mine_rows = client.get(f"/api/workspaces/{ws['id']}/topics?scope=mine").json()
+    all_rows = client.get(f"/api/workspaces/{ws['id']}/topics?scope=all").json()
+
+    assert {t["id"] for t in mine_rows} == {mine["id"]}
+    assert {t["id"] for t in all_rows} == {mine["id"], other}
+
+
+def test_add_topic_participants_from_workspace_pool(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "participants", "title": "Participants"},
+    ).json()
+
+    from app.db import connect
+    from app.identity import ensure_agent_instance
+    with connect() as conn:
+        bob_id = conn.execute(
+            "INSERT INTO humans (name, email) VALUES ('bob', 'b@b') RETURNING id"
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO workspace_members (workspace_id, human_id, role) "
+            "VALUES (?, ?, 'member') RETURNING workspace_id",
+            (ws["id"], bob_id),
+        )
+    agent_id = ensure_agent_instance("claude", bob_id, "bob-mbp", workspace_id=ws["id"])
+
+    r = client.post(
+        f"/api/topics/{topic['id']}/participants",
+        json={"participant_type": "human", "participant_id": bob_id},
+    )
+    assert r.status_code == 200
+    assert "bob" in {h["name"] for h in r.json()["humans"]}
+
+    r = client.post(
+        f"/api/topics/{topic['id']}/participants",
+        json={"participant_type": "agent", "participant_id": agent_id},
+    )
+    assert r.status_code == 200
+    assert agent_id in {a["id"] for a in r.json()["agents"]}
+
+    r = client.delete(f"/api/topics/{topic['id']}/participants/agent/{agent_id}")
+    assert r.status_code == 200
+    assert agent_id not in {a["id"] for a in r.json()["agents"]}
 
 
 def test_delete_topic_hides_it_and_blocks_direct_access(temp_db, client):

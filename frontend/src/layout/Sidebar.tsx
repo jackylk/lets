@@ -11,6 +11,7 @@ interface Props {
   activeWorkspace: Workspace | undefined;
   workspaces: Workspace[];
   topics: TopicDTO[];
+  allTopics: TopicDTO[];
   archivedTopics: TopicDTO[];
   members: WorkspaceMember[];
   activeTopicId: number | null;
@@ -185,6 +186,7 @@ export function Sidebar({
   activeWorkspace,
   workspaces,
   topics,
+  allTopics,
   archivedTopics,
   members,
   activeTopicId,
@@ -205,7 +207,7 @@ export function Sidebar({
   onSelectAgent,
 }: Props) {
   const [creating, setCreating] = useState(false);
-  const [topicListMode, setTopicListMode] = useState<"active" | "archived">("active");
+  const [topicListMode, setTopicListMode] = useState<"mine" | "all" | "archived">("mine");
   const activeMessages = useTopicMessages(activeTopicId);
 
   const otherWorkspaces = workspaces.filter(
@@ -244,15 +246,27 @@ export function Sidebar({
           <span className="flex-1">话题</span>
           <button
             type="button"
-            onClick={() => setTopicListMode("active")}
+            onClick={() => setTopicListMode("mine")}
             className={cn(
               "rounded-[3px] px-1.5 py-0.5 font-medium",
-              topicListMode === "active"
+              topicListMode === "mine"
                 ? "bg-surface-elev text-text"
                 : "text-text-dim hover:bg-surface-hover hover:text-text",
             )}
           >
-            当前 {topics.length}
+            我的 {topics.length}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTopicListMode("all")}
+            className={cn(
+              "rounded-[3px] px-1.5 py-0.5 font-medium",
+              topicListMode === "all"
+                ? "bg-surface-elev text-text"
+                : "text-text-dim hover:bg-surface-hover hover:text-text",
+            )}
+          >
+            全部 {allTopics.length}
           </button>
           <button
             type="button"
@@ -283,12 +297,16 @@ export function Sidebar({
           </button>
         </div>
         <div className="mt-1 flex flex-col gap-0.5">
-          {(topicListMode === "active" ? topics : archivedTopics).length === 0 ? (
+          {topicList(topicListMode, topics, allTopics, archivedTopics).length === 0 ? (
             <div className="px-3 py-1 text-[11px] text-text-dim italic">
-              {topicListMode === "active" ? "还没有话题" : "没有已归档话题"}
+              {topicListMode === "mine"
+                ? "还没有参与的话题"
+                : topicListMode === "all"
+                  ? "还没有话题"
+                  : "没有已归档话题"}
             </div>
           ) : (
-            (topicListMode === "active" ? topics : archivedTopics).map((t) => (
+            topicList(topicListMode, topics, allTopics, archivedTopics).map((t) => (
               <TopicRow
                 key={t.id}
                 topic={t}
@@ -298,7 +316,7 @@ export function Sidebar({
                 onArchive={onArchiveTopic}
                 onRestore={async (id) => {
                   await onRestoreTopic?.(id);
-                  setTopicListMode("active");
+                  setTopicListMode("mine");
                 }}
                 onDelete={onDeleteTopic}
                 archived={topicListMode === "archived"}
@@ -344,6 +362,17 @@ export function Sidebar({
       )}
     </div>
   );
+}
+
+function topicList(
+  mode: "mine" | "all" | "archived",
+  mine: TopicDTO[],
+  all: TopicDTO[],
+  archived: TopicDTO[],
+) {
+  if (mode === "all") return all;
+  if (mode === "archived") return archived;
+  return mine;
 }
 
 function FooterLink({ children, onClick }: { children: string; onClick?: () => void }) {

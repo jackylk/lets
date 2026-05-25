@@ -261,6 +261,12 @@ class TopicUpdate(BaseModel):
     title: str | None = None
 
 
+class TopicParticipantCreate(BaseModel):
+    participant_type: Literal["human", "agent"]
+    participant_id: int
+    role: Literal["owner", "member"] = "member"
+
+
 class TopicShareCreate(BaseModel):
     reuse_existing: bool = True
 
@@ -274,12 +280,22 @@ def _ensure_onboarded(human_id: int) -> None:
     ws = create_workspace(name="我的工作区", owner_human_id=human_id)
     slug = f"topic-{_secrets.token_hex(4)}"
     with connect() as conn:
-        conn.execute(
+        cur = conn.execute(
             """
             INSERT INTO topics (slug, title, workspace_id, mode)
             VALUES (?, ?, ?, 'exploratory')
             """,
             (slug, "新话题", ws["id"]),
+        )
+        conn.execute(
+            """
+            INSERT INTO topic_participants
+                (topic_id, participant_type, participant_id, role, added_by_human_id)
+            VALUES (?, 'human', ?, 'owner', ?)
+            ON CONFLICT DO NOTHING
+            RETURNING topic_id
+            """,
+            (int(cur.lastrowid), human_id, human_id),
         )
 
 
@@ -1274,10 +1290,19 @@ def _topic_human_count_for_auto_address(topic_id: int, actor_id: int) -> int:
             row = conn.execute(
                 """
                 SELECT COUNT(DISTINCT human_id) AS n
-                FROM workspace_members
-                WHERE workspace_id = ?
+                FROM (
+                    SELECT participant_id AS human_id
+                    FROM topic_participants
+                    WHERE topic_id = ? AND participant_type = 'human'
+                    UNION
+                    SELECT actor_id AS human_id
+                    FROM messages
+                    WHERE topic_id = ? AND actor_type = 'human' AND actor_id IS NOT NULL
+                    UNION
+                    SELECT ? AS human_id
+                ) humans
                 """,
-                (workspace_id,),
+                (topic_id, topic_id, actor_id),
             ).fetchone()
             return int(row["n"] or 0) if row else 0
         row = conn.execute(
@@ -1312,6 +1337,10 @@ def _default_addressee_for(topic_id: int, actor_id: int | None) -> str | None:
             SELECT COUNT(DISTINCT ai.id) AS n, MIN(ai.id) AS agent_instance_id
             FROM tokens t
             JOIN agent_instances ai ON ai.id = t.agent_instance_id
+            JOIN topic_participants tp
+              ON tp.topic_id = ?
+             AND tp.participant_type = 'agent'
+             AND tp.participant_id = ai.id
             WHERE ai.owner_human_id = ?
               AND ai.paused_at IS NULL
               AND ai.deleted_at IS NULL
@@ -1319,7 +1348,7 @@ def _default_addressee_for(topic_id: int, actor_id: int | None) -> str | None:
               AND t.last_used_at IS NOT NULL
               AND t.last_used_at >= datetime('now', '-5 minutes')
             """,
-            (actor_id,),
+            (topic_id, actor_id),
         ).fetchone()
     if row is None or row["n"] != 1:
         return None
@@ -1347,6 +1376,10 @@ def _health_addressee_for(topic_id: int, actor_id: int | None, body: str) -> str
                 SELECT COUNT(DISTINCT ai.id) AS n, MIN(ai.id) AS agent_instance_id
                 FROM workspace_agent_members wam
                 JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+                JOIN topic_participants tp
+                  ON tp.topic_id = ?
+                 AND tp.participant_type = 'agent'
+                 AND tp.participant_id = ai.id
                 JOIN tokens t ON t.agent_instance_id = ai.id
                 WHERE wam.workspace_id = ?
                   AND ai.paused_at IS NULL
@@ -1355,7 +1388,7 @@ def _health_addressee_for(topic_id: int, actor_id: int | None, body: str) -> str
                   AND t.last_used_at IS NOT NULL
                   AND t.last_used_at >= datetime('now', '-5 minutes')
                 """,
-                (workspace_id,),
+                (topic_id, workspace_id),
             ).fetchone()
             if row is not None and row["n"] == 1:
                 return f"agent:{int(row['agent_instance_id'])}"
@@ -1402,6 +1435,17 @@ async def post_message_endpoint(
     # immediately reflect what the topic is actually about.
     if payload.actor_type == "human" and payload.type == "chat":
         _maybe_rename_topic_from_first_chat(payload.topic_id, payload.body)
+
+    if payload.actor_type in ("human", "agent") and payload.actor_id is not None:
+        with connect() as conn:
+            _add_topic_participant(
+                conn,
+                payload.topic_id,
+                payload.actor_type,
+                int(payload.actor_id),
+                role="member",
+                added_by_human_id=int(principal["human_id"]) if principal.get("human_id") else None,
+            )
 
     message_id = post_message(
         topic_id=payload.topic_id,
@@ -1637,6 +1681,14 @@ def resolve_drift_nudge(
                 (slug, payload.spinoff_title, workspace_id),
             )
             new_topic_id = int(cur.lastrowid)
+            _add_topic_participant(
+                conn,
+                new_topic_id,
+                "human",
+                int(principal["human_id"]),
+                role="owner",
+                added_by_human_id=int(principal["human_id"]),
+            )
         # Post a system message summarizing the spinoff
         summary_body = (
             f"从 topic#{nudge_row['topic_id']} 迁移而来。"
@@ -2344,10 +2396,25 @@ def accept_invite_as_guest(token: str, payload: GuestInviteAccept) -> JSONRespon
 def list_topics_in_workspace(
     workspace_id: int,
     archived: bool = False,
+    scope: Literal["mine", "all"] = "all",
     principal: dict = Depends(get_api_principal),
 ) -> list[dict]:
     from .workspaces import require_workspace_member
-    require_workspace_member(workspace_id, int(principal["human_id"]))
+    human_id = int(principal["human_id"])
+    require_workspace_member(workspace_id, human_id)
+    scope_clause = ""
+    params: list[object] = [workspace_id]
+    if scope == "mine":
+        scope_clause = """
+              AND EXISTS (
+                SELECT 1
+                FROM topic_participants tp
+                WHERE tp.topic_id = topics.id
+                  AND tp.participant_type = 'human'
+                  AND tp.participant_id = ?
+              )
+        """
+        params.append(human_id)
     with connect() as conn:
         rows = conn.execute(
             """
@@ -2356,9 +2423,13 @@ def list_topics_in_workspace(
             WHERE workspace_id = ?
               AND archived_at IS {archived_predicate}
               AND deleted_at IS NULL
+              {scope_clause}
             ORDER BY updated_at DESC
-            """.format(archived_predicate="NOT NULL" if archived else "NULL"),
-            (workspace_id,),
+            """.format(
+                archived_predicate="NOT NULL" if archived else "NULL",
+                scope_clause=scope_clause,
+            ),
+            params,
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -2382,6 +2453,14 @@ def create_topic_in_workspace(
                 """,
                 (payload.slug, payload.title, workspace_id, payload.mode),
             ).fetchone()
+            _add_topic_participant(
+                conn,
+                int(row["id"]),
+                "human",
+                int(principal["human_id"]),
+                role="owner",
+                added_by_human_id=int(principal["human_id"]),
+            )
         except IntegrityError as e:
             if "topics_slug_key" in str(e).lower() or "unique" in str(e).lower():
                 raise HTTPException(status_code=409, detail=f"slug in use: {payload.slug}")
@@ -2430,6 +2509,80 @@ def _require_workspace_actor(workspace_id: int, principal: dict) -> None:
         raise HTTPException(status_code=401, detail="agent is deleted")
 
 
+def _participant_exists(conn, topic_id: int, participant_type: str, participant_id: int) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM topic_participants
+        WHERE topic_id = ? AND participant_type = ? AND participant_id = ?
+        """,
+        (topic_id, participant_type, participant_id),
+    ).fetchone()
+    return row is not None
+
+
+def _add_topic_participant(
+    conn,
+    topic_id: int,
+    participant_type: str,
+    participant_id: int,
+    *,
+    role: str = "member",
+    added_by_human_id: int | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT (topic_id, participant_type, participant_id)
+        DO UPDATE SET role = CASE
+            WHEN topic_participants.role = 'owner' THEN 'owner'
+            ELSE EXCLUDED.role
+        END
+        RETURNING topic_id
+        """,
+        (topic_id, participant_type, participant_id, role, added_by_human_id),
+    )
+
+
+def _validate_topic_participant(conn, workspace_id: int | None, payload: TopicParticipantCreate) -> None:
+    if payload.participant_type == "human":
+        if workspace_id is None:
+            row = conn.execute("SELECT 1 FROM humans WHERE id = ?", (payload.participant_id,)).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM workspace_members
+                WHERE workspace_id = ? AND human_id = ?
+                """,
+                (workspace_id, payload.participant_id),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=400, detail="human is not in this workspace")
+        return
+
+    if workspace_id is None:
+        row = conn.execute(
+            "SELECT 1 FROM agent_instances WHERE id = ? AND deleted_at IS NULL",
+            (payload.participant_id,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM workspace_agent_members wam
+            JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+            WHERE wam.workspace_id = ?
+              AND wam.agent_instance_id = ?
+              AND ai.deleted_at IS NULL
+            """,
+            (workspace_id, payload.participant_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=400, detail="agent is not in this workspace")
+
+
 def _require_topic_actor(topic_id: int, principal: dict) -> int:
     with connect() as conn:
         row = conn.execute(
@@ -2442,6 +2595,11 @@ def _require_topic_actor(topic_id: int, principal: dict) -> int:
         return 0
     workspace_id = int(row["workspace_id"])
     _require_workspace_actor(workspace_id, principal)
+    agent_id = principal.get("agent_instance_id")
+    if agent_id is not None:
+        with connect() as conn:
+            if not _participant_exists(conn, topic_id, "agent", int(agent_id)):
+                raise HTTPException(status_code=403, detail="agent is not a topic participant")
     return workspace_id
 
 
@@ -2694,37 +2852,114 @@ def get_topic_participants(
     topic_id: int,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
-    """Return the distinct humans and agents that have posted on a topic."""
+    """Return explicit topic participants, with message actors as legacy fallback."""
     _require_topic_member(topic_id, int(principal["human_id"]))
     from .db import connect
     with connect() as conn:
         humans = [dict(r) for r in conn.execute(
             """
-            SELECT DISTINCT h.id, h.name, h.email
-            FROM messages m JOIN humans h ON h.id = m.actor_id
+            SELECT h.id, h.name, h.email, tp.role, tp.created_at
+            FROM topic_participants tp
+            JOIN humans h ON h.id = tp.participant_id
+            WHERE tp.topic_id = ? AND tp.participant_type = 'human'
+            UNION
+            SELECT DISTINCT h.id, h.name, h.email, 'member' AS role, MIN(m.created_at) AS created_at
+            FROM messages m
+            JOIN humans h ON h.id = m.actor_id
             WHERE m.topic_id = ? AND m.actor_type = 'human'
-            ORDER BY h.id ASC
+              AND NOT EXISTS (
+                SELECT 1 FROM topic_participants tp
+                WHERE tp.topic_id = m.topic_id
+                  AND tp.participant_type = 'human'
+                  AND tp.participant_id = m.actor_id
+              )
+            GROUP BY h.id, h.name, h.email
+            ORDER BY id ASC
             """,
-            (topic_id,),
+            (topic_id, topic_id),
         ).fetchall()]
         agents = [dict(r) for r in conn.execute(
             """
+            SELECT
+                ai.id,
+                ai.device_label,
+                ai.display_name,
+                ar.name AS role,
+                ah.name AS human_name,
+                tp.role AS participant_role,
+                tp.created_at
+            FROM topic_participants tp
+            JOIN agent_instances ai ON ai.id = tp.participant_id
+            JOIN agent_types ar ON ar.id = ai.agent_type_id
+            JOIN humans ah ON ah.id = ai.owner_human_id
+            WHERE tp.topic_id = ? AND tp.participant_type = 'agent'
+            UNION
             SELECT DISTINCT
                 ai.id,
                 ai.device_label,
                 ai.display_name,
                 ar.name AS role,
-                ah.name AS human_name
+                ah.name AS human_name,
+                'member' AS participant_role,
+                MIN(m.created_at) AS created_at
             FROM messages m
             JOIN agent_instances ai ON ai.id = m.actor_id
             JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans ah ON ah.id = ai.owner_human_id
             WHERE m.topic_id = ? AND m.actor_type = 'agent'
-            ORDER BY ai.id ASC
+              AND NOT EXISTS (
+                SELECT 1 FROM topic_participants tp
+                WHERE tp.topic_id = m.topic_id
+                  AND tp.participant_type = 'agent'
+                  AND tp.participant_id = m.actor_id
+              )
+            GROUP BY ai.id, ai.device_label, ai.display_name, ar.name, ah.name
+            ORDER BY id ASC
             """,
-            (topic_id,),
+            (topic_id, topic_id),
         ).fetchall()]
     return {"humans": humans, "agents": agents}
+
+
+@app.post("/api/topics/{topic_id}/participants")
+def add_topic_participant(
+    topic_id: int,
+    payload: TopicParticipantCreate,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    workspace_id = _require_topic_member(topic_id, human_id)
+    with connect() as conn:
+        _validate_topic_participant(conn, workspace_id or None, payload)
+        _add_topic_participant(
+            conn,
+            topic_id,
+            payload.participant_type,
+            payload.participant_id,
+            role=payload.role,
+            added_by_human_id=human_id,
+        )
+    return get_topic_participants(topic_id, principal)
+
+
+@app.delete("/api/topics/{topic_id}/participants/{participant_type}/{participant_id}")
+def remove_topic_participant(
+    topic_id: int,
+    participant_type: Literal["human", "agent"],
+    participant_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    _require_topic_member(topic_id, human_id)
+    with connect() as conn:
+        conn.execute(
+            """
+            DELETE FROM topic_participants
+            WHERE topic_id = ? AND participant_type = ? AND participant_id = ?
+            """,
+            (topic_id, participant_type, participant_id),
+        )
+    return get_topic_participants(topic_id, principal)
 
 
 @app.patch("/api/topics/{topic_id}")

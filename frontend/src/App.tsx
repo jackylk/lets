@@ -67,9 +67,11 @@ function Workspace() {
     (w) => w.id === activeWorkspaceId,
   );
 
-  const topicsQuery = useTopicsInWorkspace(activeWorkspaceId);
+  const topicsQuery = useTopicsInWorkspace(activeWorkspaceId, false, "mine");
   const topics = topicsQuery.data ?? [];
-  const archivedTopicsQuery = useTopicsInWorkspace(activeWorkspaceId, true);
+  const allTopicsQuery = useTopicsInWorkspace(activeWorkspaceId, false, "all");
+  const allTopics = allTopicsQuery.data ?? [];
+  const archivedTopicsQuery = useTopicsInWorkspace(activeWorkspaceId, true, "mine");
   const archivedTopics = archivedTopicsQuery.data ?? [];
 
   const membersQuery = useWorkspaceMembers(activeWorkspaceId);
@@ -206,6 +208,7 @@ function Workspace() {
       activeWorkspace={activeWorkspace}
       workspaces={workspaces}
       topics={topics}
+      allTopics={allTopics}
       archivedTopics={archivedTopics}
       members={members}
       activeTopicId={view.kind === "topic" ? view.id : null}

@@ -32,6 +32,7 @@ const defaultProps = {
   activeWorkspace: ws1,
   workspaces: [ws1, ws2],
   topics: [makeTopic(10, "topic-abc12", "新话题")],
+  allTopics: [makeTopic(10, "topic-abc12", "新话题")],
   archivedTopics: [] as TopicDTO[],
   members: [] as WorkspaceMember[],
   activeTopicId: null,
@@ -55,7 +56,8 @@ describe("<Sidebar />", () => {
 
   it("shows the topic count in the topics section header", () => {
     renderWithProviders(<Sidebar {...defaultProps} />);
-    expect(screen.getByRole("button", { name: "当前 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "我的 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全部 1" })).toBeInTheDocument();
   });
 
   it("renders members section", () => {

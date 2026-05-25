@@ -129,9 +129,17 @@ def test_list_my_topics_filters_to_agent_workspaces(client):
     trinity_id = ensure_human("Trinity")
     hidden_ws = create_workspace("Hidden MCP Workspace", trinity_id)
     with connect() as conn:
-        conn.execute(
+        visible_id = conn.execute(
             "INSERT INTO topics (slug, title, workspace_id) VALUES (?, ?, ?)",
             ("mcp-visible-topic", "Visible", allowed_ws["id"]),
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO topic_participants (topic_id, participant_type, participant_id, role)
+            VALUES (?, 'agent', ?, 'member')
+            RETURNING topic_id
+            """,
+            (visible_id, agent_id),
         )
         conn.execute(
             "INSERT INTO topics (slug, title, workspace_id) VALUES (?, ?, ?)",
