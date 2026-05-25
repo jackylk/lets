@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   useTopicMessages, usePostMessage, useIdentityMe,
   useTopic, useTopicParticipants, useAllAgents,
@@ -14,14 +14,14 @@ import { Composer, type MentionCandidate, type MentionResolver } from "./Compose
 import { topicDisplayTitle } from "./topicSummary";
 import type { MessageDTO, TaskTreeProposalMeta, WorkspaceMember } from "../api/types";
 import { agentShortName } from "../agent/display";
-import { cn } from "../lib/cn";
 
 interface Props {
   topicId: number;
   workspaceMembers?: WorkspaceMember[];
+  onOpenResources?: () => void;
 }
 
-export function TopicView({ topicId, workspaceMembers = [] }: Props) {
+export function TopicView({ topicId, workspaceMembers = [], onOpenResources }: Props) {
   const me = useIdentityMe();
   const topic = useTopic(topicId);
   const participants = useTopicParticipants(topicId);
@@ -194,16 +194,25 @@ export function TopicView({ topicId, workspaceMembers = [] }: Props) {
         <TopicHeader
           title={title}
           goal={goal}
-          headerRight={
-            <div className="flex items-center gap-2">
-              <TopicParticipantsControl
-                topicId={topicId}
-                participants={participants.data}
-                workspaceMembers={workspaceMembers}
-                currentHumanId={me.data?.human.id ?? null}
-              />
-              <ViewModeToggle />
-            </div>
+          headerRight={<ViewModeToggle />}
+          mobileHeaderRight={
+            onOpenResources ? (
+              <button
+                type="button"
+                onClick={onOpenResources}
+                className="rounded-[3px] border border-border-soft bg-surface px-2.5 py-1 text-[13px] font-medium text-text hover:border-border"
+              >
+                AI 看板
+              </button>
+            ) : undefined
+          }
+          menu={
+            <TopicParticipantsMenu
+              topicId={topicId}
+              participants={participants.data}
+              workspaceMembers={workspaceMembers}
+              currentHumanId={me.data?.human.id ?? null}
+            />
           }
         />
         <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-4">
@@ -228,7 +237,7 @@ function mentionKey(name: string) {
   return name.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
-function TopicParticipantsControl({
+function TopicParticipantsMenu({
   topicId,
   participants,
   workspaceMembers,
@@ -239,7 +248,6 @@ function TopicParticipantsControl({
   workspaceMembers: WorkspaceMember[];
   currentHumanId: number | null;
 }) {
-  const [open, setOpen] = useState(false);
   const addParticipant = useAddTopicParticipant(topicId);
   const removeParticipant = useRemoveTopicParticipant(topicId);
 
@@ -269,69 +277,57 @@ function TopicParticipantsControl({
   }
 
   return (
-    <div className="relative flex items-center gap-1">
-      <div className="hidden lg:flex items-center gap-1">
-        {chips.slice(0, 4).map((p) => (
-          <span
-            key={`${p.kind}:${p.id}`}
-            className={cn(
-              "group/chip inline-flex h-6 max-w-[92px] items-center gap-1 rounded-[3px] border border-border-soft bg-surface px-1.5 text-[11px] text-text-muted",
-              p.kind === "agent" && "border-accent-border bg-accent-soft text-accent-text",
-            )}
-            title={p.label}
-          >
-            <span className="truncate">{p.label}</span>
-            {p.removable && (
-              <button
-                type="button"
-                aria-label={`移出 ${p.label}`}
-                onClick={() => remove(p.kind, p.id)}
-                className="hidden text-text-dim hover:text-text group-hover/chip:inline"
-              >
-                x
-              </button>
-            )}
-          </span>
-        ))}
-        {chips.length > 4 && (
-          <span className="text-[11px] text-text-dim">+{chips.length - 4}</span>
+    <div className="flex flex-col gap-2">
+      <ParticipantSection title={`话题成员 ${chips.length}`}>
+        {chips.length === 0 ? (
+          <div className="px-2 py-1 text-[12px] text-text-dim">暂无成员</div>
+        ) : (
+          chips.map((p) => (
+            <div
+              key={`${p.kind}:${p.id}`}
+              className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-[12.5px] text-text-muted"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                {p.label}
+                {p.kind === "agent" ? " · agent" : ""}
+              </span>
+              {p.removable && (
+                <button
+                  type="button"
+                  aria-label={`移出 ${p.label}`}
+                  onClick={() => remove(p.kind, p.id)}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-text-dim hover:bg-surface-hover hover:text-text"
+                >
+                  移出
+                </button>
+              )}
+            </div>
+          ))
         )}
-      </div>
-      <button
-        type="button"
-        aria-label="添加话题参与者"
-        title="添加话题参与者"
-        onClick={() => setOpen((v) => !v)}
-        className="grid h-6 w-6 place-items-center rounded-[3px] border border-border-soft text-text-dim hover:bg-surface-hover hover:text-text"
-      >
-        +
-      </button>
-      {open && (
-        <div className="absolute right-0 top-8 z-30 w-56 rounded-md border border-border bg-surface-elev p-2 shadow-[0_12px_32px_rgba(44,42,38,0.14)]">
-          <ParticipantSection title="成员">
-            {addableHumans.length === 0 ? (
-              <div className="px-2 py-1 text-[12px] text-text-dim">都在话题里</div>
-            ) : (
-              addableHumans.map((m) => (
-                <ParticipantAddButton key={m.id} onClick={() => add("human", m.id)}>
-                  {m.name}
-                </ParticipantAddButton>
-              ))
-            )}
-          </ParticipantSection>
-          <ParticipantSection title="Agents">
-            {addableAgents.length === 0 ? (
-              <div className="px-2 py-1 text-[12px] text-text-dim">都在话题里</div>
-            ) : (
-              addableAgents.map((m) => (
-                <ParticipantAddButton key={m.id} onClick={() => add("agent", m.id)}>
-                  {agentShortName(m)}
-                </ParticipantAddButton>
-              ))
-            )}
-          </ParticipantSection>
-        </div>
-      )}
+      </ParticipantSection>
+      <div className="border-t border-border-soft" />
+      <ParticipantSection title="添加成员">
+        {addableHumans.length === 0 ? (
+          <div className="px-2 py-1 text-[12px] text-text-dim">成员都在话题里</div>
+        ) : (
+          addableHumans.map((m) => (
+            <ParticipantAddButton key={m.id} onClick={() => add("human", m.id)}>
+              {m.name}
+            </ParticipantAddButton>
+          ))
+        )}
+      </ParticipantSection>
+      <ParticipantSection title="添加 Agents">
+        {addableAgents.length === 0 ? (
+          <div className="px-2 py-1 text-[12px] text-text-dim">Agents 都在话题里</div>
+        ) : (
+          addableAgents.map((m) => (
+            <ParticipantAddButton key={m.id} onClick={() => add("agent", m.id)}>
+              {agentShortName(m)}
+            </ParticipantAddButton>
+          ))
+        )}
+      </ParticipantSection>
     </div>
   );
 }

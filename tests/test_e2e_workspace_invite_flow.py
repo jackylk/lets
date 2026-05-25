@@ -54,11 +54,27 @@ def test_full_invite_flow(temp_db, client):
     assert "用户认证" in bob_names
     assert "我的工作区" in bob_names  # his own from onboarding
 
-    # Bob sees the topic Alice created
+    # Bob sees only the workspace public topic, not Alice's private topic.
     topics_seen = client.get(f"/api/workspaces/{new_ws['id']}/topics").json()
-    assert topic["id"] in [t["id"] for t in topics_seen]
+    assert {t["title"] for t in topics_seen} == {"全员话题"}
+    assert topic["id"] not in [t["id"] for t in topics_seen]
+    assert client.get(f"/api/topics/{topic['id']}/messages").status_code == 403
+
+    # Alice explicitly adds Bob to the private topic.
+    from app.db import connect
+    with connect() as conn:
+        bob_id = conn.execute("SELECT id FROM humans WHERE name = 'bob'").fetchone()["id"]
+    client.post("/api/auth/logout")
+    _login(client, "alice")
+    added = client.post(
+        f"/api/topics/{topic['id']}/participants",
+        json={"participant_type": "human", "participant_id": bob_id},
+    )
+    assert added.status_code == 200
 
     # Bob posts a message
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
     msg = client.post(
         "/api/messages",
         json={

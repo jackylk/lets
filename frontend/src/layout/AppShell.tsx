@@ -127,7 +127,7 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
 
         <div className="flex items-center px-3 py-2 border-b border-border-soft">
           <span className="text-[11px] uppercase tracking-wider font-semibold text-text-dim">
-            context
+            AI 看板
           </span>
         </div>
 

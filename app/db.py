@@ -438,6 +438,8 @@ CREATE TABLE IF NOT EXISTS topics (
     workspace_id BIGINT REFERENCES workspaces(id),
     mode TEXT NOT NULL DEFAULT 'exploratory'
         CHECK (mode IN ('exploratory', 'actionable')),
+    visibility TEXT NOT NULL DEFAULT 'private'
+        CHECK (visibility IN ('private', 'public')),
     archived_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -834,13 +836,17 @@ def _migrate_humans_guest_flag(conn) -> None:
 
 
 def _migrate_topics_lifecycle(conn) -> None:
-    """Add soft archive/delete columns for topic list actions."""
+    """Add topic lifecycle and visibility columns on older databases."""
     table = conn.execute(
         "SELECT 1 FROM information_schema.tables "
         "WHERE table_schema = current_schema() AND table_name = 'topics'"
     ).fetchone()
     if table is None:
         return
+    conn.execute(
+        "ALTER TABLE IF EXISTS topics ADD COLUMN IF NOT EXISTS visibility TEXT "
+        "NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'public'))"
+    )
     conn.execute("ALTER TABLE IF EXISTS topics ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ")
     conn.execute("ALTER TABLE IF EXISTS topics ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
     conn.execute(
@@ -911,6 +917,56 @@ def _migrate_topic_participants(conn) -> None:
         SELECT DISTINCT topic_id, actor_type, actor_id, 'member'
         FROM messages
         WHERE actor_type IN ('human', 'agent') AND actor_id IS NOT NULL
+        ON CONFLICT DO NOTHING
+        RETURNING topic_id
+        """
+    )
+
+
+def _migrate_workspace_public_topics(conn) -> None:
+    """Ensure each workspace has one all-member topic and roster participants."""
+    conn.execute(
+        """
+        INSERT INTO topics (slug, title, workspace_id, mode, visibility)
+        SELECT 'all-hands-' || w.id, '全员话题', w.id, 'exploratory', 'public'
+        FROM workspaces w
+        WHERE w.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM topics t
+            WHERE t.workspace_id = w.id
+              AND t.visibility = 'public'
+              AND t.deleted_at IS NULL
+          )
+        ON CONFLICT (slug) DO NOTHING
+        RETURNING topics.id
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        SELECT t.id, 'human', wm.human_id,
+               CASE WHEN wm.role = 'owner' THEN 'owner' ELSE 'member' END,
+               wm.human_id
+        FROM topics t
+        JOIN workspace_members wm ON wm.workspace_id = t.workspace_id
+        WHERE t.visibility = 'public'
+          AND t.deleted_at IS NULL
+        ON CONFLICT DO NOTHING
+        RETURNING topic_id
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        SELECT t.id, 'agent', wam.agent_instance_id, 'member', wam.joined_by_human_id
+        FROM topics t
+        JOIN workspace_agent_members wam ON wam.workspace_id = t.workspace_id
+        JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+        WHERE t.visibility = 'public'
+          AND t.deleted_at IS NULL
+          AND ai.deleted_at IS NULL
         ON CONFLICT DO NOTHING
         RETURNING topic_id
         """
@@ -1000,6 +1056,7 @@ def init_db() -> None:
             _migrate_agent_instances_independent(conn)
             _migrate_device_auth_flows_workspace(conn)
             _migrate_topic_participants(conn)
+            _migrate_workspace_public_topics(conn)
             conn.execute("INSERT INTO agent_types (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
                          ("claude", "Anthropic Claude Code"))
             conn.execute("INSERT INTO agent_types (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",

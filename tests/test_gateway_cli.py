@@ -357,6 +357,53 @@ def test_lets_add_codex_passes_model_to_login_and_gateway(monkeypatch, tmp_path)
     assert spawns == [("codex", "https://h", ["--model", "gpt-5-codex"])]
 
 
+def test_lets_add_codex_defaults_model_to_gpt55(monkeypatch, tmp_path):
+    from app import gateway
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    monkeypatch.delenv("LETS_MODEL", raising=False)
+    start_paths: list[str] = []
+
+    def fake_http(host, method, path):
+        if path.startswith("/auth/device-flow/start"):
+            start_paths.append(path)
+            return {"device_code": "dc", "user_code": "X-Y",
+                    "verification_url": "https://h/verify", "interval": 0}
+        if path.startswith("/auth/device-flow/poll"):
+            return {"status": "authorized", "token": "lets_codex_new",
+                    "agent_instance": {
+                        "id": 2,
+                        "role": "codex",
+                        "device_label": "mac",
+                        "model": "gpt-5.5",
+                    }}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(gateway, "_http_public", fake_http)
+    monkeypatch.setattr(gateway.webbrowser, "open", lambda url: True)
+
+    spawns: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(
+        gateway,
+        "_spawn_background_for",
+        lambda role, host, extra: spawns.append((role, host, extra)) or 12345,
+    )
+
+    rc = gateway.main([
+        "add",
+        "codex",
+        "--host",
+        "https://h",
+        "--device-label",
+        "mac",
+    ])
+
+    assert rc == 0
+    assert "role=codex" in start_paths[0]
+    assert "model=gpt-5.5" in start_paths[0]
+    assert spawns == [("codex", "https://h", ["--model", "gpt-5.5"])]
+
+
 def test_codex_command_includes_model():
     from app import gateway
 

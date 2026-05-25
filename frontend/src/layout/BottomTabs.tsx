@@ -1,6 +1,6 @@
 import { cn } from "../lib/cn";
 
-export type MobileTab = "workspace" | "topic" | "attention" | "context";
+export type MobileTab = "workspace" | "topic";
 
 interface Props {
   active: MobileTab;
@@ -10,8 +10,6 @@ interface Props {
 const TABS: Array<{ key: MobileTab; label: string }> = [
   { key: "workspace", label: "工作区" },
   { key: "topic", label: "话题" },
-  { key: "attention", label: "注意" },
-  { key: "context", label: "上下文" },
 ];
 
 export function BottomTabs({ active, onSelect }: Props) {

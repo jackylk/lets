@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { renderWithProviders } from "../../test/render";
 import { TopicHeader } from "./TopicHeader";
 
@@ -24,5 +24,11 @@ describe("<TopicHeader />", () => {
   it("omits goal chip when no goal info", () => {
     renderWithProviders(<TopicHeader title="t" />);
     expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+  });
+
+  it("opens the topic menu when menu content is provided", () => {
+    renderWithProviders(<TopicHeader title="t" menu={<div>话题成员</div>} />);
+    fireEvent.click(screen.getByRole("button", { name: "话题菜单" }));
+    expect(screen.getByText("话题成员")).toBeInTheDocument();
   });
 });

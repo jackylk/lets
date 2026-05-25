@@ -29,6 +29,7 @@ export interface TopicDTO {
   project_id: number | null;
   workspace_id?: number | null;
   mode?: "exploratory" | "actionable";
+  visibility?: "private" | "public";
   archived_at?: string | null;
   created_at: string;
   updated_at: string;

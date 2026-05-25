@@ -11,12 +11,8 @@ import { LoginPage } from "./auth/LoginPage";
 import { SettingsTokensPage } from "./settings/SettingsTokensPage";
 import { HomePage } from "./home/HomePage";
 import {
-  ConnectComputerBanner,
-  isConnectBannerDismissed,
-} from "./onboarding/ConnectComputerCard";
-import {
   useWorkspaces, useTopicsInWorkspace, useWorkspaceMembers,
-  useCreateWorkspace, useAttention, useSessionMe, useAllAgents,
+  useCreateWorkspace, useAttention, useSessionMe,
   useCreateInvite, useRenameWorkspace, useDeleteWorkspace, useRenameTopic,
   useArchiveTopic, useRestoreTopic, useDeleteTopic,
 } from "./api/queries";
@@ -86,7 +82,6 @@ function Workspace() {
 
   const session = useSessionMe();
   const attention = useAttention(session.data?.human.id ?? null);
-  const allAgents = useAllAgents();
 
   const [topicId, setTopicId] = useState<number | null>(null);
   useEffect(() => {
@@ -110,6 +105,7 @@ function Workspace() {
     }
   }, [topicId, view]);
   const [mobileTab, setMobileTab] = useState<MobileTab>("topic");
+  const [mobileBoardOpen, setMobileBoardOpen] = useState(false);
   const isMobile = useMediaQuery("(max-width: 767px)");
 
   const identity = useIdentity();
@@ -254,17 +250,19 @@ function Workspace() {
 
   const activeTopicId = view.kind === "topic" && view.id > 0 ? view.id : topicId;
   const userName = session.data?.human.name ?? "you";
-  const noAgents = !allAgents.isLoading && (allAgents.data?.length ?? 0) === 0;
-  const [bannerDismissed, setBannerDismissed] = useState(isConnectBannerDismissed);
-  const showInstallBanner = noAgents && !bannerDismissed;
+
+  useEffect(() => {
+    if (!isMobile) setMobileBoardOpen(false);
+  }, [isMobile]);
 
   const topicMain = (id: number) => (
     <div className="flex flex-col h-full min-h-0">
-      {showInstallBanner && (
-        <ConnectComputerBanner onDismiss={() => setBannerDismissed(true)} />
-      )}
       <div className="flex-1 min-h-0">
-        <TopicView topicId={id} workspaceMembers={members} />
+        <TopicView
+          topicId={id}
+          workspaceMembers={members}
+          onOpenResources={isMobile ? () => setMobileBoardOpen(true) : undefined}
+        />
       </div>
     </div>
   );
@@ -281,9 +279,6 @@ function Workspace() {
       main = <div className="h-full overflow-y-auto bg-surface">{sidebar}</div>;
     else if (mobileTab === "topic" && activeTopicId)
       main = topicMain(activeTopicId);
-    else if (mobileTab === "attention") main = <AttentionView userName={userName} />;
-    else if (mobileTab === "context" && activeTopicId)
-      main = <TopicContext topicId={activeTopicId} projectId={activeWorkspaceId} />;
     else main = <div className="p-6 text-text-dim">加载中…</div>;
   } else if (view.kind === "topic" && view.id > 0) {
     main = topicMain(view.id);
@@ -344,6 +339,35 @@ function Workspace() {
           workspaceSlug={activeWorkspace.slug}
           onClose={() => setShowInviteAgent(false)}
         />
+      )}
+      {isMobile && mobileBoardOpen && activeTopicId && (
+        <div className="fixed inset-0 z-50 bg-[rgba(44,42,38,0.28)]" role="dialog" aria-modal="true" aria-label="AI 看板">
+          <button
+            type="button"
+            aria-label="关闭 AI 看板"
+            className="absolute inset-0 h-full w-full cursor-default"
+            onClick={() => setMobileBoardOpen(false)}
+          />
+          <section className="absolute inset-x-0 bottom-0 flex max-h-[88dvh] min-h-[55dvh] flex-col rounded-t-lg border border-border-soft bg-surface shadow-[0_-18px_50px_rgba(44,42,38,0.20)]">
+            <div className="flex items-center justify-between border-b border-border-soft px-4 py-3">
+              <div>
+                <div className="font-[var(--font-display)] text-[18px] font-semibold text-text">AI 看板</div>
+                <div className="text-[12px] text-text-dim">当前话题的思路、建议和产物</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileBoardOpen(false)}
+                className="grid h-8 w-8 place-items-center rounded-[3px] text-[18px] leading-none text-text-dim hover:bg-surface-hover hover:text-text"
+                aria-label="关闭 AI 看板"
+              >
+                ×
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+              <TopicContext topicId={activeTopicId} projectId={activeWorkspaceId} />
+            </div>
+          </section>
+        </div>
       )}
     </>
   );

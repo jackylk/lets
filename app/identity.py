@@ -136,3 +136,17 @@ def _join_agent_workspace(conn, workspace_id: int, agent_instance_id: int, owner
         """,
         (workspace_id, agent_instance_id, owner_human_id),
     )
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        SELECT id, 'agent', ?, 'member', ?
+        FROM topics
+        WHERE workspace_id = ?
+          AND visibility = 'public'
+          AND deleted_at IS NULL
+        ON CONFLICT DO NOTHING
+        RETURNING topic_id
+        """,
+        (agent_instance_id, owner_human_id, workspace_id),
+    )

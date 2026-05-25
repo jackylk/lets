@@ -48,7 +48,7 @@ async function copyText(value: string) {
 export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Props) {
   const [role, setRole] = useState<RoleId>("claude");
   const [claudeModel, setClaudeModel] = useState<ClaudeModel>("haiku");
-  const [codexModel, setCodexModel] = useState("gpt-5-codex");
+  const [codexModel, setCodexModel] = useState("gpt-5.5");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const model = role === "claude" ? claudeModel : codexModel.trim();
@@ -115,7 +115,7 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
               aria-label="Codex 模型"
               value={codexModel}
               onChange={(e) => setCodexModel(e.target.value)}
-              placeholder="gpt-5-codex"
+              placeholder="gpt-5.5"
               className="w-40 rounded border border-border bg-surface-elev px-2 py-1 text-[13px]"
             />
           )}

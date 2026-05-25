@@ -7,9 +7,8 @@ const MODES: Array<{ id: ViewMode; label: string; hint: string }> = [
 ];
 
 /**
- * Compact three-state segmented control. Lives in TopicHeader (right side,
- * next to the topic menu) so it stays out of the chat area where the user
- * is watching the agent's state. Default = 折叠.
+ * Compact three-state segmented control. Lives in TopicHeader so it stays out
+ * of the chat area where the user is watching the agent's state. Default = 折叠.
  */
 export function ViewModeToggle() {
   const { viewMode, setViewMode } = useStream();

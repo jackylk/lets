@@ -37,17 +37,17 @@ def test_topics_has_workspace_id_not_project_id(temp_db):
     with connect() as conn:
         cols = _cols(conn, "topics")
     assert "workspace_id" in cols
+    assert "visibility" in cols
     assert "project_id" not in cols
 
 
-def test_agent_instances_has_workspace_id_not_null(temp_db):
+def test_agent_instances_no_longer_has_workspace_id(temp_db):
     with connect() as conn:
         row = conn.execute(
-            "SELECT is_nullable FROM information_schema.columns "
+            "SELECT column_name FROM information_schema.columns "
             "WHERE table_name='agent_instances' AND column_name='workspace_id'"
         ).fetchone()
-    assert row is not None
-    assert row["is_nullable"] == "NO"
+    assert row is None
 
 
 def test_projects_table_gone(temp_db):

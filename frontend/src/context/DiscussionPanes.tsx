@@ -195,7 +195,7 @@ function DotItem({ item, accent }: { item: DiscussionItem; accent: string }) {
     <button
       type="button"
       onClick={() => jumpToMessage(jumpId)}
-      title="点击跳到对应的对话上下文"
+      title="点击跳到对应对话"
       className="bg-surface-elev border border-border-soft rounded p-2.5 text-[13px] leading-relaxed flex gap-2 items-start text-left hover:bg-surface-hover hover:border-accent-border transition-colors w-full"
     >
       <span
@@ -215,7 +215,7 @@ function DecisionItem({ item }: { item: DiscussionItem }) {
     <button
       type="button"
       onClick={() => jumpToMessage(jumpId)}
-      title="点击跳到对应的对话上下文"
+      title="点击跳到对应对话"
       className="bg-surface-elev border border-border-soft rounded p-2.5 text-[13px] leading-relaxed flex flex-col gap-1 text-left hover:bg-surface-hover hover:border-accent-border transition-colors w-full"
     >
       {hasQuestion && (
@@ -344,7 +344,7 @@ function OpenQuestionItem({ item, topicId }: { item: DiscussionItem; topicId: nu
         <button
           type="button"
           onClick={() => jumpToMessage(jumpId)}
-          title="点击跳到对应的对话上下文"
+          title="点击跳到对应对话"
           className="flex gap-2 items-start text-left flex-1 min-w-0 hover:text-accent-text"
         >
           <span
@@ -467,7 +467,7 @@ export function OptionsPanel({ items, topicId }: { items: DiscussionItem[]; topi
             <button
               type="button"
               onClick={() => jumpToMessage(jumpId)}
-              title="点击跳到对应的对话上下文"
+              title="点击跳到对应对话"
               className="flex flex-col gap-1.5 text-left hover:text-accent-text transition-colors w-full"
             >
               <div className="font-[var(--font-display)] font-semibold text-[14px]">

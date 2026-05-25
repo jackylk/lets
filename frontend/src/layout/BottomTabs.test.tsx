@@ -11,9 +11,7 @@ describe("<BottomTabs />", () => {
     renderWithProviders(<BottomTabs active="topic" onSelect={onSelect} />);
     expect(screen.getByRole("button", { name: /工作区/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /话题/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /注意/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /上下文/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /注意/ }));
-    expect(onSelect).toHaveBeenCalledWith("attention");
+    await user.click(screen.getByRole("button", { name: /工作区/ }));
+    expect(onSelect).toHaveBeenCalledWith("workspace");
   });
 });

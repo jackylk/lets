@@ -33,10 +33,10 @@ describe("<SettingsTokensPage />", () => {
     expect(
       screen.getByText((text) =>
         text.includes("LETS_AGENT_ROLE=codex") &&
-        text.includes("LETS_MODEL=gpt-5-codex"),
+        text.includes("LETS_MODEL=gpt-5.5"),
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("lets add codex --model gpt-5-codex")).toBeInTheDocument();
+    expect(screen.getByText("lets add codex --model gpt-5.5")).toBeInTheDocument();
 
     await user.clear(screen.getByRole("textbox", { name: /Codex 模型/i }));
     await user.type(screen.getByRole("textbox", { name: /Codex 模型/i }), "o3");

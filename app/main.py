@@ -32,6 +32,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Let's", lifespan=lifespan)
+DEFAULT_CODEX_MODEL = "gpt-5.5"
+PUBLIC_TOPIC_TITLE = "全员话题"
 
 
 class BearerAuthMiddleware:
@@ -254,6 +256,7 @@ class TopicCreate(BaseModel):
     slug: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=200)
     mode: str = Field(default="exploratory")
+    visibility: Literal["private", "public"] = "private"
 
 
 class TopicUpdate(BaseModel):
@@ -272,31 +275,102 @@ class TopicShareCreate(BaseModel):
 
 
 def _ensure_onboarded(human_id: int) -> None:
-    """Create '我的工作区' + '新话题' on first login if absent. Idempotent."""
-    import secrets as _secrets
+    """Create '我的工作区' + public all-member topic on first login if absent."""
     from .workspaces import list_workspaces_for_human, create_workspace
     if list_workspaces_for_human(human_id):
         return
     ws = create_workspace(name="我的工作区", owner_human_id=human_id)
-    slug = f"topic-{_secrets.token_hex(4)}"
     with connect() as conn:
-        cur = conn.execute(
+        _ensure_workspace_public_topic(conn, int(ws["id"]), human_id)
+
+
+def _ensure_workspace_public_topic(conn, workspace_id: int, added_by_human_id: int | None) -> int:
+    """Create/reuse the workspace public topic and sync workspace roster into it."""
+    row = conn.execute(
+        """
+        SELECT id
+        FROM topics
+        WHERE workspace_id = ?
+          AND visibility = 'public'
+          AND deleted_at IS NULL
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1
+        """,
+        (workspace_id,),
+    ).fetchone()
+    if row is None:
+        base_slug = f"all-hands-{workspace_id}"
+        slug = base_slug
+        while conn.execute("SELECT 1 FROM topics WHERE slug = ?", (slug,)).fetchone():
+            slug = f"{base_slug}-{secrets.token_hex(3)}"
+        row = conn.execute(
             """
-            INSERT INTO topics (slug, title, workspace_id, mode)
-            VALUES (?, ?, ?, 'exploratory')
+            INSERT INTO topics (slug, title, workspace_id, mode, visibility)
+            VALUES (?, ?, ?, 'exploratory', 'public')
+            RETURNING id
             """,
-            (slug, "新话题", ws["id"]),
-        )
-        conn.execute(
-            """
-            INSERT INTO topic_participants
-                (topic_id, participant_type, participant_id, role, added_by_human_id)
-            VALUES (?, 'human', ?, 'owner', ?)
-            ON CONFLICT DO NOTHING
-            RETURNING topic_id
-            """,
-            (int(cur.lastrowid), human_id, human_id),
-        )
+            (slug, PUBLIC_TOPIC_TITLE, workspace_id),
+        ).fetchone()
+
+    topic_id = int(row["id"])
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        SELECT ?, 'human', wm.human_id,
+               CASE WHEN wm.role = 'owner' THEN 'owner' ELSE 'member' END,
+               COALESCE(?, wm.human_id)
+        FROM workspace_members wm
+        WHERE wm.workspace_id = ?
+        ON CONFLICT DO NOTHING
+        RETURNING topic_id
+        """,
+        (topic_id, added_by_human_id, workspace_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        SELECT ?, 'agent', wam.agent_instance_id, 'member', wam.joined_by_human_id
+        FROM workspace_agent_members wam
+        JOIN agent_instances ai ON ai.id = wam.agent_instance_id
+        WHERE wam.workspace_id = ?
+          AND ai.deleted_at IS NULL
+        ON CONFLICT DO NOTHING
+        RETURNING topic_id
+        """,
+        (topic_id, workspace_id),
+    )
+    return topic_id
+
+
+def _add_human_to_workspace_public_topics(
+    conn,
+    workspace_id: int,
+    human_id: int,
+    *,
+    role: str = "member",
+    added_by_human_id: int | None = None,
+) -> None:
+    _ensure_workspace_public_topic(conn, workspace_id, added_by_human_id)
+    conn.execute(
+        """
+        INSERT INTO topic_participants
+            (topic_id, participant_type, participant_id, role, added_by_human_id)
+        SELECT id, 'human', ?, ?, COALESCE(?, ?)
+        FROM topics
+        WHERE workspace_id = ?
+          AND visibility = 'public'
+          AND deleted_at IS NULL
+        ON CONFLICT (topic_id, participant_type, participant_id)
+        DO UPDATE SET role = CASE
+            WHEN topic_participants.role = 'owner' THEN 'owner'
+            ELSE EXCLUDED.role
+        END
+        RETURNING topic_id
+        """,
+        (human_id, role, added_by_human_id, human_id, workspace_id),
+    )
 
 
 def ensure_agent(name: str, agent_type: str) -> int:
@@ -1992,7 +2066,10 @@ def create_workspace_endpoint(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .workspaces import create_workspace
-    ws = create_workspace(name=payload.name, owner_human_id=int(principal["human_id"]))
+    human_id = int(principal["human_id"])
+    ws = create_workspace(name=payload.name, owner_human_id=human_id)
+    with connect() as conn:
+        _ensure_workspace_public_topic(conn, int(ws["id"]), human_id)
     ws["my_role"] = "owner"
     return ws
 
@@ -2327,6 +2404,13 @@ def accept_invite(
                 """,
                 (inv["id"],),
             )
+        _add_human_to_workspace_public_topics(
+            conn,
+            int(inv["workspace_id"]),
+            human_id,
+            role="member",
+            added_by_human_id=human_id,
+        )
     return {"workspace_id": int(inv["workspace_id"])}
 
 
@@ -2374,6 +2458,13 @@ def accept_invite_as_guest(token: str, payload: GuestInviteAccept) -> JSONRespon
             """,
             (inv["id"],),
         )
+        _add_human_to_workspace_public_topics(
+            conn,
+            int(inv["workspace_id"]),
+            human_id,
+            role="member",
+            added_by_human_id=human_id,
+        )
 
     session_value = issue_session(human_id)
     res = JSONResponse(
@@ -2404,23 +2495,36 @@ def list_topics_in_workspace(
     from .workspaces import require_workspace_member
     human_id = int(principal["human_id"])
     require_workspace_member(workspace_id, human_id)
+    with connect() as conn:
+        role_row = conn.execute(
+            """
+            SELECT role FROM workspace_members
+            WHERE workspace_id = ? AND human_id = ?
+            """,
+            (workspace_id, human_id),
+        ).fetchone()
+    can_use_all_scope = role_row is not None and role_row["role"] == "owner" and scope == "all"
     scope_clause = ""
     params: list[object] = [workspace_id]
-    if scope == "mine":
+    if not can_use_all_scope:
         scope_clause = """
-              AND EXISTS (
+              AND (
+                topics.visibility = 'public'
+                OR EXISTS (
                 SELECT 1
                 FROM topic_participants tp
                 WHERE tp.topic_id = topics.id
                   AND tp.participant_type = 'human'
                   AND tp.participant_id = ?
+                )
               )
         """
         params.append(human_id)
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, slug, title, workspace_id, mode, archived_at, created_at, updated_at
+            SELECT id, slug, title, workspace_id, mode, visibility,
+                   archived_at, created_at, updated_at
             FROM topics
             WHERE workspace_id = ?
               AND archived_at IS {archived_predicate}
@@ -2448,12 +2552,12 @@ def create_topic_in_workspace(
         try:
             row = conn.execute(
                 """
-                INSERT INTO topics (slug, title, workspace_id, mode)
-                VALUES (?, ?, ?, ?)
-                RETURNING id, slug, title, workspace_id, mode,
+                INSERT INTO topics (slug, title, workspace_id, mode, visibility)
+                VALUES (?, ?, ?, ?, ?)
+                RETURNING id, slug, title, workspace_id, mode, visibility,
                           created_at, updated_at
                 """,
-                (payload.slug, payload.title, workspace_id, payload.mode),
+                (payload.slug, payload.title, workspace_id, payload.mode, payload.visibility),
             ).fetchone()
             _add_topic_participant(
                 conn,
@@ -2471,18 +2575,38 @@ def create_topic_in_workspace(
 
 
 def _require_topic_member(topic_id: int, human_id: int) -> int:
-    """Return workspace_id; raise 403 if caller not a member."""
+    """Return workspace_id; raise 403 if caller cannot access this topic."""
     from .workspaces import require_workspace_member
     with connect() as conn:
         row = conn.execute(
-            "SELECT workspace_id FROM topics WHERE id = ? AND deleted_at IS NULL", (topic_id,)
+            """
+            SELECT workspace_id, visibility
+            FROM topics
+            WHERE id = ? AND deleted_at IS NULL
+            """,
+            (topic_id,),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="topic not found")
     if row["workspace_id"] is None:
         return 0
-    require_workspace_member(int(row["workspace_id"]), human_id)
-    return int(row["workspace_id"])
+    workspace_id = int(row["workspace_id"])
+    require_workspace_member(workspace_id, human_id)
+    if row["visibility"] == "public":
+        return workspace_id
+    with connect() as conn:
+        participant = conn.execute(
+            """
+            SELECT 1 FROM topic_participants
+            WHERE topic_id = ?
+              AND participant_type = 'human'
+              AND participant_id = ?
+            """,
+            (topic_id, human_id),
+        ).fetchone()
+    if participant is None:
+        raise HTTPException(status_code=403, detail="not a topic participant")
+    return workspace_id
 
 
 def _require_workspace_actor(workspace_id: int, principal: dict) -> None:
@@ -2588,7 +2712,11 @@ def _validate_topic_participant(conn, workspace_id: int | None, payload: TopicPa
 def _require_topic_actor(topic_id: int, principal: dict) -> int:
     with connect() as conn:
         row = conn.execute(
-            "SELECT workspace_id FROM topics WHERE id = ? AND deleted_at IS NULL",
+            """
+            SELECT workspace_id, visibility
+            FROM topics
+            WHERE id = ? AND deleted_at IS NULL
+            """,
             (topic_id,),
         ).fetchone()
     if row is None:
@@ -2596,12 +2724,13 @@ def _require_topic_actor(topic_id: int, principal: dict) -> int:
     if row["workspace_id"] is None:
         return 0
     workspace_id = int(row["workspace_id"])
-    _require_workspace_actor(workspace_id, principal)
     agent_id = principal.get("agent_instance_id")
-    if agent_id is not None:
-        with connect() as conn:
-            if not _participant_exists(conn, topic_id, "agent", int(agent_id)):
-                raise HTTPException(status_code=403, detail="agent is not a topic participant")
+    if agent_id is None:
+        return _require_topic_member(topic_id, int(principal["human_id"]))
+    _require_workspace_actor(workspace_id, principal)
+    with connect() as conn:
+        if not _participant_exists(conn, topic_id, "agent", int(agent_id)):
+            raise HTTPException(status_code=403, detail="agent is not a topic participant")
     return workspace_id
 
 
@@ -2988,7 +3117,7 @@ def update_topic(
     with connect() as conn:
         row = conn.execute(
             f"UPDATE topics SET {', '.join(sets)} WHERE id = ? "
-            "RETURNING id, slug, title, workspace_id, mode, updated_at",
+            "RETURNING id, slug, title, workspace_id, mode, visibility, updated_at",
             tuple(vals),
         ).fetchone()
     return dict(row)
@@ -3002,13 +3131,19 @@ def archive_topic(
     human_id = int(principal["human_id"])
     _require_topic_member(topic_id, human_id)
     with connect() as conn:
+        topic = conn.execute(
+            "SELECT visibility FROM topics WHERE id = ? AND deleted_at IS NULL",
+            (topic_id,),
+        ).fetchone()
+        if topic is not None and topic["visibility"] == "public":
+            raise HTTPException(status_code=400, detail="public topic cannot be archived")
         row = conn.execute(
             """
             UPDATE topics
             SET archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ? AND deleted_at IS NULL
-            RETURNING id, slug, title, workspace_id, mode,
+            RETURNING id, slug, title, workspace_id, mode, visibility,
                       archived_at, deleted_at, created_at, updated_at
             """,
             (topic_id,),
@@ -3032,7 +3167,7 @@ def restore_topic(
             SET archived_at = NULL,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ? AND deleted_at IS NULL
-            RETURNING id, slug, title, workspace_id, mode,
+            RETURNING id, slug, title, workspace_id, mode, visibility,
                       archived_at, deleted_at, created_at, updated_at
             """,
             (topic_id,),
@@ -3050,6 +3185,12 @@ def delete_topic(
     human_id = int(principal["human_id"])
     _require_topic_member(topic_id, human_id)
     with connect() as conn:
+        topic = conn.execute(
+            "SELECT visibility FROM topics WHERE id = ? AND deleted_at IS NULL",
+            (topic_id,),
+        ).fetchone()
+        if topic is not None and topic["visibility"] == "public":
+            raise HTTPException(status_code=400, detail="public topic cannot be deleted")
         row = conn.execute(
             """
             UPDATE topics
@@ -3425,7 +3566,10 @@ def _device_flow_start_impl(
     if role not in ("claude", "codex"):
         raise HTTPException(status_code=400, detail="role must be claude or codex")
     device_label = device_label.strip()[:80] or "local"
-    model = (model or "").strip()[:128] or None
+    requested_model = (model or "").strip()
+    if not requested_model and role == "codex":
+        requested_model = DEFAULT_CODEX_MODEL
+    model = requested_model[:128] or None
     if model and any(ch.isspace() for ch in model):
         raise HTTPException(status_code=400, detail="model cannot contain whitespace")
     # Resolve workspace slug to id when caller can't authenticate to look it up themselves.

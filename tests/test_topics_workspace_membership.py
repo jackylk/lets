@@ -127,7 +127,7 @@ def test_restore_topic_returns_it_to_workspace_list(temp_db, client):
     assert r.json()["archived_at"] is None
 
     topics = client.get(f"/api/workspaces/{ws['id']}/topics").json()
-    assert [t["id"] for t in topics] == [topic["id"]]
+    assert topic["id"] in [t["id"] for t in topics]
 
     archived = client.get(f"/api/workspaces/{ws['id']}/topics?archived=true").json()
     assert all(t["id"] != topic["id"] for t in archived)
@@ -154,9 +154,55 @@ def test_workspace_topics_scope_mine_filters_to_participation(temp_db, client):
 
     mine_rows = client.get(f"/api/workspaces/{ws['id']}/topics?scope=mine").json()
     all_rows = client.get(f"/api/workspaces/{ws['id']}/topics?scope=all").json()
+    public_id = next(t["id"] for t in all_rows if t["title"] == "全员话题")
 
-    assert {t["id"] for t in mine_rows} == {mine["id"]}
-    assert {t["id"] for t in all_rows} == {mine["id"], other}
+    assert {t["id"] for t in mine_rows} == {public_id, mine["id"]}
+    assert {t["id"] for t in all_rows} == {public_id, mine["id"], other}
+
+
+def test_invited_member_sees_public_topic_not_private_until_added(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    private = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "private", "title": "Private"},
+    ).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+    assert client.post(f"/api/invites/{inv['token']}/accept").status_code == 200
+
+    visible = client.get(f"/api/workspaces/{ws['id']}/topics?scope=all").json()
+    assert [t["title"] for t in visible] == ["全员话题"]
+    assert client.get(f"/api/topics/{private['id']}/messages").status_code == 403
+
+    from app.db import connect
+    with connect() as conn:
+        bob_id = conn.execute("SELECT id FROM humans WHERE name = 'bob'").fetchone()["id"]
+
+    client.post("/api/auth/logout")
+    _login(client, "alice")
+    added = client.post(
+        f"/api/topics/{private['id']}/participants",
+        json={"participant_type": "human", "participant_id": bob_id},
+    )
+    assert added.status_code == 200
+
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+    visible_after_add = client.get(f"/api/workspaces/{ws['id']}/topics?scope=all").json()
+    assert private["id"] in {t["id"] for t in visible_after_add}
+    msg = client.post(
+        "/api/messages",
+        json={
+            "topic_id": private["id"],
+            "type": "chat",
+            "actor_type": "human",
+            "body": "hello after add",
+        },
+    )
+    assert msg.status_code == 200, msg.text
 
 
 def test_add_topic_participants_from_workspace_pool(temp_db, client):

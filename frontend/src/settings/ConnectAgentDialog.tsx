@@ -31,7 +31,7 @@ function useCopy() {
 export function ConnectAgentDialog({ onClose }: Props) {
   const [role, setRole] = useState<Role>("claude");
   const [model, setModel] = useState<ClaudeModel>("haiku");
-  const [codexModel, setCodexModel] = useState("gpt-5-codex");
+  const [codexModel, setCodexModel] = useState("gpt-5.5");
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://lets.up.railway.app";
   const { copiedKey, copy } = useCopy();
@@ -97,7 +97,7 @@ export function ConnectAgentDialog({ onClose }: Props) {
                 aria-label="Codex 模型"
                 value={codexModel}
                 onChange={(e) => setCodexModel(e.target.value)}
-                placeholder="gpt-5-codex"
+                placeholder="gpt-5.5"
                 className="border border-border rounded px-2 py-1 bg-surface-elev text-[13px] w-36"
               />
             </>

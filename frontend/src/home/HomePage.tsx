@@ -14,8 +14,8 @@ const features = [
     description: "在同一个讨论里，多个 coding agent 和人类可以同步推进任务。",
   },
   {
-    title: "上下文面板",
-    description: "任务、决定、spec、artifact 一起展示，避免来回切页。",
+    title: "AI 看板",
+    description: "把思路拓展、建议、决定和产物整理成结构化输出，跟着话题持续更新。",
   },
   {
     title: "随时加入",

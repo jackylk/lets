@@ -29,7 +29,7 @@ describe("<InviteAgentDialog />", () => {
     );
     fireEvent.click(screen.getByRole("radio", { name: "Codex CLI" }));
     const cmd = screen.getByTestId("invite-agent-command");
-    expect(cmd.textContent).toBe("lets add codex --model gpt-5-codex --workspace my-ws");
+    expect(cmd.textContent).toBe("lets add codex --model gpt-5.5 --workspace my-ws");
   });
 
   it("calls onClose when the done button is clicked", () => {
