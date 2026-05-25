@@ -31,9 +31,16 @@ describe("<SettingsTokensPage />", () => {
     // Switch to Codex and confirm both commands update.
     await user.selectOptions(screen.getByRole("combobox", { name: /Agent 类型/i }), "codex");
     expect(
-      screen.getByText((text) => text.includes("LETS_AGENT_ROLE=codex")),
+      screen.getByText((text) =>
+        text.includes("LETS_AGENT_ROLE=codex") &&
+        text.includes("LETS_MODEL=gpt-5-codex"),
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByText("lets add codex")).toBeInTheDocument();
+    expect(screen.getByText("lets add codex --model gpt-5-codex")).toBeInTheDocument();
+
+    await user.clear(screen.getByRole("textbox", { name: /Codex 模型/i }));
+    await user.type(screen.getByRole("textbox", { name: /Codex 模型/i }), "o3");
+    expect(screen.getByText("lets add codex --model o3")).toBeInTheDocument();
   });
 
   it("lets the user update an existing Claude agent model", async () => {

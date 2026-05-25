@@ -12,11 +12,13 @@ const ROLES = [
 ] as const;
 
 type RoleId = (typeof ROLES)[number]["id"];
+type ClaudeModel = "haiku" | "sonnet" | "opus";
 
-function installCommand() {
+function installCommand(role: RoleId, model: string, workspaceSlug: string) {
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://lets.up.railway.app";
-  return `curl -fsSL ${origin}/install | bash`;
+  const modelEnv = model ? ` LETS_MODEL=${model}` : "";
+  return `curl -fsSL ${origin}/install | LETS_AGENT_ROLE=${role}${modelEnv} LETS_WORKSPACE=${workspaceSlug} bash`;
 }
 
 async function copyText(value: string) {
@@ -45,10 +47,14 @@ async function copyText(value: string) {
 
 export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Props) {
   const [role, setRole] = useState<RoleId>("claude");
+  const [claudeModel, setClaudeModel] = useState<ClaudeModel>("haiku");
+  const [codexModel, setCodexModel] = useState("gpt-5-codex");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const install = installCommand();
-  const command = `lets add ${role} --workspace ${workspaceSlug}`;
+  const model = role === "claude" ? claudeModel : codexModel.trim();
+  const modelArg = model ? ` --model ${model}` : "";
+  const install = installCommand(role, model, workspaceSlug);
+  const command = `lets add ${role}${modelArg} --workspace ${workspaceSlug}`;
 
   const onCopy = async (key: string, value: string) => {
     const ok = await copyText(value);
@@ -89,6 +95,30 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
               {r.label}
             </button>
           ))}
+        </div>
+
+        <div className="mb-4 flex items-center gap-2 text-[12.5px]">
+          <span className="text-text-dim">模型</span>
+          {role === "claude" ? (
+            <select
+              aria-label="Claude 模型"
+              value={claudeModel}
+              onChange={(e) => setClaudeModel(e.target.value as ClaudeModel)}
+              className="rounded border border-border bg-surface-elev px-2 py-1 text-[13px]"
+            >
+              <option value="haiku">Haiku</option>
+              <option value="sonnet">Sonnet</option>
+              <option value="opus">Opus</option>
+            </select>
+          ) : (
+            <input
+              aria-label="Codex 模型"
+              value={codexModel}
+              onChange={(e) => setCodexModel(e.target.value)}
+              placeholder="gpt-5-codex"
+              className="w-40 rounded border border-border bg-surface-elev px-2 py-1 text-[13px]"
+            />
+          )}
         </div>
 
         <div className="mb-4 flex flex-col gap-3">

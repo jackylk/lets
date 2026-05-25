@@ -967,7 +967,7 @@ def _with_arg(cmd: list[str], *args: str) -> list[str]:
 
 
 def _with_model(cmd: list[str], engine: str, model: str | None) -> list[str]:
-    if engine != "claude" or not model or "--model" in cmd:
+    if engine not in ("claude", "codex") or not model or "--model" in cmd or "-m" in cmd:
         return cmd
     return [*cmd, "--model", model]
 
@@ -1260,7 +1260,7 @@ def _login(argv: list[str]) -> int:
     parser.add_argument(
         "--model",
         default=os.environ.get("LETS_MODEL"),
-        help="Model to store for this Claude agent.",
+        help="Model to store/use for this agent.",
     )
     parser.add_argument(
         "--workspace",
@@ -1273,7 +1273,7 @@ def _login(argv: list[str]) -> int:
         "role": args.role,
         "device_label": args.device_label,
     }
-    if args.role == "claude" and args.model:
+    if args.model:
         params_dict["model"] = args.model
     if args.workspace:
         params_dict["workspace"] = args.workspace
@@ -1892,7 +1892,7 @@ def _add_agent(argv: list[str]) -> int:
     parser.add_argument(
         "--model",
         default=os.environ.get("LETS_MODEL"),
-        help="Model to store/use for this Claude agent (haiku/sonnet/opus/full id).",
+        help="Model to store/use for this agent (alias or full model id).",
     )
     parser.add_argument(
         "--workspace",
@@ -1922,7 +1922,7 @@ def _add_agent(argv: list[str]) -> int:
         return 0
 
     print()
-    extra = ["--model", args.model] if args.role == "claude" and args.model else []
+    extra = ["--model", args.model] if args.model else []
     _spawn_background_for(args.role, args.host, extra)
     print()
     print(f"agent '{args.role}' is live. Manage with:")
@@ -2126,7 +2126,6 @@ def main(argv: list[str] | None = None) -> int:
         cli_cmd = ["claude", "--print"]
     elif me.role == "codex":
         cli_cmd = ["codex", "exec"]
-        # codex model passthrough TBD when we wire it up
     else:
         print(f"unknown role '{me.role}' — pass --cmd explicitly", file=sys.stderr)
         return 2

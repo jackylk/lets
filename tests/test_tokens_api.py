@@ -92,7 +92,7 @@ def test_update_agent_display_name(client):
     assert res.json()["display_name"] == "Morpheus"
 
 
-def test_update_codex_model_is_rejected_but_display_name_is_allowed(client):
+def test_update_codex_model_and_display_name(client):
     session = _login(client)
     create = client.post(
         "/api/tokens",
@@ -104,7 +104,7 @@ def test_update_codex_model_is_rejected_but_display_name_is_allowed(client):
     model_res = client.patch(
         f"/api/agent-instances/{agent_id}",
         cookies={"lets_session": session},
-        json={"model": "sonnet"},
+        json={"model": "gpt-5-codex"},
     )
     name_res = client.patch(
         f"/api/agent-instances/{agent_id}",
@@ -112,5 +112,6 @@ def test_update_codex_model_is_rejected_but_display_name_is_allowed(client):
         json={"display_name": "Oracle"},
     )
 
-    assert model_res.status_code == 400
+    assert model_res.status_code == 200
+    assert model_res.json()["model"] == "gpt-5-codex"
     assert name_res.status_code == 200

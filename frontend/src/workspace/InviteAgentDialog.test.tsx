@@ -12,9 +12,11 @@ describe("<InviteAgentDialog />", () => {
       />,
     );
     const cmd = screen.getByTestId("invite-agent-command");
-    expect(cmd.textContent).toBe("lets add claude --workspace my-ws");
+    expect(cmd.textContent).toBe("lets add claude --model haiku --workspace my-ws");
     const install = screen.getByTestId("invite-agent-install-command");
-    expect(install.textContent).toContain("/install | bash");
+    expect(install.textContent).toContain(
+      "/install | LETS_AGENT_ROLE=claude LETS_MODEL=haiku LETS_WORKSPACE=my-ws bash",
+    );
   });
 
   it("switches command when role is changed", () => {
@@ -27,7 +29,7 @@ describe("<InviteAgentDialog />", () => {
     );
     fireEvent.click(screen.getByRole("radio", { name: "Codex CLI" }));
     const cmd = screen.getByTestId("invite-agent-command");
-    expect(cmd.textContent).toBe("lets add codex --workspace my-ws");
+    expect(cmd.textContent).toBe("lets add codex --model gpt-5-codex --workspace my-ws");
   });
 
   it("calls onClose when the done button is clicked", () => {
@@ -58,12 +60,14 @@ describe("<InviteAgentDialog />", () => {
     expect(copyButtons).toHaveLength(2);
     fireEvent.click(copyButtons[0]!);
     await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/install | bash")),
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("LETS_AGENT_ROLE=claude LETS_MODEL=haiku LETS_WORKSPACE=my-ws bash"),
+      ),
     );
 
     fireEvent.click(copyButtons[1]!);
     await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith("lets add claude --workspace my-ws"),
+      expect(writeText).toHaveBeenCalledWith("lets add claude --model haiku --workspace my-ws"),
     );
   });
 });

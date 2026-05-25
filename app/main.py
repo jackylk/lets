@@ -1109,8 +1109,6 @@ def update_agent_instance(
         ).fetchone()
         if row is None or int(row["owner_human_id"]) != int(principal["human_id"]):
             raise HTTPException(status_code=404, detail="agent not found")
-        if model is not None and row["role"] != "claude":
-            raise HTTPException(status_code=400, detail="model setting is only supported for claude")
         updates: list[str] = []
         params: list[Any] = []
         if model is not None:
@@ -3191,8 +3189,6 @@ def _device_flow_start_impl(
         raise HTTPException(status_code=400, detail="role must be claude or codex")
     device_label = device_label.strip()[:80] or "local"
     model = (model or "").strip()[:128] or None
-    if role != "claude":
-        model = None
     if model and any(ch.isspace() for ch in model):
         raise HTTPException(status_code=400, detail="model cannot contain whitespace")
     # Resolve workspace slug to id when caller can't authenticate to look it up themselves.

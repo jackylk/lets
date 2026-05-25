@@ -275,6 +275,65 @@ def test_lets_add_writes_per_role_token_and_starts_background(monkeypatch, tmp_p
     assert spawns == [("codex", "https://h")]
 
 
+def test_lets_add_codex_passes_model_to_login_and_gateway(monkeypatch, tmp_path):
+    from app import gateway
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    start_paths: list[str] = []
+
+    def fake_http(host, method, path):
+        if path.startswith("/auth/device-flow/start"):
+            start_paths.append(path)
+            return {"device_code": "dc", "user_code": "X-Y",
+                    "verification_url": "https://h/verify", "interval": 0}
+        if path.startswith("/auth/device-flow/poll"):
+            return {"status": "authorized", "token": "lets_codex_new",
+                    "agent_instance": {
+                        "id": 2,
+                        "role": "codex",
+                        "device_label": "mac",
+                        "model": "gpt-5-codex",
+                    }}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(gateway, "_http_public", fake_http)
+    monkeypatch.setattr(gateway.webbrowser, "open", lambda url: True)
+
+    spawns: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(
+        gateway,
+        "_spawn_background_for",
+        lambda role, host, extra: spawns.append((role, host, extra)) or 12345,
+    )
+
+    rc = gateway.main([
+        "add",
+        "codex",
+        "--host",
+        "https://h",
+        "--device-label",
+        "mac",
+        "--model",
+        "gpt-5-codex",
+    ])
+
+    assert rc == 0
+    assert "role=codex" in start_paths[0]
+    assert "model=gpt-5-codex" in start_paths[0]
+    assert spawns == [("codex", "https://h", ["--model", "gpt-5-codex"])]
+
+
+def test_codex_command_includes_model():
+    from app import gateway
+
+    assert gateway._with_model(["codex", "exec"], "codex", "gpt-5-codex") == [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-5-codex",
+    ]
+
+
 def test_lets_gateway_with_agent_picks_per_role_token(monkeypatch, tmp_path):
     """`lets gateway --agent codex` should resolve tokens/codex.json and
     spawn one background gateway for that role only."""

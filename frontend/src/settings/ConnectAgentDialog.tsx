@@ -31,16 +31,19 @@ function useCopy() {
 export function ConnectAgentDialog({ onClose }: Props) {
   const [role, setRole] = useState<Role>("claude");
   const [model, setModel] = useState<ClaudeModel>("haiku");
+  const [codexModel, setCodexModel] = useState("gpt-5-codex");
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://lets.up.railway.app";
   const { copiedKey, copy } = useCopy();
 
+  const selectedModel = role === "claude" ? model : codexModel.trim();
+  const modelEnv = selectedModel ? ` LETS_MODEL=${selectedModel}` : "";
+  const modelArg = selectedModel ? ` --model ${selectedModel}` : "";
   const installCmd =
     role === "claude"
-      ? `curl -fsSL ${origin}/install | LETS_MODEL=${model} bash`
-      : `curl -fsSL ${origin}/install | LETS_AGENT_ROLE=codex bash`;
-  const letsAddCmd =
-    role === "claude" ? `lets add claude --model ${model}` : "lets add codex";
+      ? `curl -fsSL ${origin}/install |${modelEnv} bash`
+      : `curl -fsSL ${origin}/install | LETS_AGENT_ROLE=codex${modelEnv} bash`;
+  const letsAddCmd = `lets add ${role}${modelArg}`;
 
   return (
     <div className="fixed inset-0 bg-black/30 grid place-items-center z-50 p-4">
@@ -85,6 +88,18 @@ export function ConnectAgentDialog({ onClose }: Props) {
                 <option value="sonnet">Sonnet</option>
                 <option value="opus">Opus</option>
               </select>
+            </>
+          )}
+          {role === "codex" && (
+            <>
+              <span className="text-text-muted ml-2">模型</span>
+              <input
+                aria-label="Codex 模型"
+                value={codexModel}
+                onChange={(e) => setCodexModel(e.target.value)}
+                placeholder="gpt-5-codex"
+                className="border border-border rounded px-2 py-1 bg-surface-elev text-[13px] w-36"
+              />
             </>
           )}
         </div>
