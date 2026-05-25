@@ -48,7 +48,7 @@ export function SettingsTokensPage() {
       </section>
 
       <div className="flex items-baseline justify-between">
-        <h2 className="font-[var(--font-display)] text-2xl">电脑和 Agent</h2>
+        <h2 className="font-[var(--font-display)] text-2xl">我的电脑和 Agent</h2>
         <button
           type="button"
           onClick={() => setOpenNew(true)}

@@ -233,10 +233,6 @@ function Workspace() {
       onDeleteTopic={handleDeleteTopic}
       onInviteMember={handleInviteMember}
       onInviteAgent={handleInviteAgent}
-      onClickAgents={() => {
-        setView({ kind: "agents" });
-        if (isMobile) setMobileTab("workspace");
-      }}
       onClickSettings={() => {
         setView({ kind: "settings-tokens" });
         if (isMobile) setMobileTab("workspace");
