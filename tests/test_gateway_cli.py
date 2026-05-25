@@ -150,6 +150,7 @@ def test_gateway_shared_context_section_lists_topic_attachments(monkeypatch):
 
 def test_gateway_status_uses_human_name_and_human_id_fallback(monkeypatch, tmp_path, capsys):
     import json
+    import os
     from app import gateway
 
     monkeypatch.setenv("LETS_HOME", str(tmp_path))
@@ -167,7 +168,18 @@ def test_gateway_status_uses_human_name_and_human_id_fallback(monkeypatch, tmp_p
     rc = gateway.main(["status"])
 
     assert rc == 0
-    assert "human=id:1" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "human=id:1" in out
+    assert "gateway: not running (Run: lets gateway --agent codex)" in out
+
+    locks_dir = tmp_path / "locks"
+    locks_dir.mkdir(exist_ok=True)
+    (locks_dir / "agent-7.lock").write_text(f"{os.getpid()}\n")
+
+    rc = gateway.main(["status"])
+
+    assert rc == 0
+    assert f"gateway: running (pid {os.getpid()})" in capsys.readouterr().out
 
     (tmp_path / "token.json").write_text(json.dumps({
         "host": "https://lets.test",

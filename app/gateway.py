@@ -1555,6 +1555,8 @@ def _status(argv: list[str]) -> int:
             f"agent_instance_id={ai.get('id', '?')})"
         )
     print(f"  token: {token_path}")
+    if ai:
+        print(f"  gateway: {_gateway_status_label(ai)}")
     plist = _launchd_plist_path()
     if os.path.exists(plist):
         print(f"  autostart: enabled ({plist})")
@@ -2596,6 +2598,39 @@ def _pid_alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True
+
+
+def _gateway_status_label(agent_instance: dict) -> str:
+    agent_id = agent_instance.get("id")
+    if agent_id is None:
+        return "unknown (no agent_instance_id)"
+    try:
+        agent_id_int = int(agent_id)
+    except (TypeError, ValueError):
+        return f"unknown (bad agent_instance_id={agent_id!r})"
+
+    role = str(agent_instance.get("role") or "").strip()
+    start_hint = "lets gateway"
+    if role:
+        start_hint = f"lets gateway --agent {role}"
+
+    lock_path = _singleton_lock_path(agent_id_int)
+    try:
+        with open(lock_path, encoding="utf-8") as f:
+            raw = f.read().strip()
+    except OSError:
+        return f"not running (Run: {start_hint})"
+
+    try:
+        pid = int(raw.splitlines()[0]) if raw else 0
+    except ValueError:
+        pid = 0
+
+    if pid and _pid_alive(pid):
+        return f"running (pid {pid})"
+    if pid:
+        return f"not running (stale pid {pid}; Run: {start_hint})"
+    return f"not running (Run: {start_hint})"
 
 
 def _acquire_singleton(agent_instance_id: int):
