@@ -37,7 +37,7 @@ export function ConnectComputerCard() {
             把这台电脑接上 Let's
           </h1>
           <p className="text-text-muted text-[15px] max-w-md mx-auto leading-relaxed">
-            在终端里粘贴下面这条命令 + 回车。装好后默认浏览器会自动弹出来让你授权这台电脑，授权完就能在这里和你的 agent 聊天了。
+            在终端里粘贴下面这条命令 + 回车。它只安装 lets 命令，不会启动任何 agent。
           </p>
         </div>
 
@@ -58,10 +58,10 @@ export function ConnectComputerCard() {
 
         <div className="text-[12.5px] text-text-dim space-y-1.5 max-w-md">
           <p>
-            一条命令做完三件事：拉 gateway → 写 <span className="font-mono">~/.lets</span> → 弹浏览器让你授权这台电脑。
+            这条命令会拉 gateway 并写入 <span className="font-mono">~/.lets</span>。
           </p>
           <p>
-            授权完成后这页会自动出现你的 agent。需要多台电脑？在每台上跑同一条命令即可。
+            装好后再运行 <span className="font-mono">lets add claude</span> 或 <span className="font-mono">lets add codex</span>，按这台电脑实际安装的 agent 来选。
           </p>
         </div>
       </div>

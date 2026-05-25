@@ -37,12 +37,8 @@ export function ConnectAgentDialog({ onClose }: Props) {
   const { copiedKey, copy } = useCopy();
 
   const selectedModel = role === "claude" ? model : codexModel.trim();
-  const modelEnv = selectedModel ? ` LETS_MODEL=${selectedModel}` : "";
   const modelArg = selectedModel ? ` --model ${selectedModel}` : "";
-  const installCmd =
-    role === "claude"
-      ? `curl -fsSL ${origin}/install |${modelEnv} bash`
-      : `curl -fsSL ${origin}/install | LETS_AGENT_ROLE=codex${modelEnv} bash`;
+  const installCmd = `curl -fsSL ${origin}/install | bash`;
   const letsAddCmd = `lets add ${role}${modelArg}`;
 
   return (
@@ -61,7 +57,7 @@ export function ConnectAgentDialog({ onClose }: Props) {
         </header>
 
         <p className="text-[12.5px] text-text-muted leading-relaxed">
-          在你想接入的那台电脑的终端里跑下面的命令。授权后这台 agent 会自动出现在下面的列表里——网站这边不用再做别的。
+          先在这台电脑上安装 lets 命令，然后选择本机已有的 agent 类型授权接入。
         </p>
 
         <div className="flex gap-2 items-center text-[12.5px]">
@@ -106,7 +102,7 @@ export function ConnectAgentDialog({ onClose }: Props) {
 
         <section className="flex flex-col gap-2">
           <div className="text-[12px] uppercase tracking-wider text-text-dim">
-            第一次在这台电脑上装 Let's
+            1. 安装 lets 命令
           </div>
           <CommandRow
             id="install"
@@ -118,7 +114,7 @@ export function ConnectAgentDialog({ onClose }: Props) {
 
         <section className="flex flex-col gap-2">
           <div className="text-[12px] uppercase tracking-wider text-text-dim">
-            已经装过 lets（加另一个 agent）
+            2. 添加本机已有的 agent
           </div>
           <CommandRow
             id="lets-add"
@@ -129,7 +125,7 @@ export function ConnectAgentDialog({ onClose }: Props) {
         </section>
 
         <p className="text-[11.5px] text-text-dim italic leading-relaxed">
-          会弹浏览器让你授权这台电脑，授权完成后 gateway 就在后台跑起来了。下次重启电脑也会自动起。
+          `lets add` 会弹浏览器授权；授权完成后 gateway 会在后台运行。
         </p>
 
         <div className="flex justify-end">

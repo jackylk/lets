@@ -494,14 +494,6 @@ set -euo pipefail
 BASE_URL="${{LETS_HOST:-{base_url}}}"
 LETS_HOME="${{LETS_HOME:-$HOME/.lets}}"
 PYTHON="${{PYTHON:-python3}}"
-MODEL_ARGS=()
-if [ -n "${{LETS_MODEL:-}}" ]; then
-  MODEL_ARGS=(--model "$LETS_MODEL")
-fi
-WORKSPACE_ARGS=()
-if [ -n "${{LETS_WORKSPACE:-}}" ]; then
-  WORKSPACE_ARGS=(--workspace "$LETS_WORKSPACE")
-fi
 
 mkdir -p "$LETS_HOME" "$LETS_HOME/bin"
 
@@ -582,45 +574,12 @@ if [ -n "$RC_EDITED" ]; then
   echo "(takes effect in new terminals)"
 fi
 
-# ---- One-shot add: device-flow auth + background gateway, all in one ----
-if [ "${{LETS_SKIP_LOGIN:-0}}" = "0" ]; then
-  cat <<MSG
+cat <<MSG
 
-Adding your first agent (${{LETS_AGENT_ROLE:-claude}}) on this machine ...
-(opens your default browser to authorize; the gateway then starts in the
- background. Re-running this is safe — the new gateway replaces the old.)
-
+Next, choose which local agent to connect:
+  lets add claude     # if this computer has Claude Code
+  lets add codex      # if this computer has Codex CLI
 MSG
-  LETS_HOST="$BASE_URL" "$LETS_HOME/bin/lets" add "${{LETS_AGENT_ROLE:-claude}}" \\
-    --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} ${{WORKSPACE_ARGS[@]+"${{WORKSPACE_ARGS[@]}}"}} || \\
-    {{ echo "lets add failed — try again with: lets add ${{LETS_AGENT_ROLE:-claude}}" >&2; exit 1; }}
-
-  # launchd autostart is optional; if it fails the gateway is already running
-  # for this session.
-  if "$LETS_HOME/bin/lets" install --host "$BASE_URL" ${{MODEL_ARGS[@]+"${{MODEL_ARGS[@]}}"}} ${{WORKSPACE_ARGS[@]+"${{WORKSPACE_ARGS[@]}}"}} >/dev/null 2>&1; then
-    AUTOSTART_MSG="Will also auto-start on login (launchd)."
-  else
-    AUTOSTART_MSG="(launchd autostart not configured — gateway runs for this session only.)"
-  fi
-
-  cat <<MSG
-
-$AUTOSTART_MSG
-
-Add another agent on this machine:
-  lets add codex             # second agent — independent token + gateway
-Manage:
-  lets status                # see all agents
-  lets gateway --agent <r>   # restart one agent's gateway
-
-MSG
-else
-  cat <<MSG
-
-To finish onboarding:
-  lets add claude     # authorize + start the gateway in one command
-MSG
-fi
 """
     return PlainTextResponse(script, media_type="text/x-shellscript; charset=utf-8")
 

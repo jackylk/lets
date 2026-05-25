@@ -15,7 +15,7 @@ describe("<InviteAgentDialog />", () => {
     expect(cmd.textContent).toBe("lets add claude --model haiku --workspace my-ws");
     const install = screen.getByTestId("invite-agent-install-command");
     expect(install.textContent).toContain(
-      "/install | LETS_AGENT_ROLE=claude LETS_MODEL=haiku LETS_WORKSPACE=my-ws bash",
+      "/install | bash",
     );
   });
 
@@ -61,7 +61,7 @@ describe("<InviteAgentDialog />", () => {
     fireEvent.click(copyButtons[0]!);
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
-        expect.stringContaining("LETS_AGENT_ROLE=claude LETS_MODEL=haiku LETS_WORKSPACE=my-ws bash"),
+        expect.stringContaining("/install | bash"),
       ),
     );
 

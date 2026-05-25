@@ -14,11 +14,10 @@ const ROLES = [
 type RoleId = (typeof ROLES)[number]["id"];
 type ClaudeModel = "haiku" | "sonnet" | "opus";
 
-function installCommand(role: RoleId, model: string, workspaceSlug: string) {
+function installCommand() {
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://lets.up.railway.app";
-  const modelEnv = model ? ` LETS_MODEL=${model}` : "";
-  return `curl -fsSL ${origin}/install | LETS_AGENT_ROLE=${role}${modelEnv} LETS_WORKSPACE=${workspaceSlug} bash`;
+  return `curl -fsSL ${origin}/install | bash`;
 }
 
 async function copyText(value: string) {
@@ -53,7 +52,7 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
 
   const model = role === "claude" ? claudeModel : codexModel.trim();
   const modelArg = model ? ` --model ${model}` : "";
-  const install = installCommand(role, model, workspaceSlug);
+  const install = installCommand();
   const command = `lets add ${role}${modelArg} --workspace ${workspaceSlug}`;
 
   const onCopy = async (key: string, value: string) => {
@@ -70,7 +69,7 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
           邀请 agent 加入「{workspaceName}」
         </h2>
         <p className="mb-4 text-sm leading-6 text-text-dim">
-          在要运行 agent 的电脑终端里执行下面命令。agent 会用你的身份加入这个工作区。
+          在要运行 agent 的电脑终端里执行下面命令。先安装 lets，再按本机已有的 agent 类型加入这个工作区。
         </p>
 
         <div

@@ -12,28 +12,30 @@ describe("<SettingsTokensPage />", () => {
 
     await user.click(screen.getByRole("button", { name: /\+ 添加/i }));
 
-    // Default Claude: shows the full curl one-liner for first-time install
-    // and the shorter `lets add claude` form for already-installed users.
+    // Installing lets is separate from adding a local agent.
     expect(
       screen.getByText((text) =>
         text.includes("curl -fsSL") &&
-        text.includes("/install | LETS_MODEL=haiku bash"),
+        text.includes("/install | bash"),
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("lets add claude --model haiku")).toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole("combobox", { name: /Claude 模型/i }), "sonnet");
     expect(
-      screen.getByText((text) => text.includes("LETS_MODEL=sonnet")),
+      screen.getByText((text) =>
+        text.includes("curl -fsSL") &&
+        text.includes("/install | bash"),
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("lets add claude --model sonnet")).toBeInTheDocument();
 
-    // Switch to Codex and confirm both commands update.
+    // Switch to Codex and confirm only the add command depends on role/model.
     await user.selectOptions(screen.getByRole("combobox", { name: /Agent 类型/i }), "codex");
     expect(
       screen.getByText((text) =>
-        text.includes("LETS_AGENT_ROLE=codex") &&
-        text.includes("LETS_MODEL=gpt-5.5"),
+        text.includes("curl -fsSL") &&
+        text.includes("/install | bash"),
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("lets add codex --model gpt-5.5")).toBeInTheDocument();

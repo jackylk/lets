@@ -11,11 +11,12 @@ def test_gateway_install_script_uses_public_base_url(client):
     body = res.text
     assert 'BASE_URL="${LETS_HOST:-https://lets.up.railway.app}"' in body
     assert 'curl -fsSL "$BASE_URL/install/gateway.py"' in body
-    # The script writes a `lets` shim and runs `lets add <role>` so a fresh
-    # user is fully authorized AND has a background gateway after one
-    # curl-bash run (no second manual step needed).
-    assert '"$LETS_HOME/bin/lets" add' in body
-    assert '"$LETS_HOME/bin/lets" install --host "$BASE_URL"' in body
+    # Installing the command should not assume the user has Claude Code or
+    # Codex installed locally, and should not start any agent process.
+    assert '"$LETS_HOME/bin/lets" add' not in body
+    assert '"$LETS_HOME/bin/lets" install --host "$BASE_URL"' not in body
+    assert "lets add claude" in body
+    assert "lets add codex" in body
     assert "$LETS_HOME/bin/lets" in body
 
 
