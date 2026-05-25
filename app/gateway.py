@@ -49,14 +49,22 @@ from pathlib import Path
 from typing import Any
 
 
-# Bypass any system proxy (macOS often injects one for localhost) so urllib
-# doesn't 502 on a 127.0.0.1 backend. Build an opener once.
-_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+# Bypass proxies only for local backends. Public Lets hosts should respect the
+# user's proxy env/system settings; otherwise `lets update` can hang on direct
+# connections in networks that require a proxy.
+_DEFAULT_OPENER = urllib.request.build_opener()
+_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 DEFAULT_CODEX_MODEL = "gpt-5.5"
 
 
 def _urlopen(req: urllib.request.Request, timeout: float = 20.0):
-    return _OPENER.open(req, timeout=timeout)
+    host = urllib.parse.urlparse(req.full_url).hostname or ""
+    opener = (
+        _DIRECT_OPENER
+        if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+        else _DEFAULT_OPENER
+    )
+    return opener.open(req, timeout=timeout)
 
 
 @dataclass
@@ -1952,6 +1960,7 @@ def _update_gateway(argv: list[str]) -> int:
     meta = _load_token_meta() or {}
     host = args.host or meta.get("host") or os.environ.get("LETS_HOST", "https://lets.up.railway.app")
     try:
+        print(f"downloading gateway from {host}...", file=sys.stderr)
         source = _download_text(host, "/install/gateway.py")
     except Exception as e:
         print(f"Failed to download gateway: {e}", file=sys.stderr)
