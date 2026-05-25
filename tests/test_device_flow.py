@@ -123,6 +123,48 @@ def test_device_flow_with_workspace(temp_db, client, monkeypatch):
     assert membership is not None
 
 
+def test_device_flow_revives_deleted_agent_for_workspace(temp_db, client, monkeypatch):
+    from app import db
+    from app.auth import verify_token
+    from app.identity import ensure_agent_instance
+
+    monkeypatch.setenv("LETS_DEV_SESSIONS", "1")
+    alice_id = _login_or_seed_alice(client)
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    agent_id = ensure_agent_instance("codex", alice_id, "mac", workspace_id=ws["id"])
+
+    deleted = client.delete(f"/api/agents/{agent_id}")
+    assert deleted.status_code == 200
+
+    start = client.post(
+        "/api/auth/device-flow/start",
+        params={"role": "codex", "device_label": "mac", "workspace_id": ws["id"]},
+    )
+    assert start.status_code == 200
+    user_code = start.json()["user_code"]
+    auth = client.post(f"/api/auth/device-flow/authorize/{user_code}")
+    assert auth.status_code == 200
+    poll = client.get(f"/api/auth/device-flow/poll/{start.json()['device_code']}")
+    assert poll.status_code == 200
+    body = poll.json()
+    assert body["agent"]["id"] == agent_id
+    assert body["agent"]["workspace_id"] == ws["id"]
+    assert verify_token(body["token"]) is not None
+
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT deleted_at, paused_at FROM agent_instances WHERE id = ?",
+            (agent_id,),
+        ).fetchone()
+    assert row["deleted_at"] is None
+    assert row["paused_at"] is None
+
+    members = client.get(f"/api/workspaces/{ws['id']}/members")
+    assert members.status_code == 200
+    agents = [m for m in members.json() if m["kind"] == "agent"]
+    assert [a["id"] for a in agents] == [agent_id]
+
+
 def test_device_flow_defaults_to_caller_first_workspace(temp_db, client, monkeypatch):
     monkeypatch.setenv("LETS_DEV_SESSIONS", "1")
     alice_id = _login_or_seed_alice(client)

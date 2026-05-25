@@ -66,15 +66,20 @@ def ensure_agent_instance(
             (agent_type_id, human_id, device_label),
         ).fetchone()
         if existing:
+            updates = ["deleted_at = NULL", "paused_at = NULL", "updated_at = CURRENT_TIMESTAMP"]
+            params: list[object] = []
             if model is not None:
-                conn.execute(
-                    """
-                    UPDATE agent_instances
-                    SET model = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    """,
-                    (model, existing["id"]),
-                )
+                updates.insert(0, "model = ?")
+                params.append(model)
+            params.append(existing["id"])
+            conn.execute(
+                f"""
+                UPDATE agent_instances
+                SET {", ".join(updates)}
+                WHERE id = ?
+                """,
+                params,
+            )
             agent_id = int(existing["id"])
             if workspace_id is not None:
                 _join_agent_workspace(conn, workspace_id, agent_id, human_id)
