@@ -522,6 +522,14 @@ def test_delete_agent_cleans_topic_participants(temp_db, client):
             """,
             (topic["id"], agent_id),
         )
+        conn.execute(
+            """
+            INSERT INTO messages (topic_id, type, actor_type, actor_id, body)
+            VALUES (?, 'chat', 'agent', ?, 'old reply')
+            RETURNING id
+            """,
+            (topic["id"], agent_id),
+        )
 
     r = client.delete(f"/api/agents/{agent_id}")
     assert r.status_code == 200
@@ -535,6 +543,11 @@ def test_delete_agent_cleans_topic_participants(temp_db, client):
             (agent_id,),
         ).fetchone()
     assert row is None
+
+    participants = client.get(f"/api/topics/{topic['id']}/participants").json()
+    assert participants["agents"][0]["id"] == agent_id
+    assert participants["agents"][0]["is_explicit"] is False
+    assert participants["agents"][0]["deleted_at"] is not None
 
 
 def test_delete_topic_hides_it_and_blocks_direct_access(temp_db, client):

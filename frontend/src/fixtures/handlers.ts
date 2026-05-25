@@ -169,6 +169,7 @@ export const handlers = [
     const slot = seed as unknown as { fixtureTokens?: TokenRow[] };
     const tokens = (slot.fixtureTokens ??= []);
     const id = tokens.length + 1;
+    const displayName = id === 1 ? "Neo" : `Neo ${id}`;
     const row: TokenRow = {
       id, label: body.label, human_id: 1,
       agent_instance_id: 100 + id,
@@ -177,6 +178,7 @@ export const handlers = [
         role: body.role,
         device_label: body.device_label,
         model: body.model ?? null,
+        display_name: displayName,
       },
       created_at: new Date().toISOString(),
       last_used_at: null, revoked_at: null,
@@ -191,6 +193,7 @@ export const handlers = [
           role: body.role,
           device_label: body.device_label,
           model: body.model ?? null,
+          display_name: displayName,
         },
       },
       { status: 201 },
@@ -200,8 +203,8 @@ export const handlers = [
   http.delete("/api/tokens/:id", ({ params }) => {
     const slot = seed as unknown as { fixtureTokens?: TokenRow[] };
     const tokens = (slot.fixtureTokens ??= []);
-    const t = tokens.find((x) => x.id === Number(params.id));
-    if (t) t.revoked_at = new Date().toISOString();
+    const index = tokens.findIndex((x) => x.id === Number(params.id));
+    if (index !== -1) tokens.splice(index, 1);
     return new HttpResponse(null, { status: 204 });
   }),
 
@@ -225,6 +228,7 @@ export const handlers = [
     for (const t of slot.fixtureTokens ?? []) {
       if (t.agent_instance?.id === agentId) {
         if (body.model !== undefined) t.agent_instance.model = body.model;
+        if (body.display_name !== undefined) t.agent_instance.display_name = body.display_name;
         return HttpResponse.json(t.agent_instance);
       }
     }

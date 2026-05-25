@@ -62,6 +62,7 @@ def ensure_agent_instance(
             """
             SELECT id FROM agent_instances
             WHERE agent_type_id = ? AND owner_human_id = ? AND device_label = ?
+              AND deleted_at IS NULL
             """,
             (agent_type_id, human_id, device_label),
         ).fetchone()
@@ -105,6 +106,7 @@ def _next_agent_display_name(conn, human_id: int) -> str:
         """
         SELECT display_name FROM agent_instances
         WHERE owner_human_id = ? AND display_name IS NOT NULL
+          AND deleted_at IS NULL
         """,
         (human_id,),
     ).fetchall()

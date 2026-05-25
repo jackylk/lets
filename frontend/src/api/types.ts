@@ -111,7 +111,13 @@ export interface TokenRowDTO {
   label: string | null;
   human_id: number;
   agent_instance_id: number | null;
-  agent_instance: { id: number; role: string; device_label: string; model?: string | null } | null;
+  agent_instance: {
+    id: number;
+    role: string;
+    device_label: string;
+    model?: string | null;
+    display_name: string | null;
+  } | null;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
@@ -128,7 +134,13 @@ export interface CreateTokenResponseDTO {
   id: number;
   value: string;
   label: string;
-  agent_instance: { id: number; role: string; device_label: string; model?: string | null };
+  agent_instance: {
+    id: number;
+    role: string;
+    device_label: string;
+    model?: string | null;
+    display_name: string | null;
+  };
 }
 
 export interface ProjectDTO {
@@ -199,6 +211,7 @@ export interface ParticipantsDTO {
     id: number;
     device_label: string | null;
     display_name: string | null;
+    deleted_at?: string | null;
     role: string;
     human_name: string;
     participant_role?: "owner" | "member";

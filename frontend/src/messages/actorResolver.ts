@@ -3,12 +3,19 @@ import { agentShortName } from "../agent/display";
 
 export interface DirectoryEntry {
   human?: { id: number; name: string };
-  agentInstance?: { id: number; role: string; device_label: string; display_name: string | null };
+  agentInstance?: { id: number; role: string; device_label: string; display_name: string | null; deleted_at?: string | null };
 }
 
 export interface Directory {
   humans: { id: number; name: string }[];
-  agentInstances: { id: number; role: string; device_label: string; display_name: string | null; human_id: number }[];
+  agentInstances: {
+    id: number;
+    role: string;
+    device_label: string;
+    display_name: string | null;
+    human_id: number;
+    deleted_at?: string | null;
+  }[];
 }
 
 function agentInitial(displayName: string) {
@@ -29,7 +36,8 @@ export function makeActorResolver(dir: Directory) {
     const role = a?.role;
     const kind = role === "codex" ? ("codex" as const) : ("claude" as const);
     const display = a ? agentShortName(a) : `agent#${m.actor_id}`;
+    const displayName = a?.deleted_at ? `${display} (已移除)` : display;
     const initial = a ? agentInitial(display) : "?";
-    return { kind, initial, displayName: display };
+    return { kind, initial, displayName };
   };
 }

@@ -1034,6 +1034,40 @@ def _require_agent_owner(conn, agent_instance_id: int, human_id: int) -> dict:
     return dict(row)
 
 
+def _remove_agent_instance_for_owner(conn, agent_instance_id: int, human_id: int) -> None:
+    _require_agent_owner(conn, agent_instance_id, human_id)
+    conn.execute(
+        "UPDATE agent_instances SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (agent_instance_id,),
+    )
+    conn.execute(
+        """
+        UPDATE device_auth_flows
+        SET token_id = NULL, token_value = NULL
+        WHERE token_id IN (
+            SELECT id FROM tokens
+            WHERE agent_instance_id = ? AND human_id = ?
+        )
+        """,
+        (agent_instance_id, human_id),
+    )
+    conn.execute(
+        "DELETE FROM tokens WHERE agent_instance_id = ? AND human_id = ?",
+        (agent_instance_id, human_id),
+    )
+    conn.execute(
+        "DELETE FROM workspace_agent_members WHERE agent_instance_id = ?",
+        (agent_instance_id,),
+    )
+    conn.execute(
+        """
+        DELETE FROM topic_participants
+        WHERE participant_type = 'agent' AND participant_id = ?
+        """,
+        (agent_instance_id,),
+    )
+
+
 @app.post("/api/agents/{agent_instance_id}/pause")
 def pause_agent_instance(
     agent_instance_id: int,
@@ -1071,26 +1105,7 @@ def delete_agent_instance(
 ) -> dict:
     human_id = int(principal["human_id"])
     with connect() as conn:
-        _require_agent_owner(conn, agent_instance_id, human_id)
-        conn.execute(
-            "UPDATE agent_instances SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (agent_instance_id,),
-        )
-        conn.execute(
-            "UPDATE tokens SET revoked_at = CURRENT_TIMESTAMP WHERE agent_instance_id = ? AND revoked_at IS NULL",
-            (agent_instance_id,),
-        )
-        conn.execute(
-            "DELETE FROM workspace_agent_members WHERE agent_instance_id = ?",
-            (agent_instance_id,),
-        )
-        conn.execute(
-            """
-            DELETE FROM topic_participants
-            WHERE participant_type = 'agent' AND participant_id = ?
-            """,
-            (agent_instance_id,),
-        )
+        _remove_agent_instance_for_owner(conn, agent_instance_id, human_id)
     return {"ok": True}
 
 
@@ -3404,6 +3419,7 @@ def get_topic_participants(
                 ai.id,
                 ai.device_label,
                 ai.display_name,
+                ai.deleted_at,
                 ar.name AS role,
                 ah.name AS human_name,
                 tp.role AS participant_role,
@@ -3420,6 +3436,7 @@ def get_topic_participants(
                 ai.id,
                 ai.device_label,
                 ai.display_name,
+                ai.deleted_at,
                 ar.name AS role,
                 ah.name AS human_name,
                 'member' AS participant_role,
@@ -3430,14 +3447,13 @@ def get_topic_participants(
             JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans ah ON ah.id = ai.owner_human_id
             WHERE m.topic_id = ? AND m.actor_type = 'agent'
-              AND ai.deleted_at IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM topic_participants tp
                 WHERE tp.topic_id = m.topic_id
                   AND tp.participant_type = 'agent'
                   AND tp.participant_id = m.actor_id
               )
-            GROUP BY ai.id, ai.device_label, ai.display_name, ar.name, ah.name
+            GROUP BY ai.id, ai.device_label, ai.display_name, ai.deleted_at, ar.name, ah.name
             ORDER BY id ASC
             """,
             (topic_id, topic_id),
@@ -4468,6 +4484,7 @@ def list_my_tokens(
     if principal is None:
         raise HTTPException(status_code=401, detail="invalid session")
     tokens = list_tokens(human_id=principal["human_id"])
+    tokens = [t for t in tokens if t.get("revoked_at") is None]
     with connect() as conn:
         agent_rows = {
             int(r["id"]): {
@@ -4475,13 +4492,15 @@ def list_my_tokens(
                 "role": r["role"],
                 "device_label": r["device_label"],
                 "model": r["model"],
+                "display_name": r["display_name"],
             }
             for r in conn.execute(
                 """
-                SELECT ai.id, ar.name AS role, ai.device_label, ai.model
+                SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.display_name
                 FROM agent_instances ai
                 JOIN agent_types ar ON ar.id = ai.agent_type_id
                 WHERE ai.owner_human_id = ?
+                  AND ai.deleted_at IS NULL
                 """,
                 (principal["human_id"],),
             ).fetchall()
@@ -4537,7 +4556,7 @@ def create_my_token(
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT ai.id, ar.name AS role, ai.device_label, ai.model
+            SELECT ai.id, ar.name AS role, ai.device_label, ai.model, ai.display_name
             FROM agent_instances ai
             JOIN agent_types ar ON ar.id = ai.agent_type_id
             WHERE ai.id = ?
@@ -4557,7 +4576,7 @@ def revoke_my_token(
     token_id: int,
     lets_session: str | None = Cookie(default=None, alias="lets_session"),
 ) -> Response:
-    from .auth import verify_session, revoke_token
+    from .auth import verify_session
     if not lets_session:
         raise HTTPException(status_code=401, detail="not authenticated")
     principal = verify_session(lets_session)
@@ -4566,10 +4585,22 @@ def revoke_my_token(
 
     with connect() as conn:
         owner = conn.execute(
-            "SELECT human_id FROM tokens WHERE id = ?", (token_id,)
+            "SELECT human_id, agent_instance_id FROM tokens WHERE id = ?", (token_id,)
         ).fetchone()
-    if owner is None or owner["human_id"] != principal["human_id"]:
-        raise HTTPException(status_code=404, detail="token not found")
+        if owner is None or owner["human_id"] != principal["human_id"]:
+            raise HTTPException(status_code=404, detail="token not found")
 
-    revoke_token(token_id)
+        agent_instance_id = owner["agent_instance_id"]
+        if agent_instance_id is not None:
+            _remove_agent_instance_for_owner(
+                conn,
+                int(agent_instance_id),
+                int(principal["human_id"]),
+            )
+        else:
+            conn.execute(
+                "UPDATE device_auth_flows SET token_id = NULL, token_value = NULL WHERE token_id = ?",
+                (token_id,),
+            )
+            conn.execute("DELETE FROM tokens WHERE id = ?", (token_id,))
     return Response(status_code=204)

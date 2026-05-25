@@ -54,7 +54,7 @@ export function topicMembersFromParticipants(
       owner_human_id: 0,
       owner_name: agent.human_name,
       paused_at: null,
-      deleted_at: null,
+      deleted_at: agent.deleted_at ?? null,
       joined_at: agent.created_at ?? FALLBACK_JOINED_AT,
       last_seen_at: null,
       is_online: 0,

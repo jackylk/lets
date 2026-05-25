@@ -349,7 +349,8 @@ CREATE TABLE IF NOT EXISTS agent_instances (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS agent_instances_owner_type_device_key
-    ON agent_instances(owner_human_id, agent_type_id, device_label);
+    ON agent_instances(owner_human_id, agent_type_id, device_label)
+    WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_instances_owner ON agent_instances(owner_human_id);
 CREATE INDEX IF NOT EXISTS idx_agent_instances_type ON agent_instances(agent_type_id);
 CREATE TABLE IF NOT EXISTS workspace_agent_members (
@@ -1116,12 +1117,14 @@ def _migrate_agent_instances_independent(conn) -> None:
     conn.execute("DROP INDEX IF EXISTS idx_agent_instances_human")
     conn.execute("DROP INDEX IF EXISTS idx_agent_instances_role")
     conn.execute("DROP INDEX IF EXISTS agent_instances_owner_role_device_key")
+    conn.execute("DROP INDEX IF EXISTS agent_instances_owner_type_device_key")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_instances_owner ON agent_instances(owner_human_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_instances_type ON agent_instances(agent_type_id)")
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS agent_instances_owner_type_device_key
         ON agent_instances(owner_human_id, agent_type_id, device_label)
+        WHERE deleted_at IS NULL
         """
     )
 

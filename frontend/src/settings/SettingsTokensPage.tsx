@@ -3,6 +3,7 @@ import {
   useMyTokens, useRevokeToken, useUpdateAgentModel,
   useSessionMe, useLogout, useUpdateMyName,
 } from "../api/queries";
+import { agentShortName, roleTitle } from "../agent/display";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 
 export function SettingsTokensPage() {
@@ -15,12 +16,6 @@ export function SettingsTokensPage() {
   const updateName = useUpdateMyName();
   const session = useSessionMe();
   const logout = useLogout();
-
-  const agentName = (role?: string | null) => {
-    if (role === "claude") return "Claude Code";
-    if (role === "codex") return "Codex";
-    return role ?? "Agent";
-  };
 
   const human = session.data?.human;
   const normalizedDraftName = draftName.trim();
@@ -133,7 +128,18 @@ export function SettingsTokensPage() {
           <tbody>
             {tokens.data.map((t) => (
               <tr key={t.id} className="border-t border-border-soft">
-                <td className="px-3 py-2">{agentName(t.agent_instance?.role)}</td>
+                <td className="px-3 py-2">
+                  {t.agent_instance ? (
+                    <div className="flex flex-col leading-tight">
+                      <span>{agentShortName(t.agent_instance)}</span>
+                      <span className="text-[11px] text-text-dim">
+                        {roleTitle(t.agent_instance.role)}
+                      </span>
+                    </div>
+                  ) : (
+                    <span>Agent</span>
+                  )}
+                </td>
                 <td className="px-3 py-2 font-mono">
                   {t.agent_instance?.device_label ?? t.label ?? `#${t.id}`}
                 </td>

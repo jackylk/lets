@@ -74,13 +74,15 @@ describe("<SettingsTokensPage />", () => {
     const user = userEvent.setup();
     renderWithProviders(<SettingsTokensPage />);
     const select = await screen.findByRole("combobox", { name: /mac16 模型/i });
+    expect(await screen.findByText("Neo")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code")).toBeInTheDocument();
     expect(select).toHaveValue("haiku");
 
     await user.selectOptions(select, "sonnet-4.6");
     await waitFor(() => expect(select).toHaveValue("sonnet-4.6"));
   });
 
-  it("revokes a token that already exists", async () => {
+  it("removes an existing agent from the settings list", async () => {
     // The agent list reflects whatever the backend already knows about, so
     // we pre-seed via the MSW handler by POSTing a token before rendering.
     await fetch("/api/tokens", {
@@ -99,7 +101,8 @@ describe("<SettingsTokensPage />", () => {
 
     await user.click(screen.getByRole("button", { name: /移除/i }));
     await waitFor(() => {
-      expect(screen.getByText(/已移除/i)).toBeInTheDocument();
+      expect(screen.queryByText(/neo-mbp/)).not.toBeInTheDocument();
     });
+    expect(screen.queryByText(/已移除/i)).not.toBeInTheDocument();
   });
 });

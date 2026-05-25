@@ -31,6 +31,7 @@ def test_create_token_returns_raw_value_once(client):
     assert body["label"] == "claude on neo-mbp"
     assert body["agent_instance"]["role"] == "claude"
     assert body["agent_instance"]["device_label"] == "neo-mbp"
+    assert body["agent_instance"]["display_name"] == "Neo"
 
     # Subsequent list does NOT echo the raw value
     listed = client.get("/api/tokens", cookies={"lets_session": session}).json()
@@ -57,7 +58,7 @@ def test_guest_cannot_create_agent_token(client):
     assert res.status_code == 403
 
 
-def test_revoke_token(client):
+def test_delete_token_removes_agent_from_settings_list(client):
     session = _login(client)
     create = client.post(
         "/api/tokens",
@@ -65,12 +66,50 @@ def test_revoke_token(client):
         json={"label": "x", "role": "codex", "device_label": "neo-mbp"},
     )
     tid = create.json()["id"]
+    agent_id = create.json()["agent_instance"]["id"]
 
     res = client.delete(f"/api/tokens/{tid}", cookies={"lets_session": session})
     assert res.status_code == 204
 
     listed = client.get("/api/tokens", cookies={"lets_session": session}).json()
-    assert listed[0]["revoked_at"] is not None
+    assert listed == []
+
+    from app.db import connect
+
+    with connect() as conn:
+        agent = conn.execute(
+            "SELECT deleted_at FROM agent_instances WHERE id = ?",
+            (agent_id,),
+        ).fetchone()
+        token = conn.execute("SELECT 1 FROM tokens WHERE id = ?", (tid,)).fetchone()
+    assert agent["deleted_at"] is not None
+    assert token is None
+
+
+def test_readding_removed_agent_creates_new_identity(client):
+    session = _login(client)
+    first = client.post(
+        "/api/tokens",
+        cookies={"lets_session": session},
+        json={"label": "x", "role": "codex", "device_label": "neo-mbp"},
+    )
+    first_agent_id = first.json()["agent_instance"]["id"]
+    first_token_id = first.json()["id"]
+
+    assert client.delete(
+        f"/api/tokens/{first_token_id}",
+        cookies={"lets_session": session},
+    ).status_code == 204
+
+    second = client.post(
+        "/api/tokens",
+        cookies={"lets_session": session},
+        json={"label": "x2", "role": "codex", "device_label": "neo-mbp"},
+    )
+
+    assert second.status_code == 201
+    assert second.json()["agent_instance"]["id"] != first_agent_id
+    assert second.json()["agent_instance"]["display_name"] == "Neo"
 
 
 def test_update_agent_display_name(client):
