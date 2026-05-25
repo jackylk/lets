@@ -4,6 +4,7 @@ import json
 from typing import Any, Literal
 
 from .db import connect
+from .agent_output import sanitize_agent_body
 
 
 ALLOWED_TYPES = {
@@ -62,6 +63,8 @@ def _deleted_placeholder(kind: str | None) -> str:
 def message_from_row(row: Any, *, redact_deleted: bool = True) -> dict[str, Any]:
     message = dict(row)
     message["metadata"] = _decode_metadata(message.get("metadata"))
+    if message.get("actor_type") == "agent" and isinstance(message.get("body"), str):
+        message["body"] = sanitize_agent_body(message["body"])
     if redact_deleted and message.get("deleted_at") is not None:
         message["body"] = _deleted_placeholder(message.get("deletion_kind"))
         message["metadata"] = {}
@@ -88,6 +91,8 @@ def post_message(
         raise ValueError(f"unknown message type: {type}")
     if actor_type not in ("human", "agent", "system"):
         raise ValueError(f"unknown actor_type: {actor_type}")
+    if actor_type == "agent":
+        body = sanitize_agent_body(body)
 
     metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
     with connect() as conn:

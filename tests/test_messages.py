@@ -175,6 +175,56 @@ def test_topic_stream_metadata_decoded(temp_db):
     assert messages[0]["metadata"]["work_item_id"] == 7
 
 
+def test_agent_cli_json_envelope_is_sanitized_on_write_and_read(temp_db):
+    from app.db import connect
+    from app.messages import post_message, topic_stream
+
+    with connect() as conn:
+        conn.execute("INSERT INTO topics (slug, title) VALUES ('t-agent-json', 'T Agent JSON')")
+        topic_id = conn.execute("SELECT id FROM topics WHERE slug='t-agent-json'").fetchone()["id"]
+    raw = (
+        "Restored session: 2026年 5月25日 星期一 17时43分12秒 CST\n"
+        "\x1b]7;file://mac16/Users/jacky/.lets\x07"
+        '{"type":"result","subtype":"success","session_id":"sess-doubao",'
+        '"result":"好的\\n\\n1. 先明确范围。","usage":{"input_tokens":1}}'
+    )
+
+    post_message(
+        topic_id=topic_id,
+        type="chat",
+        actor_type="agent",
+        actor_id=99,
+        body=raw,
+    )
+
+    messages = topic_stream(topic_id)
+
+    assert messages[0]["body"] == "好的\n\n1. 先明确范围。"
+
+
+def test_historical_agent_cli_json_envelope_is_sanitized_on_read(temp_db):
+    from app.db import connect
+    from app.messages import topic_stream
+
+    with connect() as conn:
+        conn.execute("INSERT INTO topics (slug, title) VALUES ('t-agent-history', 'T Agent History')")
+        topic_id = conn.execute("SELECT id FROM topics WHERE slug='t-agent-history'").fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO messages (topic_id, type, actor_type, actor_id, body)
+            VALUES (?, 'chat', 'agent', 99, ?)
+            """,
+            (
+                topic_id,
+                'prefix {"type":"result","session_id":"sess","result":"清洗历史消息"}',
+            ),
+        )
+
+    messages = topic_stream(topic_id)
+
+    assert messages[0]["body"] == "清洗历史消息"
+
+
 def test_post_and_get_topic_messages_via_api(client):
     from app.db import connect
 
