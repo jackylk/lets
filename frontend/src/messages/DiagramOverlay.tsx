@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { InteractiveDiagram } from "./InteractiveDiagram";
 import { NodeFeedbackPanel, useNodeAnnotations } from "./NodeFeedbackPanel";
 import { subscribeOpenDiagram, type OpenDiagramDetail } from "./openDiagram";
@@ -20,11 +20,12 @@ interface Selected {
  * Lifecycle:
  *   - Mounted once at TopicView level
  *   - Listens on window event "lets:open-diagram"
- *   - Close: Esc, × button, or 「跳回原消息」(which also triggers jumpToMessage)
+ *   - Close: outside click, Esc, × button, or 「跳回原消息」(which also triggers jumpToMessage)
  */
 export function DiagramOverlay() {
   const [current, setCurrent] = useState<OpenDiagramDetail | null>(null);
   const [selected, setSelected] = useState<Selected | null>(null);
+  const sheetRef = useRef<HTMLElement>(null);
 
   useEffect(() => subscribeOpenDiagram((d) => {
     setCurrent(d);
@@ -40,6 +41,17 @@ export function DiagramOverlay() {
     return () => window.removeEventListener("keydown", onKey);
   }, [current]);
 
+  useEffect(() => {
+    if (!current) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (!sheetRef.current?.contains(target)) setCurrent(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [current]);
+
   // Pull aggregate vote totals so the InteractiveDiagram can render per-node
   // badges as foreignObjects on the SVG. Only when we have a topicId
   // (annotations need a topic context).
@@ -49,6 +61,7 @@ export function DiagramOverlay() {
     <>
       {current && (
         <aside
+          ref={sheetRef}
           role="dialog"
           aria-label="diagram preview"
           className="fixed top-0 right-0 bottom-0 z-40 w-[min(70vw,860px)] bg-bg border-l border-border shadow-[-12px_0_30px_-12px_rgba(0,0,0,0.15)] flex flex-col animate-slide-in-right"
