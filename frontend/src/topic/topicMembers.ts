@@ -13,7 +13,11 @@ export function topicMembersFromParticipants(
   if (!participants) return [];
 
   const participantHumanIds = new Set(participants.humans.map((h) => h.id));
-  const participantAgentIds = new Set(participants.agents.map((a) => a.id));
+  const participantAgentIds = new Set(
+    participants.agents
+      .filter((agent) => agent.is_explicit !== false)
+      .map((a) => a.id),
+  );
   const included = new Set<string>();
 
   const out = workspaceMembers.filter((member) => {
@@ -41,7 +45,7 @@ export function topicMembersFromParticipants(
     });
   }
 
-  for (const agent of participants.agents) {
+  for (const agent of participants.agents.filter((a) => a.is_explicit !== false)) {
     const key = `agent:${agent.id}`;
     if (included.has(key)) continue;
     out.push({

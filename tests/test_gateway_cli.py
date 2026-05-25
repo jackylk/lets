@@ -313,6 +313,21 @@ def test_gateway_session_key_ignores_agent_instance_id(monkeypatch, tmp_path):
     assert "shared-topic-session" in calls[1]
 
 
+def test_parse_agent_output_ignores_shell_noise_before_json():
+    from app import gateway
+
+    stdout = (
+        "Restored session: 2026年 5月25日 星期一 17时23分01秒 CST\n"
+        "\x1b]7;file://mac16/Users/jacky/.lets\x07"
+        '{"type":"result","session_id":"sess-doubao","result":"当前方案总结：可以先做小验证。"}'
+    )
+
+    text, session_id = gateway._parse_agent_output(stdout)
+
+    assert text == "当前方案总结：可以先做小验证。"
+    assert session_id == "sess-doubao"
+
+
 def test_lets_add_writes_per_role_token_and_starts_background(monkeypatch, tmp_path, capsys):
     """`lets add codex` should save tokens/codex.json (keeping any existing
     claude.json) and spawn a background gateway for that role."""

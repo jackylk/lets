@@ -1123,24 +1123,31 @@ def _text_from_value(value: Any) -> str | None:
     return "\n".join(parts).strip() or None
 
 
+def _extract_json_records(raw: str) -> list[Any]:
+    decoder = json.JSONDecoder()
+    records: list[Any] = []
+    idx = 0
+    while idx < len(raw):
+        starts = [pos for pos in (raw.find("{", idx), raw.find("[", idx)) if pos >= 0]
+        if not starts:
+            break
+        start = min(starts)
+        try:
+            record, end = decoder.raw_decode(raw, start)
+        except json.JSONDecodeError:
+            idx = start + 1
+            continue
+        records.append(record)
+        idx = end
+    return records
+
+
 def _parse_agent_output(stdout: str) -> tuple[str, str | None]:
     raw = stdout.strip()
     if not raw:
         return "", None
 
-    records: list[Any] = []
-    try:
-        records.append(json.loads(raw))
-    except json.JSONDecodeError:
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                records = []
-                break
+    records = _extract_json_records(raw)
 
     if not records:
         return raw, None

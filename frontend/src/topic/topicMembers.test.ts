@@ -65,4 +65,22 @@ describe("topicMembersFromParticipants", () => {
         .map((m) => `${m.kind}:${m.id}`),
     ).toEqual(["human:2", "agent:11"]);
   });
+
+  it("excludes historical agent speakers from current topic members", () => {
+    const participants: ParticipantsDTO = {
+      is_public: false,
+      humans: [],
+      agents: [{
+        id: 11,
+        role: "claude",
+        device_label: "neo-mbp",
+        display_name: "Neo",
+        model: null,
+        human_name: "Neo",
+        is_explicit: false,
+      }],
+    };
+
+    expect(topicMembersFromParticipants([agentMember], participants, { visibility: "private" })).toEqual([]);
+  });
 });
