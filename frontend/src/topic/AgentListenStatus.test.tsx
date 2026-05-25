@@ -113,6 +113,55 @@ describe("<AgentListenStatus />", () => {
     expect(screen.getByText(/[1-9]\d?s 后/)).toBeInTheDocument();
   });
 
+  it("does not show impending intervention in mention-only mode without an @ mention", () => {
+    const now = new Date();
+    const t = (offsetSec: number) =>
+      new Date(now.getTime() - offsetSec * 1000)
+        .toISOString().replace("T", " ").replace("Z", "");
+    const messages: MessageDTO[] = [
+      msg({
+        id: 1, type: "chat", actor_type: "agent", actor_id: 4,
+        body: "earlier reply", metadata: { cites: [0] }, created_at: t(600),
+      }),
+      msg({ id: 2, body: "what about Y", created_at: t(2) }),
+    ];
+    render(
+      <AgentListenStatus
+        messages={messages}
+        workspaceMembers={[codexMember]}
+        agentInterventionMode="mentions"
+        showIdle
+      />,
+    );
+    expect(screen.queryByText(/Neo 即将介入/)).toBeNull();
+    expect(screen.getByText(/Neo 等待 @/)).toBeInTheDocument();
+  });
+
+  it("surfaces idle intervention state before the first agent reply", () => {
+    render(
+      <AgentListenStatus
+        messages={[]}
+        workspaceMembers={[codexMember]}
+        agentInterventionMode="auto"
+        showIdle
+      />,
+    );
+    expect(screen.getByText(/Neo 在听/)).toBeInTheDocument();
+  });
+
+  it("shows silent mode as not about to intervene", () => {
+    render(
+      <AgentListenStatus
+        messages={[msg({ id: 1, body: "@neo check this" })]}
+        workspaceMembers={[codexMember]}
+        agentInterventionMode="silent"
+        showIdle
+      />,
+    );
+    expect(screen.getByText(/Neo 静默/)).toBeInTheDocument();
+    expect(screen.queryByText(/即将介入/)).toBeNull();
+  });
+
   it("urgent (@-mention) message gets the shorter 2s debounce window", () => {
     const now = new Date();
     const t = (offsetSec: number) =>

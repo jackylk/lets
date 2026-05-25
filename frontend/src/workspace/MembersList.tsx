@@ -6,6 +6,8 @@ import { parseBackendTs } from "../lib/time";
 interface Props {
   members: WorkspaceMember[];
   messages?: MessageDTO[];
+  title?: string;
+  showPermissionsGuide?: boolean;
   onInviteMember?: () => void;
   onInviteAgent?: () => void;
   canManageMembers?: boolean;
@@ -17,6 +19,8 @@ interface Props {
 export function MembersList({
   members,
   messages = [],
+  title = "当前工作区成员",
+  showPermissionsGuide = true,
   onInviteMember,
   onInviteAgent,
   canManageMembers = false,
@@ -78,7 +82,7 @@ export function MembersList({
       <div className="mb-2">
         <div className="flex items-center gap-2">
           <div className="flex-1 text-[12px] font-semibold text-text-dim">
-            当前工作区成员
+            {title}
           </div>
           {(onInviteMember || onInviteAgent) && (
             <div ref={inviteMenuRef} className="relative">
@@ -199,7 +203,7 @@ export function MembersList({
           <div className="text-sm text-text-dim italic">暂无成员</div>
         )}
       </div>
-      <PermissionsGuide />
+      {showPermissionsGuide && <PermissionsGuide />}
     </div>
   );
 }

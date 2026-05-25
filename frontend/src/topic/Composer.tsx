@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 
 export interface ComposerMessage {
   body: string;
@@ -27,6 +27,7 @@ interface Props {
   placeholder?: string;
   disabled?: boolean;
   attachmentDisabled?: boolean;
+  statusSlot?: ReactNode;
 }
 
 /**
@@ -66,6 +67,7 @@ export function Composer({
   placeholder,
   disabled,
   attachmentDisabled,
+  statusSlot,
 }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
@@ -203,6 +205,7 @@ export function Composer({
 
   return (
     <div className="px-3 py-2 md:px-6 md:py-3 border-t border-border-soft bg-bg">
+      {statusSlot}
       <div className="relative rounded border border-border bg-surface-elev px-3 py-2 flex flex-col gap-2 shadow-sm focus-within:border-accent-border focus-within:shadow-[0_0_0_3px_var(--color-accent-soft)]">
         {mentionOptions.length > 0 && (
           <div className="absolute left-3 bottom-[calc(100%+6px)] w-72 max-w-[calc(100vw-48px)] rounded border border-border bg-surface-elev shadow-lg overflow-hidden z-20">

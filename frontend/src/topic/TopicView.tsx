@@ -10,10 +10,12 @@ import { useTopicStream } from "../api/sse";
 import { TopicHeader } from "./TopicHeader";
 import { Stream } from "./Stream";
 import { ViewModeToggle } from "./ViewModeToggle";
+import { AgentListenStatus } from "./AgentListenStatus";
 import { StreamProvider } from "../messages/StreamContext";
 import { DiagramOverlay } from "../messages/DiagramOverlay";
 import { Composer, type MentionCandidate, type MentionResolver } from "./Composer";
 import { topicDisplayTitle } from "./topicSummary";
+import { topicMembersFromParticipants } from "./topicMembers";
 import type { MessageDTO, TaskTreeProposalMeta, WorkspaceMember } from "../api/types";
 import { agentShortName } from "../agent/display";
 import { ApiError } from "../api/client";
@@ -34,6 +36,10 @@ export function TopicView({ topicId, workspaceMembers = [], onOpenResources }: P
   const uploadAttachment = useUploadTopicAttachment(topicId);
   const agents = useAllAgents();
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
+  const topicMembers = useMemo(
+    () => topicMembersFromParticipants(workspaceMembers, participants.data, topic.data),
+    [participants.data, topic.data, workspaceMembers],
+  );
 
   const merged: MessageDTO[] = useMemo(() => {
     const base = initial.data?.messages ?? [];
@@ -233,6 +239,14 @@ export function TopicView({ topicId, workspaceMembers = [], onOpenResources }: P
           <div ref={scrollEndRef} />
         </div>
         <Composer
+          statusSlot={
+            <AgentListenStatus
+              messages={merged}
+              workspaceMembers={topicMembers}
+              agentInterventionMode={topic.data?.agent_intervention_mode}
+              showIdle
+            />
+          }
           onSend={send}
           onAttachFile={async (file) => {
             await uploadAttachment.mutateAsync({ file });

@@ -3,9 +3,10 @@ import { WorkspaceSwitcher } from "../workspace/WorkspaceSwitcher";
 import { WorkspaceSection } from "../workspace/WorkspaceSection";
 import { CreateWorkspaceInline } from "../workspace/CreateWorkspaceInline";
 import { MembersList } from "../workspace/MembersList";
-import { useTopicMessages } from "../api/queries";
+import { useTopicMessages, useTopicParticipants } from "../api/queries";
 import { cn } from "../lib/cn";
 import type { TopicDTO, Workspace, WorkspaceMember } from "../api/types";
+import { topicMembersFromParticipants } from "../topic/topicMembers";
 
 interface Props {
   activeWorkspace: Workspace | undefined;
@@ -229,6 +230,7 @@ export function Sidebar({
   const [creating, setCreating] = useState(false);
   const [topicListMode, setTopicListMode] = useState<"mine" | "all" | "archived">("mine");
   const activeMessages = useTopicMessages(activeTopicId);
+  const activeParticipants = useTopicParticipants(activeTopicId);
   const showTopicTabs = !isGuest;
   const effectiveTopicListMode = (
     isGuest || (!canViewAllTopics && topicListMode === "all")
@@ -248,6 +250,12 @@ export function Sidebar({
   const selectedTopics = topicList(effectiveTopicListMode, topics, allTopics, archivedTopics);
   const publicTopics = effectiveTopicListMode === "archived" ? [] : selectedTopics.filter(isPublicTopic);
   const regularTopics = selectedTopics.filter((topic) => !isPublicTopic(topic));
+  const activeTopic =
+    [...topics, ...allTopics, ...archivedTopics].find((topic) => topic.id === activeTopicId) ?? null;
+  const showingTopicMembers = activeTopicId !== null;
+  const displayedMembers = showingTopicMembers
+    ? topicMembersFromParticipants(members, activeParticipants.data, activeTopic)
+    : members;
 
   return (
     <div className="flex flex-col h-full">
@@ -413,13 +421,15 @@ export function Sidebar({
 
       {/* Members list */}
       <MembersList
-        members={members}
+        members={displayedMembers}
         messages={activeMessages.data?.messages ?? []}
-        onInviteMember={onInviteMember}
-        onInviteAgent={onInviteAgent}
-        canManageMembers={canManageMembers}
-        onRemoveMember={onRemoveMember}
-        onRemoveAgent={onRemoveAgent}
+        title={showingTopicMembers ? "当前话题成员" : "当前工作区成员"}
+        showPermissionsGuide={!showingTopicMembers}
+        onInviteMember={showingTopicMembers ? undefined : onInviteMember}
+        onInviteAgent={showingTopicMembers ? undefined : onInviteAgent}
+        canManageMembers={showingTopicMembers ? false : canManageMembers}
+        onRemoveMember={showingTopicMembers ? undefined : onRemoveMember}
+        onRemoveAgent={showingTopicMembers ? undefined : onRemoveAgent}
         onSelectAgent={onSelectAgent}
       />
 

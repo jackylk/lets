@@ -103,6 +103,18 @@ describe("<MembersList />", () => {
     expect(screen.queryByText(/我的工作区/)).toBeNull();
   });
 
+  it("can label the list as topic members without the workspace permission guide", () => {
+    render(
+      <MembersList
+        members={[ownerMember, agentMember]}
+        title="当前话题成员"
+        showPermissionsGuide={false}
+      />,
+    );
+    expect(screen.getByText("当前话题成员")).toBeInTheDocument();
+    expect(screen.queryByText("权限说明")).toBeNull();
+  });
+
   it("shows a workspace permission guide", () => {
     render(<MembersList members={[ownerMember, regularMember]} />);
     expect(screen.getByText("权限说明")).toBeInTheDocument();

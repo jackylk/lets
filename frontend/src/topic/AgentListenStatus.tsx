@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import type { MessageDTO, WorkspaceMember } from "../api/types";
+import type { MessageDTO, TopicDTO, WorkspaceMember } from "../api/types";
 import { agentShortName } from "../agent/display";
 import { parseBackendTs } from "../lib/time";
 
 interface Props {
   messages: MessageDTO[];
   workspaceMembers?: WorkspaceMember[];
+  agentInterventionMode?: TopicDTO["agent_intervention_mode"];
+  showIdle?: boolean;
   /** Optional: handle clicking "↓ N 条未读" — defaults to scrolling to first unread. */
   onJumpToUnread?: () => void;
 }
@@ -46,7 +48,13 @@ function debounceWindowFor(msg: MessageDTO): number {
  *   • thinking — "Neo 思考中 · 已 12s" (pulsing dot, brick-red accent)
  *   • impending — "Neo 即将介入 (X 秒后)" (briefly, after user sends + before agent posts status)
  */
-export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnread }: Props) {
+export function AgentListenStatus({
+  messages,
+  workspaceMembers = [],
+  agentInterventionMode = "auto",
+  showIdle = false,
+  onJumpToUnread,
+}: Props) {
   // Force a re-render every second so relative-time labels stay live in
   // the thinking/impending phases.
   const [, force] = useState(0);
@@ -64,6 +72,10 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
     let lastHumanMsg: MessageDTO | null = null;
     let pendingStatus: MessageDTO | null = null;
     let lastFailure: MessageDTO | null = null;
+    const topicAgents = workspaceMembers.filter(
+      (m): m is Extract<WorkspaceMember, { kind: "agent" }> =>
+        m.kind === "agent" && !m.deleted_at,
+    );
 
     for (const m of messages) {
       if (m.actor_type === "human") {
@@ -151,6 +163,7 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
       phase = "failed";
     } else if (
       lastHumanMsg &&
+      shouldAutoRespondTo(lastHumanMsg, agentInterventionMode, topicAgents) &&
       (!lastAgentActivityAt || lastHumanMsg.created_at > lastAgentActivityAt) &&
       secsSince(lastHumanMsg.created_at) < debounceWindowFor(lastHumanMsg) + 2
       // grace window: count down to fire moment + 2s buffer for SSE lag before
@@ -163,7 +176,7 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
       pendingStatus?.actor_id ??
       lastFailure?.actor_id ??
       lastAgentActivityId ??
-      workspaceMembers.find((m) => m.kind === "agent" && !m.deleted_at)?.id ??
+      topicAgents[0]?.id ??
       null;
     const statusAgent = workspaceMembers.find(
       (m) => m.kind === "agent" && m.id === statusAgentId,
@@ -172,15 +185,17 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
     return {
       lastReadAt, lastAgentReplyAt, unreadCount,
       agentLabel: statusAgent?.kind === "agent" ? agentShortName(statusAgent) : "agent",
+      hasAgent: topicAgents.length > 0 || statusAgentId !== null,
       phase, pendingStatus, lastHumanMsg, lastFailure,
     };
-  }, [messages, workspaceMembers]);
+  }, [agentInterventionMode, messages, workspaceMembers]);
 
   // No data yet → don't show anything (avoids noisy header on a brand-new topic).
   if (
     !summary.lastReadAt &&
     !summary.lastAgentReplyAt &&
-    summary.phase === "idle"
+    summary.phase === "idle" &&
+    !showIdle
   ) return null;
 
   const handleJump = () => {
@@ -210,7 +225,7 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
     <div
       data-testid="agent-listen-status"
       data-phase={summary.phase}
-      className="px-3 md:px-6 pb-2 pt-0.5 text-[11px] italic text-text-dim flex items-center gap-1.5 select-none"
+      className="pb-2 text-[11px] italic text-text-dim flex items-center gap-1.5 select-none"
     >
       <span aria-hidden className={`w-[6px] h-[6px] rounded-full ${dotClass}`} />
       {summary.phase === "thinking" && summary.pendingStatus ? (
@@ -249,7 +264,7 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
       ) : (
         <>
           <b className={`not-italic font-mono text-[10.5px] ${labelClass}`}>
-            {summary.agentLabel} 在听
+            {idleLabel(summary.agentLabel, summary.hasAgent, agentInterventionMode)}
           </b>
           {summary.lastReadAt && <span>· 读到 {ago(summary.lastReadAt)}</span>}
           {summary.lastAgentReplyAt && <span>· 上次发言 {ago(summary.lastAgentReplyAt)}</span>}
@@ -266,4 +281,27 @@ export function AgentListenStatus({ messages, workspaceMembers = [], onJumpToUnr
       )}
     </div>
   );
+}
+
+function shouldAutoRespondTo(
+  msg: MessageDTO,
+  mode: TopicDTO["agent_intervention_mode"],
+  topicAgents: Extract<WorkspaceMember, { kind: "agent" }>[],
+) {
+  if (topicAgents.length === 0 || mode === "silent") return false;
+  if (mode === "auto") return true;
+  if ((msg.body || "").includes("@")) return true;
+  const addressedTo = msg.addressed_to ?? "";
+  return topicAgents.some((agent) => addressedTo.split(",").includes(`agent:${agent.id}`));
+}
+
+function idleLabel(
+  agentLabel: string,
+  hasAgent: boolean,
+  mode: TopicDTO["agent_intervention_mode"],
+) {
+  if (!hasAgent) return "未加入 agent";
+  if (mode === "silent") return `${agentLabel} 静默`;
+  if (mode === "mentions") return `${agentLabel} 等待 @`;
+  return `${agentLabel} 在听`;
 }
