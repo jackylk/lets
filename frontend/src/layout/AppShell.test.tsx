@@ -27,6 +27,14 @@ describe("<AppShell />", () => {
     expect(grid.className).toContain("grid");
   });
 
+  it("locks the app shell to the viewport instead of the document scroll", () => {
+    renderWithProviders(<AppShell sidebar={<i />} main={<i />} context={<i />} />);
+    const grid = screen.getByTestId("app-shell");
+    expect(grid.className).toContain("fixed");
+    expect(grid.className).toContain("inset-0");
+    expect(grid.className).toContain("overflow-hidden");
+  });
+
   it("keeps the context panel in the desktop grid", () => {
     renderWithProviders(
       <AppShell sidebar={<i />} main={<i />} context={<div>CTX</div>} />,

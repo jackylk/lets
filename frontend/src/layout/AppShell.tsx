@@ -72,7 +72,7 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
   return (
     <div
       data-testid="app-shell"
-      className="grid h-[100dvh] relative"
+      className="fixed inset-0 grid h-[100dvh] max-h-[100dvh] w-screen overflow-hidden"
       style={{
         gridTemplateColumns: `${sideW}px minmax(0, 1fr) ${contextW}px`,
         transition: "grid-template-columns .18s ease",
@@ -81,7 +81,7 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
       <aside
         data-testid="app-sidebar"
         data-collapsed={collapsed || undefined}
-        className="relative border-r border-border-soft bg-surface overflow-hidden"
+        className="relative min-h-0 border-r border-border-soft bg-surface overflow-hidden"
       >
         <button
           type="button"
@@ -99,7 +99,7 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
         )}
       </aside>
 
-      <main className="flex flex-col min-w-0 overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0">
+      <main className="flex min-h-0 flex-col min-w-0 overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom))] md:pb-0">
         {main}
       </main>
 
@@ -109,7 +109,7 @@ export function AppShell({ sidebar, sidebarRail, main, context, bottomTabs }: Ap
         aria-hidden="false"
         className={
           "hidden xl:flex flex-col relative min-w-0 h-[100dvh] " +
-          "border-l border-border-soft bg-surface"
+          "min-h-0 overflow-hidden border-l border-border-soft bg-surface"
         }
       >
         {/* Resizer hairline on the drawer's left edge */}
