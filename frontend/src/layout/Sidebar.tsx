@@ -96,10 +96,7 @@ function TopicRow({
       )}
     >
       {renaming ? (
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1">
-          <span className="w-12 flex-shrink-0 font-mono text-[13px] text-text-dim">
-            {topic.slug.slice(0, 6).toUpperCase()}
-          </span>
+        <div className="flex min-w-0 flex-1 items-center px-3 py-1">
           <input
             autoFocus
             value={title}
@@ -120,9 +117,6 @@ function TopicRow({
           onClick={onSelect}
           className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 md:py-1 text-left"
         >
-          <span className="w-12 flex-shrink-0 font-mono text-[13px] text-text-dim">
-            {topic.slug.slice(0, 6).toUpperCase()}
-          </span>
           <span className="truncate">{topic.title}</span>
         </button>
       )}

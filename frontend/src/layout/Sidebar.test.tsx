@@ -178,7 +178,8 @@ describe("<Sidebar />", () => {
   it("does not render ChannelRow — only TopicRow style buttons", () => {
     renderWithProviders(<Sidebar {...defaultProps} />);
     // No old masthead / Let's branding (that was removed from sidebar)
-    // The primary topic button should have TOPIC- (first 6 chars of 'topic-abc12')
-    expect(screen.getByText("TOPIC-")).toBeInTheDocument();
+    // Topic rows should prioritize the title, without the old slug prefix.
+    expect(screen.getByRole("button", { name: "新话题" })).toBeInTheDocument();
+    expect(screen.queryByText("TOPIC-")).not.toBeInTheDocument();
   });
 });
