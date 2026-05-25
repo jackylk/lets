@@ -65,6 +65,61 @@ def test_accept_invite_adds_member(temp_db, client):
     assert ws["id"] in [w["id"] for w in bobs]
 
 
+def test_topic_invite_adds_member_to_workspace_and_topic(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "private", "title": "Private"},
+    ).json()
+    inv = client.post(
+        f"/api/workspaces/{ws['id']}/invites",
+        json={"topic_id": topic["id"]},
+    ).json()
+    assert inv["topic_id"] == topic["id"]
+
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+    r = client.post(f"/api/invites/{inv['token']}/accept")
+    assert r.status_code == 200
+    assert r.json()["workspace_id"] == ws["id"]
+    assert r.json()["topic_id"] == topic["id"]
+
+    visible = client.get(f"/api/workspaces/{ws['id']}/topics?scope=all").json()
+    assert topic["id"] in {t["id"] for t in visible}
+    assert client.get(f"/api/topics/{topic['id']}/messages").status_code == 200
+
+
+def test_topic_invite_existing_workspace_member_adds_topic_only(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "private", "title": "Private"},
+    ).json()
+    workspace_inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+    topic_inv = client.post(
+        f"/api/workspaces/{ws['id']}/invites",
+        json={"topic_id": topic["id"]},
+    ).json()
+
+    client.post("/api/auth/logout")
+    _login(client, "bob", "b@b")
+    assert client.post(f"/api/invites/{workspace_inv['token']}/accept").status_code == 200
+    assert client.get(f"/api/topics/{topic['id']}/messages").status_code == 403
+
+    accept = client.post(f"/api/invites/{topic_inv['token']}/accept")
+    assert accept.status_code == 200
+    assert accept.json()["topic_id"] == topic["id"]
+    assert client.get(f"/api/topics/{topic['id']}/messages").status_code == 200
+
+    client.post("/api/auth/logout")
+    _login(client, "alice")
+    invs = client.get(f"/api/workspaces/{ws['id']}/invites").json()
+    used_by_token = {inv["token"]: inv["used_count"] for inv in invs}
+    assert used_by_token[topic_inv["token"]] == 1
+
+
 def test_accept_invite_idempotent(temp_db, client):
     _login(client, "alice")
     ws = client.post("/api/workspaces", json={"name": "A"}).json()

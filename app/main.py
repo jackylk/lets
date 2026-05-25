@@ -433,6 +433,38 @@ def _add_human_to_workspace_public_topics(
     )
 
 
+def _add_invited_human_to_topic(
+    conn,
+    topic_id: int,
+    workspace_id: int,
+    human_id: int,
+    *,
+    added_by_human_id: int | None = None,
+) -> bool:
+    topic = conn.execute(
+        """
+        SELECT 1
+        FROM topics
+        WHERE id = ?
+          AND workspace_id = ?
+          AND deleted_at IS NULL
+        """,
+        (topic_id, workspace_id),
+    ).fetchone()
+    if topic is None:
+        return False
+    before = _participant_exists(conn, topic_id, "human", human_id)
+    _add_topic_participant(
+        conn,
+        topic_id,
+        "human",
+        human_id,
+        role="member",
+        added_by_human_id=added_by_human_id,
+    )
+    return not before
+
+
 def ensure_agent(name: str, agent_type: str) -> int:
     with connect() as conn:
         row = conn.execute("SELECT id FROM agents WHERE name = ?", (name,)).fetchone()
@@ -2301,6 +2333,10 @@ class WorkspaceUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
 
+class WorkspaceInviteCreate(BaseModel):
+    topic_id: int | None = None
+
+
 @app.get("/api/workspaces")
 def list_workspaces(
     principal: dict = Depends(get_api_principal),
@@ -2530,6 +2566,7 @@ def remove_workspace_member(
 @app.post("/api/workspaces/{workspace_id}/invites")
 def create_workspace_invite(
     workspace_id: int,
+    payload: WorkspaceInviteCreate,
     request: Request,
     principal: dict = Depends(get_api_principal),
 ) -> dict:
@@ -2537,18 +2574,33 @@ def create_workspace_invite(
     require_workspace_owner(workspace_id, int(principal["human_id"]))
     token = generate_invite_token()
     with connect() as conn:
+        if payload.topic_id is not None:
+            topic = conn.execute(
+                """
+                SELECT 1
+                FROM topics
+                WHERE id = ?
+                  AND workspace_id = ?
+                  AND deleted_at IS NULL
+                """,
+                (payload.topic_id, workspace_id),
+            ).fetchone()
+            if topic is None:
+                raise HTTPException(status_code=404, detail="topic not found")
         row = conn.execute(
             """
-            INSERT INTO workspace_invites (workspace_id, token, created_by_human_id)
-            VALUES (?, ?, ?)
-            RETURNING id, token, created_at
+            INSERT INTO workspace_invites
+                (workspace_id, topic_id, token, created_by_human_id)
+            VALUES (?, ?, ?, ?)
+            RETURNING id, token, topic_id, created_at
             """,
-            (workspace_id, token, principal["human_id"]),
+            (workspace_id, payload.topic_id, token, principal["human_id"]),
         ).fetchone()
     base_url = _public_base_url(request)
     return {
         "id": int(row["id"]),
         "token": row["token"],
+        "topic_id": int(row["topic_id"]) if row["topic_id"] is not None else None,
         "join_url": f"{base_url}/join/{row['token']}",
         "created_at": row["created_at"].isoformat() if row["created_at"] else None,
     }
@@ -2564,7 +2616,7 @@ def list_workspace_invites(
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, token, created_by_human_id, used_count,
+            SELECT id, token, topic_id, created_by_human_id, used_count,
                    expires_at, max_uses, created_at
             FROM workspace_invites
             WHERE workspace_id = ?
@@ -2660,7 +2712,7 @@ def accept_invite(
     with connect() as conn:
         inv = conn.execute(
             """
-            SELECT id, workspace_id, max_uses, used_count, expires_at
+            SELECT id, workspace_id, topic_id, max_uses, used_count, expires_at
             FROM workspace_invites
             WHERE token = ?
               AND revoked_at IS NULL
@@ -2678,6 +2730,7 @@ def accept_invite(
             """,
             (inv["workspace_id"], human_id),
         ).fetchone()
+        changed = False
         if already is None:
             conn.execute(
                 """
@@ -2686,6 +2739,25 @@ def accept_invite(
                 """,
                 (inv["workspace_id"], human_id),
             )
+            changed = True
+        _add_human_to_workspace_public_topics(
+            conn,
+            int(inv["workspace_id"]),
+            human_id,
+            role="member",
+            added_by_human_id=human_id,
+        )
+        topic_id = int(inv["topic_id"]) if inv["topic_id"] is not None else None
+        if topic_id is not None:
+            added = _add_invited_human_to_topic(
+                conn,
+                topic_id,
+                int(inv["workspace_id"]),
+                human_id,
+                added_by_human_id=human_id,
+            )
+            changed = changed or added
+        if changed:
             conn.execute(
                 """
                 UPDATE workspace_invites
@@ -2694,14 +2766,7 @@ def accept_invite(
                 """,
                 (inv["id"],),
             )
-        _add_human_to_workspace_public_topics(
-            conn,
-            int(inv["workspace_id"]),
-            human_id,
-            role="member",
-            added_by_human_id=human_id,
-        )
-    return {"workspace_id": int(inv["workspace_id"])}
+    return {"workspace_id": int(inv["workspace_id"]), "topic_id": topic_id}
 
 
 @app.post("/api/invites/{token}/accept-guest")
@@ -2711,7 +2776,7 @@ def accept_invite_as_guest(token: str, payload: GuestInviteAccept) -> JSONRespon
     with connect() as conn:
         inv = conn.execute(
             """
-            SELECT id, workspace_id, max_uses, used_count, expires_at
+            SELECT id, workspace_id, topic_id, max_uses, used_count, expires_at
             FROM workspace_invites
             WHERE token = ?
               AND revoked_at IS NULL
@@ -2755,11 +2820,21 @@ def accept_invite_as_guest(token: str, payload: GuestInviteAccept) -> JSONRespon
             role="member",
             added_by_human_id=human_id,
         )
+        topic_id = int(inv["topic_id"]) if inv["topic_id"] is not None else None
+        if topic_id is not None:
+            _add_invited_human_to_topic(
+                conn,
+                topic_id,
+                int(inv["workspace_id"]),
+                human_id,
+                added_by_human_id=human_id,
+            )
 
     session_value = issue_session(human_id)
     res = JSONResponse(
         {
             "workspace_id": int(inv["workspace_id"]),
+            "topic_id": topic_id,
             "human": {"id": human_id, "name": guest_name, "is_guest": True},
         }
     )
@@ -3430,6 +3505,7 @@ def get_topic_participants(
                 ai.id,
                 ai.device_label,
                 ai.display_name,
+                ai.model,
                 ai.deleted_at,
                 ar.name AS role,
                 ah.name AS human_name,
@@ -3447,6 +3523,7 @@ def get_topic_participants(
                 ai.id,
                 ai.device_label,
                 ai.display_name,
+                ai.model,
                 ai.deleted_at,
                 ar.name AS role,
                 ah.name AS human_name,
@@ -3464,7 +3541,7 @@ def get_topic_participants(
                   AND tp.participant_type = 'agent'
                   AND tp.participant_id = m.actor_id
               )
-            GROUP BY ai.id, ai.device_label, ai.display_name, ai.deleted_at, ar.name, ah.name
+            GROUP BY ai.id, ai.device_label, ai.display_name, ai.model, ai.deleted_at, ar.name, ah.name
             ORDER BY id ASC
             """,
             (topic_id, topic_id),

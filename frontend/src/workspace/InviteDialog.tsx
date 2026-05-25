@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 interface Props {
   workspaceName: string;
+  topicTitle?: string | null;
   joinUrl: string;
   onClose: () => void;
 }
@@ -30,7 +31,7 @@ async function copyText(value: string) {
   }
 }
 
-export function InviteDialog({ workspaceName, joinUrl, onClose }: Props) {
+export function InviteDialog({ workspaceName, topicTitle, joinUrl, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
@@ -72,10 +73,14 @@ export function InviteDialog({ workspaceName, joinUrl, onClose }: Props) {
           id="invite-dialog-title"
           className="mb-3 font-[var(--font-display)] text-lg text-text"
         >
-          邀请成员加入「{workspaceName}」
+          {topicTitle
+            ? `邀请同事加入「${topicTitle}」`
+            : `邀请成员加入「${workspaceName}」`}
         </h2>
         <p className="mb-4 text-sm leading-6 text-text-dim">
-          复制这个邀请链接发给对方。对方输入显示名即可作为访客加入，也可以用 GitHub 继续。
+          {topicTitle
+            ? `复制链接发给对方。对方会加入「${workspaceName}」，并直接进入这个话题。`
+            : "复制这个邀请链接发给对方。对方输入显示名即可作为访客加入，也可以用 GitHub 继续。"}
         </p>
 
         <div className="mb-4 rounded border border-border bg-surface-elev p-2.5">

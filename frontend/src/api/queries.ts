@@ -539,10 +539,15 @@ export function useRemoveWorkspaceAgent(workspaceId: number | null) {
 export function useCreateInvite() {
   const identity = useIdentity();
   return useMutation({
-    mutationFn: (workspaceId: number) =>
-      apiRequest<WorkspaceInvite>(`/api/workspaces/${workspaceId}/invites`, {
-        method: "POST", body: {}, identity,
-      }),
+    mutationFn: (input: number | { workspaceId: number; topicId?: number | null }) => {
+      const workspaceId = typeof input === "number" ? input : input.workspaceId;
+      const topicId = typeof input === "number" ? undefined : input.topicId;
+      return apiRequest<WorkspaceInvite>(`/api/workspaces/${workspaceId}/invites`, {
+        method: "POST",
+        body: topicId === undefined || topicId === null ? {} : { topic_id: topicId },
+        identity,
+      });
+    },
   });
 }
 

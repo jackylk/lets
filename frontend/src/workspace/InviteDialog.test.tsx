@@ -36,6 +36,20 @@ describe("InviteDialog", () => {
     expect(screen.getByText("已复制")).toBeInTheDocument();
   });
 
+  it("can describe a topic-scoped invite", () => {
+    render(
+      <InviteDialog
+        workspaceName="我的工作区"
+        topicTitle="自然语言文件检索工具"
+        joinUrl="https://x/y"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("邀请同事加入「自然语言文件检索工具」")).toBeInTheDocument();
+    expect(screen.getByText(/会加入「我的工作区」，并直接进入这个话题/)).toBeInTheDocument();
+  });
+
   it("calls onClose when 完成 clicked", () => {
     const onClose = vi.fn();
     render(<InviteDialog workspaceName="X" joinUrl="https://x/y" onClose={onClose} />);

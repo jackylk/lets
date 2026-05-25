@@ -39,6 +39,12 @@ export function roleTitle(role: string) {
   return role;
 }
 
+export function defaultModelForRole(role: string) {
+  if (role === "claude") return "claude-opus-4-7";
+  if (role === "codex") return "gpt-5.5";
+  return null;
+}
+
 export function agentShortName(agent: AgentLike | WorkspaceAgentLike) {
   const id = "agent_instance_id" in agent ? agent.agent_instance_id : agent.id;
   return agent.display_name || fallbackAgentName(id) || `${agent.role}-${id}`;

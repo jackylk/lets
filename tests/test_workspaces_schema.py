@@ -29,7 +29,7 @@ def test_workspace_invites_table_columns(temp_db):
         cols = _cols(conn, "workspace_invites")
     assert {
         "id", "workspace_id", "token", "created_by_human_id",
-        "expires_at", "max_uses", "used_count", "revoked_at", "created_at",
+        "topic_id", "expires_at", "max_uses", "used_count", "revoked_at", "created_at",
     }.issubset(cols)
 
 

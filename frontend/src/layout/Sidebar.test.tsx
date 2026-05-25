@@ -175,6 +175,26 @@ describe("<Sidebar />", () => {
     expect(screen.getByRole("button", { name: "邀请工作区成员或 agent" })).toBeInTheDocument();
   });
 
+  it("offers a topic-scoped invite action from the current topic member section", async () => {
+    const onInviteTopicMember = vi.fn();
+    renderWithProviders(
+      <Sidebar
+        {...defaultProps}
+        topics={[makeTopic(1, "t-ppt", "为 Agent 记忆写一个研讨 PPT")]}
+        allTopics={[makeTopic(1, "t-ppt", "为 Agent 记忆写一个研讨 PPT")]}
+        activeTopicId={1}
+        canManageMembers
+        onInviteTopicMember={onInviteTopicMember}
+      />,
+    );
+
+    await screen.findByText("当前话题成员");
+    fireEvent.click(screen.getByRole("button", { name: "邀请同事到此话题" }));
+    fireEvent.click(screen.getByText("邀请同事到此话题"));
+
+    expect(onInviteTopicMember).toHaveBeenCalledOnce();
+  });
+
   it("calls invite handlers from the members section add menu", () => {
     const onInviteMember = vi.fn();
     const onInviteAgent = vi.fn();

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MessageDTO, WorkspaceMember, WorkspaceMemberAgent } from "../api/types";
-import { agentShortName, roleTitle } from "../agent/display";
+import { agentShortName, defaultModelForRole, roleTitle } from "../agent/display";
 import { parseBackendTs } from "../lib/time";
 
 interface Props {
@@ -8,7 +8,8 @@ interface Props {
   messages?: MessageDTO[];
   title?: string;
   titleAction?: ReactNode;
-  showPermissionsGuide?: boolean;
+  inviteButtonLabel?: string;
+  inviteMemberLabel?: string;
   onInviteMember?: () => void;
   onInviteAgent?: () => void;
   canManageMembers?: boolean;
@@ -22,7 +23,8 @@ export function MembersList({
   messages = [],
   title = "当前工作区成员",
   titleAction,
-  showPermissionsGuide = true,
+  inviteButtonLabel = "邀请工作区成员或 agent",
+  inviteMemberLabel = "邀请成员",
   onInviteMember,
   onInviteAgent,
   canManageMembers = false,
@@ -91,7 +93,7 @@ export function MembersList({
             <div ref={inviteMenuRef} className="relative">
               <button
                 type="button"
-                aria-label="邀请工作区成员或 agent"
+                aria-label={inviteButtonLabel}
                 title="邀请"
                 onClick={() => setInviteMenuOpen((v) => !v)}
                 className="grid h-6 w-6 place-items-center rounded-[3px] text-[16px] leading-none text-text-dim hover:bg-surface-hover hover:text-text"
@@ -107,7 +109,7 @@ export function MembersList({
                         onInviteMember();
                       }}
                     >
-                      邀请成员
+                      {inviteMemberLabel}
                     </InviteMenuItem>
                   )}
                   {onInviteAgent && (
@@ -161,8 +163,9 @@ export function MembersList({
           const online = Boolean(m.is_online);
           const statusLabel = topicStatus.label || (online ? "在线" : "离线");
           const compactStatusLabel = compactAgentStatusLabel(statusLabel);
-          const modelLabel = m.model?.trim() || "默认模型";
+          const modelLabel = m.model?.trim() || defaultModelForRole(m.role) || "未设置模型";
           const captionTitle = `${roleTitle(m.role)} · ${modelLabel} · ${statusLabel}`;
+          const visibleCaption = `${roleTitle(m.role)} · ${modelLabel} · ${compactStatusLabel}`;
           return (
             <div
               key={`a-${m.id}`}
@@ -179,7 +182,7 @@ export function MembersList({
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[12px] text-text-dim" title={captionTitle}>
                   <span className={topicStatus.tone === "working" ? "text-accent-text" : ""}>
-                    {compactStatusLabel}
+                    {visibleCaption}
                   </span>
                 </span>
                 {(m.paused_at || m.deleted_at) && (
@@ -206,42 +209,7 @@ export function MembersList({
           <div className="text-sm text-text-dim italic">暂无成员</div>
         )}
       </div>
-      {showPermissionsGuide && <PermissionsGuide />}
     </div>
-  );
-}
-
-function PermissionsGuide() {
-  const rows = [
-    ["Owner", "管理成员/agent；创建、归档、删除话题；查看全部话题"],
-    ["GitHub 成员", "创建话题；参与公开话题和被加入的私有话题"],
-    ["访客", "只参与可见话题；不能创建话题、邀请成员或管理 agent"],
-    ["Agent", "只参与被加入的话题；按插话规则回复；可读取聊天和共享文件上下文；不能管理成员或创建话题"],
-  ];
-  return (
-    <details className="mt-2 rounded border border-border-soft bg-surface-elev px-2 py-1.5">
-      <summary className="cursor-pointer select-none text-[11.5px] font-medium text-text-dim">
-        权限说明
-      </summary>
-      <div className="mt-1.5 overflow-x-auto">
-        <table className="w-full text-left text-[11px] leading-snug text-text-muted">
-          <thead className="text-text-dim">
-            <tr>
-              <th className="w-20 py-1 pr-2 font-medium">角色</th>
-              <th className="py-1 font-medium">权限</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(([role, permissions]) => (
-              <tr key={role} className="border-t border-border-soft align-top">
-                <td className="py-1 pr-2 font-medium text-text">{role}</td>
-                <td className="py-1">{permissions}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
   );
 }
 

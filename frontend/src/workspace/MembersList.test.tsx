@@ -59,15 +59,14 @@ describe("<MembersList />", () => {
   it("renders agent caption with owner_name", () => {
     render(<MembersList members={[agentMember]} />);
     expect(screen.getByText("Link")).toBeInTheDocument();
-    expect(screen.getByText("在线")).toBeInTheDocument();
-    expect(screen.getByTitle("Claude Code · 默认模型 · 在线")).toBeInTheDocument();
+    expect(screen.getByText("Claude Code · claude-opus-4-7 · 在线")).toBeInTheDocument();
+    expect(screen.getByTitle("Claude Code · claude-opus-4-7 · 在线")).toBeInTheDocument();
     expect(screen.getByLabelText("Link 在线")).toBeInTheDocument();
   });
 
-  it("keeps agent type and model in the hover title", () => {
+  it("shows agent type and model in the row", () => {
     render(<MembersList members={[{ ...agentMember, model: "gpt-5-codex" }]} />);
-    expect(screen.getByText("在线")).toBeInTheDocument();
-    expect(screen.queryByText(/gpt-5-codex/)).toBeNull();
+    expect(screen.getByText("Claude Code · gpt-5-codex · 在线")).toBeInTheDocument();
     expect(screen.getByTitle("Claude Code · gpt-5-codex · 在线")).toBeInTheDocument();
   });
 
@@ -108,22 +107,16 @@ describe("<MembersList />", () => {
       <MembersList
         members={[ownerMember, agentMember]}
         title="当前话题成员"
-        showPermissionsGuide={false}
       />,
     );
     expect(screen.getByText("当前话题成员")).toBeInTheDocument();
     expect(screen.queryByText("权限说明")).toBeNull();
   });
 
-  it("shows a workspace permission guide", () => {
+  it("does not show the workspace permission guide", () => {
     render(<MembersList members={[ownerMember, regularMember]} />);
-    expect(screen.getByText("权限说明")).toBeInTheDocument();
-    expect(screen.getByText("Owner")).toBeInTheDocument();
-    expect(screen.getByText("GitHub 成员")).toBeInTheDocument();
-    expect(screen.getByText("访客")).toBeInTheDocument();
-    expect(screen.getByText("Agent")).toBeInTheDocument();
-    expect(screen.getByText(/按插话规则回复/)).toBeInTheDocument();
-    expect(screen.getByText(/不能创建话题/)).toBeInTheDocument();
+    expect(screen.queryByText("权限说明")).toBeNull();
+    expect(screen.queryByText(/按插话规则回复/)).toBeNull();
   });
 
   it("keeps agent owner name out of the compact status caption", () => {

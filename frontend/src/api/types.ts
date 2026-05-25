@@ -199,6 +199,7 @@ export type WorkspaceMember = WorkspaceMemberHuman | WorkspaceMemberAgent;
 export interface WorkspaceInvite {
   id: number;
   token: string;
+  topic_id?: number | null;
   join_url: string;
   created_at: string;
 }
@@ -211,6 +212,7 @@ export interface ParticipantsDTO {
     id: number;
     device_label: string | null;
     display_name: string | null;
+    model?: string | null;
     deleted_at?: string | null;
     role: string;
     human_name: string;

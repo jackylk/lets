@@ -31,7 +31,7 @@ describe("JoinTokenPage", () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ workspace_id: 42 }),
+        json: () => Promise.resolve({ workspace_id: 42, topic_id: 99 }),
       });
     vi.stubGlobal("fetch", mockFetch);
 
@@ -39,6 +39,7 @@ describe("JoinTokenPage", () => {
     expect(screen.getByText(/加入工作区中/)).toBeInTheDocument();
     await waitFor(() => {
       expect(window.location.href).toContain("workspace=42");
+      expect(window.location.href).toContain("topic=99");
     });
 
     vi.unstubAllGlobals();

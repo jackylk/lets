@@ -270,7 +270,13 @@ def test_add_topic_participants_from_workspace_pool(temp_db, client):
             "VALUES (?, ?, 'member') RETURNING workspace_id",
             (ws["id"], bob_id),
         )
-    agent_id = ensure_agent_instance("claude", bob_id, "bob-mbp", workspace_id=ws["id"])
+    agent_id = ensure_agent_instance(
+        "claude",
+        bob_id,
+        "bob-mbp",
+        workspace_id=ws["id"],
+        model="claude-opus-4-7",
+    )
 
     r = client.post(
         f"/api/topics/{topic['id']}/participants",
@@ -285,6 +291,8 @@ def test_add_topic_participants_from_workspace_pool(temp_db, client):
     )
     assert r.status_code == 200
     assert agent_id in {a["id"] for a in r.json()["agents"]}
+    agent = next(a for a in r.json()["agents"] if a["id"] == agent_id)
+    assert agent["model"] == "claude-opus-4-7"
 
     r = client.delete(f"/api/topics/{topic['id']}/participants/agent/{agent_id}")
     assert r.status_code == 200

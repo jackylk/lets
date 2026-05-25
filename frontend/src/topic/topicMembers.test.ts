@@ -57,6 +57,7 @@ describe("topicMembersFromParticipants", () => {
         role: "claude",
         device_label: "neo-mbp",
         display_name: "Neo",
+        model: "claude-opus-4-7",
         human_name: "Neo",
       }],
     };
@@ -82,5 +83,27 @@ describe("topicMembersFromParticipants", () => {
     };
 
     expect(topicMembersFromParticipants([agentMember], participants, { visibility: "private" })).toEqual([]);
+  });
+
+  it("preserves agent model from participant fallback rows", () => {
+    const participants: ParticipantsDTO = {
+      is_public: false,
+      humans: [],
+      agents: [{
+        id: 12,
+        role: "codex",
+        device_label: "neo-mbp",
+        display_name: "Morpheus",
+        model: "gpt-5-codex",
+        human_name: "Neo",
+      }],
+    };
+
+    const [agent] = topicMembersFromParticipants([], participants, { visibility: "private" });
+    expect(agent).toMatchObject({
+      kind: "agent",
+      id: 12,
+      model: "gpt-5-codex",
+    });
   });
 });

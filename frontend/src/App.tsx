@@ -54,6 +54,13 @@ export default function App() {
 }
 
 function Workspace() {
+  const initialParams =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : new URLSearchParams();
+  const requestedWorkspaceId = Number(initialParams.get("workspace")) || null;
+  const requestedTopicId = Number(initialParams.get("topic")) || null;
+
   // Fetch workspaces; default to first workspace
   const workspacesQuery = useWorkspaces();
   const workspaces = workspacesQuery.data ?? [];
@@ -62,10 +69,12 @@ function Workspace() {
 
   useEffect(() => {
     if (activeWorkspaceId === null && workspaces.length > 0) {
-      const first = workspaces[0];
+      const first =
+        workspaces.find((workspace) => workspace.id === requestedWorkspaceId) ??
+        workspaces[0];
       if (first) setActiveWorkspaceId(first.id);
     }
-  }, [workspaces, activeWorkspaceId]);
+  }, [workspaces, activeWorkspaceId, requestedWorkspaceId]);
 
   const activeWorkspace: Workspace | undefined = workspaces.find(
     (w) => w.id === activeWorkspaceId,
@@ -87,10 +96,12 @@ function Workspace() {
   const [topicId, setTopicId] = useState<number | null>(null);
   useEffect(() => {
     if (topicId === null && topics.length > 0) {
-      const t = [...topics].sort((a, b) => b.id - a.id)[0];
+      const t =
+        topics.find((topic) => topic.id === requestedTopicId) ??
+        [...topics].sort((a, b) => b.id - a.id)[0];
       if (t) setTopicId(t.id);
     }
-  }, [topics, topicId]);
+  }, [topics, topicId, requestedTopicId]);
 
   // Reset topicId when switching workspaces so we re-select from new topic list
   const handleSwitchWorkspace = (id: number) => {
@@ -208,6 +219,14 @@ function Workspace() {
     });
   };
 
+  const handleInviteTopicMember = () => {
+    const activeTopicId = view.kind === "topic" && view.id > 0 ? view.id : topicId;
+    if (!activeWorkspace || !activeTopicId) return;
+    createInvite.mutate({ workspaceId: activeWorkspace.id, topicId: activeTopicId }, {
+      onSuccess: (inv) => setActiveInvite(inv),
+    });
+  };
+
   const handleInviteAgent = () => {
     if (!activeWorkspace) return;
     setShowInviteAgent(true);
@@ -248,6 +267,7 @@ function Workspace() {
       onRestoreTopic={handleRestoreTopic}
       onDeleteTopic={handleDeleteTopic}
       onInviteMember={handleInviteMember}
+      onInviteTopicMember={handleInviteTopicMember}
       onInviteAgent={handleInviteAgent}
       canManageMembers={activeWorkspace?.my_role === "owner"}
       onRemoveMember={handleRemoveWorkspaceMember}
@@ -344,6 +364,11 @@ function Workspace() {
       {activeInvite && (
         <InviteDialog
           workspaceName={activeWorkspace?.name ?? ""}
+          topicTitle={
+            activeInvite.topic_id
+              ? [...topics, ...allTopics, ...archivedTopics].find((topic) => topic.id === activeInvite.topic_id)?.title
+              : undefined
+          }
           joinUrl={activeInvite.join_url}
           onClose={() => setActiveInvite(null)}
         />

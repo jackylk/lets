@@ -322,20 +322,23 @@ export const handlers = [
       },
     ]),
   ),
-  http.post("/api/workspaces/:id/invites", ({ params }) =>
-    HttpResponse.json({
+  http.post("/api/workspaces/:id/invites", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { topic_id?: number | null };
+    return HttpResponse.json({
       id: 1, token: "mock-token-abc",
+      topic_id: body.topic_id ?? null,
       join_url: `http://localhost/join/mock-token-abc`,
       created_at: "2026-01-01T00:00:00Z",
-    }, { status: 201 }),
-  ),
+    }, { status: 201 });
+  }),
   http.post("/api/invites/:token/accept", () =>
-    HttpResponse.json({ workspace_id: 1 }),
+    HttpResponse.json({ workspace_id: 1, topic_id: null }),
   ),
   http.post("/api/invites/:token/accept-guest", async ({ request }) => {
     const body = (await request.json()) as { name?: string };
     return HttpResponse.json({
       workspace_id: 1,
+      topic_id: null,
       human: { id: 2, name: body.name ?? "Guest", is_guest: true },
     });
   }),
@@ -443,6 +446,7 @@ export const handlers = [
         .filter((a) => agentIds.has(a.id))
         .map((a) => ({
           id: a.id, role: a.role, device_label: a.device_label, display_name: a.display_name,
+          model: (a as typeof a & { model?: string | null }).model ?? null,
           human_name: seed.humans.find((h) => h.id === a.human_id)?.name ?? "",
         })),
     });

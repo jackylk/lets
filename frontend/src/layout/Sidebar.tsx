@@ -30,6 +30,7 @@ interface Props {
   onRestoreTopic?: (id: number) => void | Promise<unknown>;
   onDeleteTopic?: (id: number) => void | Promise<unknown>;
   onInviteMember: () => void;
+  onInviteTopicMember?: () => void;
   onInviteAgent?: () => void;
   canManageMembers?: boolean;
   onRemoveMember?: (humanId: number) => void | Promise<unknown>;
@@ -219,6 +220,7 @@ export function Sidebar({
   onRestoreTopic,
   onDeleteTopic,
   onInviteMember,
+  onInviteTopicMember,
   onInviteAgent,
   canManageMembers,
   onRemoveMember,
@@ -442,8 +444,9 @@ export function Sidebar({
             </button>
           ) : undefined
         }
-        showPermissionsGuide={!showingTopicMembers}
-        onInviteMember={showingTopicMembers ? undefined : onInviteMember}
+        inviteButtonLabel={showingTopicMembers ? "邀请同事到此话题" : undefined}
+        inviteMemberLabel={showingTopicMembers ? "邀请同事到此话题" : undefined}
+        onInviteMember={showingTopicMembers ? (canManageMembers ? onInviteTopicMember : undefined) : onInviteMember}
         onInviteAgent={showingTopicMembers ? undefined : onInviteAgent}
         canManageMembers={showingTopicMembers ? false : canManageMembers}
         onRemoveMember={showingTopicMembers ? undefined : onRemoveMember}

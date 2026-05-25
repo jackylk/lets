@@ -5,6 +5,17 @@ interface Props {
   token: string;
 }
 
+interface InviteAcceptResponse {
+  workspace_id: number;
+  topic_id?: number | null;
+}
+
+function redirectAfterAccept(data: InviteAcceptResponse) {
+  const params = new URLSearchParams({ workspace: String(data.workspace_id) });
+  if (data.topic_id) params.set("topic", String(data.topic_id));
+  window.location.href = `/?${params.toString()}`;
+}
+
 export function JoinTokenPage({ token }: Props) {
   const [name, setName] = useState("");
   const [checkingSession, setCheckingSession] = useState(true);
@@ -19,10 +30,10 @@ export function JoinTokenPage({ token }: Props) {
     })
       .then(async (res) => {
         if (!res.ok) throw new Error("failed");
-        return res.json() as Promise<{ workspace_id: number }>;
+        return res.json() as Promise<InviteAcceptResponse>;
       })
       .then((data) => {
-        window.location.href = `/?workspace=${data.workspace_id}`;
+        redirectAfterAccept(data);
       })
       .catch(() => {
         setCheckingSession(false);
@@ -57,10 +68,10 @@ export function JoinTokenPage({ token }: Props) {
     })
       .then(async (res) => {
         if (!res.ok) throw new Error("failed");
-        return res.json() as Promise<{ workspace_id: number }>;
+        return res.json() as Promise<InviteAcceptResponse>;
       })
       .then((data) => {
-        window.location.href = `/?workspace=${data.workspace_id}`;
+        redirectAfterAccept(data);
       })
       .catch(() => {
         setJoining(false);

@@ -53,7 +53,7 @@ export function topicMembersFromParticipants(
       id: agent.id,
       role: agent.role,
       device_label: agent.device_label,
-      model: null,
+      model: agent.model ?? null,
       display_name: agent.display_name,
       owner_human_id: 0,
       owner_name: agent.human_name,
