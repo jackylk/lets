@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { InviteAgentDialog } from "./InviteAgentDialog";
 
 describe("<InviteAgentDialog />", () => {
@@ -13,6 +13,8 @@ describe("<InviteAgentDialog />", () => {
     );
     const cmd = screen.getByTestId("invite-agent-command");
     expect(cmd.textContent).toBe("lets add claude --workspace my-ws");
+    const install = screen.getByTestId("invite-agent-install-command");
+    expect(install.textContent).toContain("/install | bash");
   });
 
   it("switches command when role is changed", () => {
@@ -39,5 +41,29 @@ describe("<InviteAgentDialog />", () => {
     );
     fireEvent.click(screen.getByText("完成"));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("copies install and add commands independently", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      <InviteAgentDialog
+        workspaceName="我的工作区"
+        workspaceSlug="my-ws"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const copyButtons = screen.getAllByText("复制");
+    expect(copyButtons).toHaveLength(2);
+    fireEvent.click(copyButtons[0]!);
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/install | bash")),
+    );
+
+    fireEvent.click(copyButtons[1]!);
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("lets add claude --workspace my-ws"),
+    );
   });
 });

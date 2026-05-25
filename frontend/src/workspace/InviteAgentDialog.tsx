@@ -13,32 +13,64 @@ const ROLES = [
 
 type RoleId = (typeof ROLES)[number]["id"];
 
+function installCommand() {
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "https://lets.up.railway.app";
+  return `curl -fsSL ${origin}/install | bash`;
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fall through to the selection-based fallback below.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    return document.execCommand?.("copy") === true;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
 export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Props) {
   const [role, setRole] = useState<RoleId>("claude");
-  const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  const install = installCommand();
   const command = `lets add ${role} --workspace ${workspaceSlug}`;
 
-  const onCopy = async () => {
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const onCopy = async (key: string, value: string) => {
+    const ok = await copyText(value);
+    if (!ok) return;
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1500);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 grid place-items-center z-50">
-      <div className="bg-bg border border-border rounded p-6 max-w-md w-full">
-        <h2 className="text-lg font-[var(--font-display)] mb-3">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded border border-border bg-bg p-6 shadow-[0_18px_56px_rgba(44,42,38,0.18)]">
+        <h2 className="mb-3 font-[var(--font-display)] text-lg text-text">
           邀请 agent 加入「{workspaceName}」
         </h2>
-        <p className="text-sm text-text-dim mb-3">
-          选一个 agent，然后在你电脑的终端跑这条命令。agent 会用你的身份加入这个工作区。
+        <p className="mb-4 text-sm leading-6 text-text-dim">
+          在要运行 agent 的电脑终端里执行下面命令。agent 会用你的身份加入这个工作区。
         </p>
 
         <div
           role="radiogroup"
           aria-label="Agent role"
-          className="flex gap-2 mb-3"
+          className="mb-4 flex gap-2"
         >
           {ROLES.map((r) => (
             <button
@@ -48,7 +80,7 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
               aria-checked={role === r.id}
               onClick={() => setRole(r.id)}
               className={
-                "text-xs px-3 py-1.5 border rounded transition-colors " +
+                "rounded border px-3 py-1.5 text-xs transition-colors " +
                 (role === r.id
                   ? "border-accent text-text bg-surface-elev"
                   : "border-border text-text-dim hover:text-text")
@@ -59,33 +91,73 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
           ))}
         </div>
 
-        <div className="flex items-center gap-2 mb-4">
-          <code
-            data-testid="invite-agent-command"
-            className="flex-1 bg-hover px-3 py-2 rounded text-xs break-all font-mono"
-          >
-            {command}
-          </code>
-          <button
-            type="button"
-            onClick={onCopy}
-            className="text-xs px-3 py-2 border border-border rounded hover:bg-hover"
-          >
-            {copied ? "已复制" : "复制"}
-          </button>
+        <div className="mb-4 flex flex-col gap-3">
+          <CommandRow
+            label="1. 安装 lets"
+            testId="invite-agent-install-command"
+            command={install}
+            copied={copiedKey === "install"}
+            onCopy={() => onCopy("install", install)}
+          />
+          <CommandRow
+            label="2. 添加 agent"
+            testId="invite-agent-command"
+            command={command}
+            copied={copiedKey === "add"}
+            onCopy={() => onCopy("add", command)}
+          />
         </div>
 
-        <p className="text-xs text-text-dim mb-4">
-          没装过 lets？先看 README 装一下，然后再跑这条命令。
+        <p className="mb-4 text-xs leading-5 text-text-dim">
+          已经装过 lets 的电脑可以直接跳到第 2 步。
         </p>
 
         <div className="flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="text-sm px-4 py-2 border border-border rounded hover:bg-hover"
+            className="rounded bg-text px-3 py-1.5 text-[13px] font-medium text-bg hover:opacity-90"
           >
             完成
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommandRow({
+  label,
+  testId,
+  command,
+  copied,
+  onCopy,
+}: {
+  label: string;
+  testId: string;
+  command: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+        {label}
+      </div>
+      <div className="rounded border border-border bg-surface-elev p-2.5">
+        <div className="flex items-center gap-2">
+          <code
+            data-testid={testId}
+            className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[13px] text-text"
+          >
+            {command}
+          </code>
+          <button
+            type="button"
+            onClick={onCopy}
+            className="shrink-0 rounded bg-text px-2.5 py-1 text-[12px] font-medium text-bg hover:opacity-90"
+          >
+            {copied ? "已复制" : "复制"}
           </button>
         </div>
       </div>
