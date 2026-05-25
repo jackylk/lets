@@ -8,7 +8,6 @@ export function StatusMessage({ message, actor }: { message: MessageDTO; actor: 
     <BaseMessage
       msgId={message.id} actor={actor}
       timeIso={message.created_at}
-      tag="status"
       tone="status"
       body={<span className="font-mono text-[13px]">{message.body}</span>}
     />

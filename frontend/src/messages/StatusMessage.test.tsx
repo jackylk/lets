@@ -4,7 +4,7 @@ import { renderWithProviders } from "../../test/render";
 import { StatusMessage } from "./StatusMessage";
 
 describe("<StatusMessage />", () => {
-  it("shows status tag and body", () => {
+  it("shows the status body without a type tag", () => {
     renderWithProviders(
       <StatusMessage
         actor={{ kind: "claude", initial: "CC", displayName: "claude · neo-mbp" }}
@@ -15,7 +15,7 @@ describe("<StatusMessage />", () => {
         }}
       />,
     );
-    expect(screen.getByText("status")).toBeInTheDocument();
+    expect(screen.queryByText("status")).toBeNull();
     expect(screen.getByText(/active · 读 docs/)).toBeInTheDocument();
   });
 });
