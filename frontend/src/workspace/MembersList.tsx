@@ -121,6 +121,7 @@ export function MembersList({
           const topicStatus = agentStatuses.get(m.id) ?? { label: "", tone: "idle" };
           const online = Boolean(m.is_online);
           const statusLabel = topicStatus.label || (online ? "在线" : "离线");
+          const modelLabel = m.model?.trim() || "默认模型";
           return (
             <button
               key={`a-${m.id}`}
@@ -131,7 +132,7 @@ export function MembersList({
               <PresenceDot online={online} active={topicStatus.tone === "working"} label={`${name} ${online ? "在线" : "离线"}`} />
               <span className="min-w-0 truncate text-[15px] text-text">{name}</span>
               <span className="min-w-0 truncate text-[12px] text-text-dim">
-                {roleTitle(m.role)} · {m.owner_name} 管理 ·{" "}
+                {roleTitle(m.role)} · {modelLabel} ·{" "}
                 <span className={topicStatus.tone === "working" ? "text-accent-text" : ""}>
                   {statusLabel}
                 </span>

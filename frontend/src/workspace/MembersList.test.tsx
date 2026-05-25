@@ -60,8 +60,15 @@ describe("<MembersList />", () => {
     render(<MembersList members={[agentMember]} />);
     expect(screen.getByText("Link")).toBeInTheDocument();
     expect(screen.getByText(/Claude Code/)).toBeInTheDocument();
+    expect(screen.getByText(/默认模型/)).toBeInTheDocument();
     expect(screen.getByText("在线")).toBeInTheDocument();
     expect(screen.getByLabelText("Link 在线")).toBeInTheDocument();
+  });
+
+  it("renders agent model in the status caption", () => {
+    render(<MembersList members={[{ ...agentMember, model: "gpt-5-codex" }]} />);
+    expect(screen.getByText(/gpt-5-codex/)).toBeInTheDocument();
+    expect(screen.getByText("在线")).toBeInTheDocument();
   });
 
   it("renders mixed humans and agents in order", () => {
@@ -79,7 +86,7 @@ describe("<MembersList />", () => {
     expect(screen.queryByText(/我的工作区/)).toBeNull();
   });
 
-  it("adds owner name when two agents have the same display name", () => {
+  it("keeps agent owner name out of the compact status caption", () => {
     const secondAgent: WorkspaceMember = {
       ...agentMember,
       id: 23,
@@ -93,8 +100,8 @@ describe("<MembersList />", () => {
       />,
     );
     expect(screen.getAllByText("Link")).toHaveLength(2);
-    expect(screen.getByText(/Neo 管理/)).toBeInTheDocument();
-    expect(screen.getByText(/Trinity 管理/)).toBeInTheDocument();
+    expect(screen.queryByText(/Neo 管理/)).toBeNull();
+    expect(screen.queryByText(/Trinity 管理/)).toBeNull();
   });
 
   it("opens invite actions from the members header", () => {
