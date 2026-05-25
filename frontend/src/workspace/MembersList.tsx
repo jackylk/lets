@@ -153,7 +153,9 @@ export function MembersList({
           const topicStatus = agentStatuses.get(m.id) ?? { label: "", tone: "idle" };
           const online = Boolean(m.is_online);
           const statusLabel = topicStatus.label || (online ? "在线" : "离线");
+          const compactStatusLabel = compactAgentStatusLabel(statusLabel);
           const modelLabel = m.model?.trim() || "默认模型";
+          const captionTitle = `${roleTitle(m.role)} · ${modelLabel} · ${statusLabel}`;
           return (
             <div
               key={`a-${m.id}`}
@@ -165,11 +167,12 @@ export function MembersList({
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
               >
                 <PresenceDot online={online} active={topicStatus.tone === "working"} label={`${name} ${online ? "在线" : "离线"}`} />
-                <span className="min-w-0 truncate text-[15px] text-text">{name}</span>
-                <span className="min-w-0 truncate text-[12px] text-text-dim">
-                  {roleTitle(m.role)} · {modelLabel} ·{" "}
+                <span className="max-w-[7rem] shrink-0 truncate text-[15px] text-text" title={name}>
+                  {name}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[12px] text-text-dim" title={captionTitle}>
                   <span className={topicStatus.tone === "working" ? "text-accent-text" : ""}>
-                    {statusLabel}
+                    {compactStatusLabel}
                   </span>
                 </span>
                 {(m.paused_at || m.deleted_at) && (
@@ -307,6 +310,13 @@ function ago(iso: string): string {
   const hours = mins / 60;
   if (hours < 24) return `${Math.round(hours)} 小时前`;
   return `${Math.round(hours / 24)} 天前`;
+}
+
+function compactAgentStatusLabel(label: string): string {
+  if (label.startsWith("上次发言 ")) {
+    return `发言${label.slice("上次发言 ".length).replace(/\s+/g, "")}`;
+  }
+  return label.replace(/\s+/g, "");
 }
 
 function secsSince(iso: string): number {

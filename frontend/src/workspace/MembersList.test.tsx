@@ -59,16 +59,16 @@ describe("<MembersList />", () => {
   it("renders agent caption with owner_name", () => {
     render(<MembersList members={[agentMember]} />);
     expect(screen.getByText("Link")).toBeInTheDocument();
-    expect(screen.getByText(/Claude Code/)).toBeInTheDocument();
-    expect(screen.getByText(/默认模型/)).toBeInTheDocument();
     expect(screen.getByText("在线")).toBeInTheDocument();
+    expect(screen.getByTitle("Claude Code · 默认模型 · 在线")).toBeInTheDocument();
     expect(screen.getByLabelText("Link 在线")).toBeInTheDocument();
   });
 
-  it("renders agent model in the status caption", () => {
+  it("keeps agent type and model in the hover title", () => {
     render(<MembersList members={[{ ...agentMember, model: "gpt-5-codex" }]} />);
-    expect(screen.getByText(/gpt-5-codex/)).toBeInTheDocument();
     expect(screen.getByText("在线")).toBeInTheDocument();
+    expect(screen.queryByText(/gpt-5-codex/)).toBeNull();
+    expect(screen.getByTitle("Claude Code · gpt-5-codex · 在线")).toBeInTheDocument();
   });
 
   it("renders mixed humans and agents in order", () => {
