@@ -74,6 +74,32 @@ def test_gateway_login_no_open(monkeypatch, tmp_path):
     assert polls == 1
 
 
+def test_top_level_help_lists_commands_without_run_options(capsys):
+    from app import gateway
+
+    rc = gateway.main(["--help"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "usage: lets <command> [options]" in out
+    assert "leave" in out
+    assert "--persona" not in out
+    assert "--poll-interval" not in out
+
+
+def test_run_help_does_not_expose_persona(capsys):
+    import pytest
+    from app import gateway
+
+    with pytest.raises(SystemExit) as exc:
+        gateway.main(["run", "--help"])
+
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "usage: lets run" in out
+    assert "--persona" not in out
+
+
 def test_gateway_status_uses_human_name_and_human_id_fallback(monkeypatch, tmp_path, capsys):
     import json
     from app import gateway
@@ -332,6 +358,43 @@ def test_codex_command_includes_model():
         "--model",
         "gpt-5-codex",
     ]
+
+
+def test_lets_leave_removes_current_agent_from_workspace(monkeypatch, capsys):
+    from app import gateway
+
+    monkeypatch.setattr(
+        gateway,
+        "_load_token_for_agent",
+        lambda role: {
+            "host": "https://h",
+            "token": "lets_codex",
+            "agent_instance": {"id": 7, "role": "codex", "device_label": "mac"},
+        },
+    )
+    calls: list[tuple[str, str, str]] = []
+
+    def fake_http(host, token, method, path, body=None):
+        calls.append((method, host, path))
+        if method == "GET" and path == "/api/agents/me/memberships":
+            return [
+                {"id": 3, "slug": "my-ws", "name": "我的工作区"},
+                {"id": 4, "slug": "other", "name": "Other"},
+            ]
+        if method == "DELETE" and path == "/api/workspaces/3/agent-members/7":
+            return {"ok": True}
+        raise AssertionError((method, path))
+
+    monkeypatch.setattr(gateway, "_http", fake_http)
+
+    rc = gateway.main(["leave", "--workspace", "my-ws", "--agent", "codex"])
+
+    assert rc == 0
+    assert calls == [
+        ("GET", "https://h", "/api/agents/me/memberships"),
+        ("DELETE", "https://h", "/api/workspaces/3/agent-members/7"),
+    ]
+    assert "codex:mac left workspace 我的工作区" in capsys.readouterr().out
 
 
 def test_lets_gateway_with_agent_picks_per_role_token(monkeypatch, tmp_path):

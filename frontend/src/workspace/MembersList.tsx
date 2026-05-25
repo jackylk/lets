@@ -21,6 +21,10 @@ export function MembersList({
   const [, force] = useState(0);
   const inviteMenuRef = useRef<HTMLDivElement>(null);
   const [inviteMenuOpen, setInviteMenuOpen] = useState(false);
+  const visibleMembers = useMemo(
+    () => members.filter((member) => member.kind !== "agent" || !member.deleted_at),
+    [members],
+  );
   useEffect(() => {
     const t = setInterval(() => force((x) => x + 1), 15_000);
     return () => clearInterval(t);
@@ -43,15 +47,15 @@ export function MembersList({
     };
   }, [inviteMenuOpen]);
 
-  const humanCount = members.filter((m) => m.kind === "human").length;
-  const agentCount = members.filter((m) => m.kind === "agent").length;
+  const humanCount = visibleMembers.filter((m) => m.kind === "human").length;
+  const agentCount = visibleMembers.filter((m) => m.kind === "agent").length;
   const agentStatuses = useMemo(() => {
     const out = new Map<number, AgentTopicStatus>();
-    for (const member of members) {
+    for (const member of visibleMembers) {
       if (member.kind === "agent") out.set(member.id, topicStatusForAgent(member, messages));
     }
     return out;
-  }, [members, messages]);
+  }, [visibleMembers, messages]);
   return (
     <div className="px-3 py-2 border-t border-border">
       <div className="mb-2">
@@ -102,7 +106,7 @@ export function MembersList({
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
-        {members.map((m) => {
+        {visibleMembers.map((m) => {
           if (m.kind === "human") {
             return (
             <div key={`h-${m.id}`} className="flex items-center gap-2 py-1">
@@ -145,7 +149,7 @@ export function MembersList({
             </button>
           );
         })}
-        {members.length === 0 && (
+        {visibleMembers.length === 0 && (
           <div className="text-sm text-text-dim italic">暂无成员</div>
         )}
       </div>

@@ -1415,6 +1415,100 @@ def _topics(argv: list[str]) -> int:
     return 0
 
 
+def _print_main_help() -> None:
+    print(
+        """usage: lets <command> [options]
+
+Commands:
+  add <claude|codex>     authorize and start a local agent
+  leave                  remove this agent from a workspace
+  gateway                start registered agent gateways in the background
+  status                 show local Lets login and autostart status
+  login                  authorize this computer
+  logout                 remove the local token
+  install                install launchd autostart
+  uninstall              remove launchd autostart
+  topics                 list recent topic ids
+  spec <topic-id>        export a topic handoff spec
+  run                    run the foreground gateway loop
+
+Run `lets <command> --help` for command-specific options."""
+    )
+
+
+def _workspace_matches(workspace: dict, target: str) -> bool:
+    normalized = target.strip().lower()
+    return (
+        str(workspace.get("id")) == normalized
+        or str(workspace.get("slug") or "").lower() == normalized
+        or str(workspace.get("name") or "").lower() == normalized
+    )
+
+
+def _leave_workspace(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets leave")
+    parser.add_argument(
+        "--workspace",
+        "-w",
+        required=True,
+        help="Workspace id, slug, or exact name to leave.",
+    )
+    parser.add_argument(
+        "--agent",
+        default=None,
+        help="Agent role to use (claude / codex). Defaults to the saved token.",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="Lets backend URL. Defaults to the host stored at login.",
+    )
+    args = parser.parse_args(argv)
+
+    rec = _load_token_for_agent(args.agent)
+    if not rec or not rec.get("token"):
+        print("Missing token. Run: lets add claude", file=sys.stderr)
+        return 2
+
+    host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "http://127.0.0.1:8000")
+    token = rec["token"]
+    agent = rec.get("agent_instance") or {}
+    agent_id = agent.get("id")
+    if agent_id is None:
+        agent_id = _whoami(host, token).agent_instance_id
+
+    try:
+        memberships = _http(host, token, "GET", "/api/agents/me/memberships") or []
+    except Exception as e:
+        print(f"Failed to list agent workspaces: {e}", file=sys.stderr)
+        return 1
+    matches = [w for w in memberships if _workspace_matches(w, args.workspace)]
+    if not matches:
+        print(f"agent is not in workspace: {args.workspace}", file=sys.stderr)
+        return 1
+    if len(matches) > 1:
+        names = ", ".join(f"{w.get('name')} ({w.get('slug') or w.get('id')})" for w in matches)
+        print(f"workspace is ambiguous: {names}", file=sys.stderr)
+        return 1
+
+    workspace = matches[0]
+    try:
+        _http(
+            host,
+            token,
+            "DELETE",
+            f"/api/workspaces/{workspace['id']}/agent-members/{agent_id}",
+        )
+    except Exception as e:
+        print(f"Failed to leave workspace: {e}", file=sys.stderr)
+        return 1
+
+    role = agent.get("role") or args.agent or "agent"
+    device = agent.get("device_label") or agent_id
+    print(f"{role}:{device} left workspace {workspace.get('name') or workspace.get('slug') or workspace['id']}")
+    return 0
+
+
 def _spec(argv: list[str]) -> int:
     """Pull a topic from the blackboard and render it as a handoff spec.
 
@@ -1994,6 +2088,9 @@ def _acquire_singleton(agent_instance_id: int):
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("-h", "--help"):
+        _print_main_help()
+        return 0
     # Subcommand dispatch — kept additive so existing entry-points (bare
     # invocation, `run` subcommand) still work.
     if argv and argv[0] in ("login",):
@@ -2010,6 +2107,8 @@ def main(argv: list[str] | None = None) -> int:
         return _start_background(argv[1:])
     if argv and argv[0] in ("add",):
         return _add_agent(argv[1:])
+    if argv and argv[0] in ("leave",):
+        return _leave_workspace(argv[1:])
     if argv and argv[0] in ("spec",):
         return _spec(argv[1:])
     if argv and argv[0] in ("topics",):
@@ -2073,16 +2172,10 @@ def main(argv: list[str] | None = None) -> int:
              "~/.lets/tokens/<role>.json; falls back to the legacy single "
              "token file when omitted.",
     )
-    parser.add_argument(
-        "--persona",
-        default=os.environ.get("LETS_PERSONA", "default"),
-        choices=["default", "red", "blue"],
-        help="Discussion persona overlay (default=balanced, red=challenges "
-             "the direction, blue=defends/converges). Run two gateways on "
-             "the same topic with red+blue to get a critique loop. Set "
-             "LETS_PERSONA env to persist across restarts.",
-    )
     args = parser.parse_args(argv)
+    args.persona = os.environ.get("LETS_PERSONA", "default")
+    if args.persona not in ("default", "red", "blue"):
+        args.persona = "default"
 
     if not args.token:
         # Prefer per-agent token if --agent was given; otherwise use the

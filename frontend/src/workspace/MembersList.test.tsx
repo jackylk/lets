@@ -80,6 +80,23 @@ describe("<MembersList />", () => {
     expect(screen.getByText("Link")).toBeInTheDocument();
   });
 
+  it("hides retired agents from the workspace roster", () => {
+    render(
+      <MembersList
+        members={[
+          ownerMember,
+          {
+            ...agentMember,
+            deleted_at: "2026-01-02T00:00:00Z",
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("1 人 · 0 agent")).toBeInTheDocument();
+    expect(screen.queryByText("Link")).toBeNull();
+    expect(screen.queryByText("已退役")).toBeNull();
+  });
+
   it("keeps the workspace name out of the members summary", () => {
     render(<MembersList members={[ownerMember, agentMember]} />);
     expect(screen.getByText("当前工作区成员")).toBeInTheDocument();
