@@ -273,7 +273,16 @@ function TopicParticipantsMenu({
 
   const humanIds = new Set((participants?.humans ?? []).map((h) => h.id));
   const humanRoles = new Map((participants?.humans ?? []).map((h) => [h.id, h.role]));
-  const agentIds = new Set((participants?.agents ?? []).map((a) => a.id));
+  const explicitAgentIds = new Set(
+    (participants?.agents ?? [])
+      .filter((a) => a.is_explicit !== false)
+      .map((a) => a.id),
+  );
+  const historicalAgentIds = new Set(
+    (participants?.agents ?? [])
+      .filter((a) => a.is_explicit === false)
+      .map((a) => a.id),
+  );
   const currentHumans = workspaceMembers
     .filter((m): m is Extract<WorkspaceMember, { kind: "human" }> => m.kind === "human" && humanIds.has(m.id))
     .map((m) => ({
@@ -283,15 +292,23 @@ function TopicParticipantsMenu({
       removable: canManage && m.id !== currentHumanId && humanRoles.get(m.id) !== "owner",
     }));
   const currentAgents = workspaceMembers
-    .filter((m): m is Extract<WorkspaceMember, { kind: "agent" }> => m.kind === "agent" && agentIds.has(m.id))
-    .map((m) => ({ kind: "agent" as const, id: m.id, label: agentShortName(m), removable: canManage }));
+    .filter((m): m is Extract<WorkspaceMember, { kind: "agent" }> =>
+      m.kind === "agent" && (explicitAgentIds.has(m.id) || historicalAgentIds.has(m.id)),
+    )
+    .map((m) => ({
+      kind: "agent" as const,
+      id: m.id,
+      label: agentShortName(m),
+      historical: !explicitAgentIds.has(m.id),
+      removable: canManage && explicitAgentIds.has(m.id),
+    }));
   const chips = [...currentHumans, ...currentAgents];
   const addableHumans = workspaceMembers.filter(
     (m): m is Extract<WorkspaceMember, { kind: "human" }> => m.kind === "human" && !humanIds.has(m.id),
   );
   const addableAgents = workspaceMembers.filter(
     (m): m is Extract<WorkspaceMember, { kind: "agent" }> =>
-      m.kind === "agent" && !m.deleted_at && !agentIds.has(m.id),
+      m.kind === "agent" && !m.deleted_at && !explicitAgentIds.has(m.id),
   );
 
   function add(kind: "human" | "agent", id: number) {
@@ -349,6 +366,7 @@ function TopicParticipantsMenu({
               <span className="min-w-0 flex-1 truncate">
                 {p.label}
                 {p.kind === "agent" ? " · agent" : ""}
+                {p.kind === "agent" && p.historical ? " · 历史发言" : ""}
               </span>
               {p.removable && (
                 <button

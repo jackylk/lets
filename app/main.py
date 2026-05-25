@@ -3407,7 +3407,8 @@ def get_topic_participants(
                 ar.name AS role,
                 ah.name AS human_name,
                 tp.role AS participant_role,
-                tp.created_at
+                tp.created_at,
+                TRUE AS is_explicit
             FROM topic_participants tp
             JOIN agent_instances ai ON ai.id = tp.participant_id
             JOIN agent_types ar ON ar.id = ai.agent_type_id
@@ -3422,7 +3423,8 @@ def get_topic_participants(
                 ar.name AS role,
                 ah.name AS human_name,
                 'member' AS participant_role,
-                MIN(m.created_at) AS created_at
+                MIN(m.created_at) AS created_at,
+                FALSE AS is_explicit
             FROM messages m
             JOIN agent_instances ai ON ai.id = m.actor_id
             JOIN agent_types ar ON ar.id = ai.agent_type_id

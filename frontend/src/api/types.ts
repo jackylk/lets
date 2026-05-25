@@ -202,6 +202,7 @@ export interface ParticipantsDTO {
     role: string;
     human_name: string;
     participant_role?: "owner" | "member";
+    is_explicit?: boolean;
     created_at?: string;
   }>;
 }
