@@ -140,4 +140,40 @@ describe("<MembersList />", () => {
     fireEvent.click(screen.getByText("邀请 agent"));
     expect(onInviteAgent).toHaveBeenCalledOnce();
   });
+
+  it("lets workspace owners remove non-owner humans and agents", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onRemoveMember = vi.fn();
+    const onRemoveAgent = vi.fn();
+    render(
+      <MembersList
+        members={[ownerMember, regularMember, agentMember]}
+        canManageMembers
+        onRemoveMember={onRemoveMember}
+        onRemoveAgent={onRemoveAgent}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "移除成员 Neo" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "移除成员 Trinity" }));
+    expect(onRemoveMember).toHaveBeenCalledWith(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "移除 agent Link" }));
+    expect(onRemoveAgent).toHaveBeenCalledWith(11);
+    confirm.mockRestore();
+  });
+
+  it("hides remove actions for non-managers", () => {
+    render(
+      <MembersList
+        members={[regularMember, agentMember]}
+        onRemoveMember={vi.fn()}
+        onRemoveAgent={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "移除成员 Trinity" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "移除 agent Link" })).toBeNull();
+  });
 });

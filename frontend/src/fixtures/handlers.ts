@@ -315,6 +315,8 @@ export const handlers = [
       else if (m.actor_type === "agent") agentIds.add(m.actor_id);
     }
     return HttpResponse.json({
+      can_manage: true,
+      is_public: false,
       humans: seed.humans
         .filter((h) => humanIds.has(h.id))
         .map((h) => ({ id: h.id, name: h.name, email: null })),

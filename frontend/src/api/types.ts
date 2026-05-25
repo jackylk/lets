@@ -165,6 +165,8 @@ export interface WorkspaceInvite {
 }
 
 export interface ParticipantsDTO {
+  can_manage?: boolean;
+  is_public?: boolean;
   humans: Array<{ id: number; name: string; email: string | null; role?: "owner" | "member"; created_at?: string }>;
   agents: Array<{
     id: number;

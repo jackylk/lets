@@ -15,6 +15,7 @@ import {
   useCreateWorkspace, useAttention, useSessionMe,
   useCreateInvite, useRenameWorkspace, useDeleteWorkspace, useRenameTopic,
   useArchiveTopic, useRestoreTopic, useDeleteTopic,
+  useRemoveWorkspaceMember, useRemoveWorkspaceAgent,
 } from "./api/queries";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "./api/client";
@@ -131,6 +132,8 @@ function Workspace() {
   const archiveTopic = useArchiveTopic();
   const restoreTopic = useRestoreTopic();
   const deleteTopic = useDeleteTopic();
+  const removeWorkspaceMember = useRemoveWorkspaceMember(activeWorkspaceId);
+  const removeWorkspaceAgent = useRemoveWorkspaceAgent(activeWorkspaceId);
 
   const handleCreateWorkspace = (name: string) => {
     createWorkspace.mutate(name, {
@@ -184,6 +187,16 @@ function Workspace() {
       onSuccess: () => clearActiveTopic(id),
     });
 
+  const handleRemoveWorkspaceMember = (humanId: number) => {
+    if (activeWorkspaceId === null) return Promise.resolve();
+    return removeWorkspaceMember.mutateAsync(humanId);
+  };
+
+  const handleRemoveWorkspaceAgent = (agentId: number) => {
+    if (activeWorkspaceId === null) return Promise.resolve();
+    return removeWorkspaceAgent.mutateAsync(agentId);
+  };
+
   const [activeInvite, setActiveInvite] = useState<WorkspaceInvite | null>(null);
   const [showInviteAgent, setShowInviteAgent] = useState(false);
   const createInvite = useCreateInvite();
@@ -233,6 +246,9 @@ function Workspace() {
       onDeleteTopic={handleDeleteTopic}
       onInviteMember={handleInviteMember}
       onInviteAgent={handleInviteAgent}
+      canManageMembers={activeWorkspace?.my_role === "owner"}
+      onRemoveMember={handleRemoveWorkspaceMember}
+      onRemoveAgent={handleRemoveWorkspaceAgent}
       onClickSettings={() => {
         setView({ kind: "settings-tokens" });
         if (isMobile) setMobileTab("workspace");

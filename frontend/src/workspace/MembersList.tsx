@@ -8,6 +8,9 @@ interface Props {
   messages?: MessageDTO[];
   onInviteMember?: () => void;
   onInviteAgent?: () => void;
+  canManageMembers?: boolean;
+  onRemoveMember?: (humanId: number) => void | Promise<unknown>;
+  onRemoveAgent?: (agentId: number) => void | Promise<unknown>;
   onSelectAgent?: (agentId: number) => void;
 }
 
@@ -16,6 +19,9 @@ export function MembersList({
   messages = [],
   onInviteMember,
   onInviteAgent,
+  canManageMembers = false,
+  onRemoveMember,
+  onRemoveAgent,
   onSelectAgent,
 }: Props) {
   const [, force] = useState(0);
@@ -56,6 +62,17 @@ export function MembersList({
     }
     return out;
   }, [visibleMembers, messages]);
+
+  function removeHuman(id: number, name: string) {
+    if (!window.confirm(`移除成员「${name}」？`)) return;
+    void onRemoveMember?.(id);
+  }
+
+  function removeAgent(id: number, name: string) {
+    if (!window.confirm(`移除 agent「${name}」？`)) return;
+    void onRemoveAgent?.(id);
+  }
+
   return (
     <div className="px-3 py-2 border-t border-border">
       <div className="mb-2">
@@ -117,6 +134,17 @@ export function MembersList({
                   owner
                 </span>
               )}
+              {canManageMembers && m.role !== "owner" && onRemoveMember && (
+                <button
+                  type="button"
+                  aria-label={`移除成员 ${m.name}`}
+                  title="移除成员"
+                  onClick={() => removeHuman(m.id, m.name)}
+                  className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-[12px] text-text-dim hover:bg-surface-hover hover:text-text"
+                >
+                  移除
+                </button>
+              )}
             </div>
             );
           }
@@ -127,26 +155,41 @@ export function MembersList({
           const statusLabel = topicStatus.label || (online ? "在线" : "离线");
           const modelLabel = m.model?.trim() || "默认模型";
           return (
-            <button
+            <div
               key={`a-${m.id}`}
-              type="button"
-              onClick={() => onSelectAgent?.(m.id)}
-              className="flex w-full min-w-0 items-center gap-2 rounded py-1 text-left hover:bg-surface-hover"
+              className="flex w-full min-w-0 items-center gap-2 rounded py-1 hover:bg-surface-hover"
             >
-              <PresenceDot online={online} active={topicStatus.tone === "working"} label={`${name} ${online ? "在线" : "离线"}`} />
-              <span className="min-w-0 truncate text-[15px] text-text">{name}</span>
-              <span className="min-w-0 truncate text-[12px] text-text-dim">
-                {roleTitle(m.role)} · {modelLabel} ·{" "}
-                <span className={topicStatus.tone === "working" ? "text-accent-text" : ""}>
-                  {statusLabel}
+              <button
+                type="button"
+                onClick={() => onSelectAgent?.(m.id)}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              >
+                <PresenceDot online={online} active={topicStatus.tone === "working"} label={`${name} ${online ? "在线" : "离线"}`} />
+                <span className="min-w-0 truncate text-[15px] text-text">{name}</span>
+                <span className="min-w-0 truncate text-[12px] text-text-dim">
+                  {roleTitle(m.role)} · {modelLabel} ·{" "}
+                  <span className={topicStatus.tone === "working" ? "text-accent-text" : ""}>
+                    {statusLabel}
+                  </span>
                 </span>
-              </span>
-              {(m.paused_at || m.deleted_at) && (
-                <span className="shrink-0 text-[12px] text-text-dim">
-                  {m.paused_at ? "已暂停" : "已退役"}
-                </span>
+                {(m.paused_at || m.deleted_at) && (
+                  <span className="shrink-0 text-[12px] text-text-dim">
+                    {m.paused_at ? "已暂停" : "已退役"}
+                  </span>
+                )}
+              </button>
+              {canManageMembers && onRemoveAgent && (
+                <button
+                  type="button"
+                  aria-label={`移除 agent ${name}`}
+                  title="移除 agent"
+                  onClick={() => removeAgent(m.id, name)}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[12px] text-text-dim hover:bg-surface-hover hover:text-text"
+                >
+                  移除
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
         {visibleMembers.length === 0 && (

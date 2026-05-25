@@ -368,6 +368,40 @@ export function useWorkspaceMembers(workspaceId: number | null) {
   });
 }
 
+export function useRemoveWorkspaceMember(workspaceId: number | null) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (humanId: number) =>
+      apiRequest<{ ok: boolean }>(`/api/workspaces/${workspaceId}/members/${humanId}`, {
+        method: "DELETE",
+        identity,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-members", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+      qc.invalidateQueries({ queryKey: ["topics"] });
+    },
+  });
+}
+
+export function useRemoveWorkspaceAgent(workspaceId: number | null) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (agentId: number) =>
+      apiRequest<{ ok: boolean }>(`/api/workspaces/${workspaceId}/agent-members/${agentId}`, {
+        method: "DELETE",
+        identity,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-members", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+      qc.invalidateQueries({ queryKey: ["topics"] });
+    },
+  });
+}
+
 export function useCreateInvite() {
   const identity = useIdentity();
   return useMutation({

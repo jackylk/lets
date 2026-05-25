@@ -2185,6 +2185,18 @@ def remove_workspace_agent_member(
             """,
             (workspace_id, agent_instance_id),
         )
+        conn.execute(
+            """
+            DELETE FROM topic_participants
+            WHERE participant_type = 'agent'
+              AND participant_id = ?
+              AND topic_id IN (
+                SELECT id FROM topics
+                WHERE workspace_id = ?
+              )
+            """,
+            (agent_instance_id, workspace_id),
+        )
     return {"ok": True}
 
 
@@ -2208,6 +2220,18 @@ def remove_workspace_member(
         conn.execute(
             "DELETE FROM workspace_members WHERE workspace_id = ? AND human_id = ?",
             (workspace_id, human_id),
+        )
+        conn.execute(
+            """
+            DELETE FROM topic_participants
+            WHERE participant_type = 'human'
+              AND participant_id = ?
+              AND topic_id IN (
+                SELECT id FROM topics
+                WHERE workspace_id = ?
+              )
+            """,
+            (human_id, workspace_id),
         )
     return {"ok": True}
 
@@ -2554,6 +2578,15 @@ def _require_topic_member(topic_id: int, human_id: int) -> int:
     if row["visibility"] == "public":
         return workspace_id
     with connect() as conn:
+        workspace_role = conn.execute(
+            """
+            SELECT role FROM workspace_members
+            WHERE workspace_id = ? AND human_id = ?
+            """,
+            (workspace_id, human_id),
+        ).fetchone()
+        if workspace_role is not None and workspace_role["role"] == "owner":
+            return workspace_id
         participant = conn.execute(
             """
             SELECT 1 FROM topic_participants
@@ -2566,6 +2599,49 @@ def _require_topic_member(topic_id: int, human_id: int) -> int:
     if participant is None:
         raise HTTPException(status_code=403, detail="not a topic participant")
     return workspace_id
+
+
+def _topic_management_context(conn, topic_id: int, human_id: int) -> dict:
+    row = conn.execute(
+        """
+        SELECT t.workspace_id,
+               t.visibility,
+               wm.role AS workspace_role,
+               tp.role AS topic_role
+        FROM topics t
+        LEFT JOIN workspace_members wm
+          ON wm.workspace_id = t.workspace_id
+         AND wm.human_id = ?
+        LEFT JOIN topic_participants tp
+          ON tp.topic_id = t.id
+         AND tp.participant_type = 'human'
+         AND tp.participant_id = ?
+        WHERE t.id = ? AND t.deleted_at IS NULL
+        """,
+        (human_id, human_id, topic_id),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="topic not found")
+    if row["workspace_id"] is not None and row["workspace_role"] is None:
+        raise HTTPException(status_code=403, detail="not a workspace member")
+
+    is_workspace_owner = row["workspace_role"] == "owner"
+    is_topic_owner = row["topic_role"] == "owner"
+    return {
+        "workspace_id": int(row["workspace_id"]) if row["workspace_id"] is not None else 0,
+        "visibility": row["visibility"],
+        "can_manage": is_workspace_owner or is_topic_owner,
+        "is_workspace_owner": is_workspace_owner,
+        "is_topic_owner": is_topic_owner,
+    }
+
+
+def _require_topic_manager(topic_id: int, human_id: int) -> tuple[int, str]:
+    with connect() as conn:
+        context = _topic_management_context(conn, topic_id, human_id)
+    if not context["can_manage"]:
+        raise HTTPException(status_code=403, detail="not a topic manager")
+    return int(context["workspace_id"]), str(context["visibility"])
 
 
 def _require_workspace_actor(workspace_id: int, principal: dict) -> None:
@@ -2943,9 +3019,11 @@ def get_topic_participants(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     """Return explicit topic participants, with message actors as legacy fallback."""
-    _require_topic_member(topic_id, int(principal["human_id"]))
+    human_id = int(principal["human_id"])
+    _require_topic_member(topic_id, human_id)
     from .db import connect
     with connect() as conn:
+        context = _topic_management_context(conn, topic_id, human_id)
         humans = [dict(r) for r in conn.execute(
             """
             SELECT h.id, h.name, h.email, tp.role, tp.created_at
@@ -3008,7 +3086,12 @@ def get_topic_participants(
             """,
             (topic_id, topic_id),
         ).fetchall()]
-    return {"humans": humans, "agents": agents}
+    return {
+        "humans": humans,
+        "agents": agents,
+        "can_manage": context["can_manage"],
+        "is_public": context["visibility"] == "public",
+    }
 
 
 @app.post("/api/topics/{topic_id}/participants")
@@ -3018,7 +3101,7 @@ def add_topic_participant(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     human_id = int(principal["human_id"])
-    workspace_id = _require_topic_member(topic_id, human_id)
+    workspace_id, _visibility = _require_topic_manager(topic_id, human_id)
     with connect() as conn:
         _validate_topic_participant(conn, workspace_id or None, payload)
         _add_topic_participant(
@@ -3040,8 +3123,33 @@ def remove_topic_participant(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     human_id = int(principal["human_id"])
-    _require_topic_member(topic_id, human_id)
+    _workspace_id, visibility = _require_topic_manager(topic_id, human_id)
+    if visibility == "public":
+        raise HTTPException(status_code=400, detail="public topic participants cannot be removed")
     with connect() as conn:
+        if participant_type == "human":
+            owner_row = conn.execute(
+                """
+                SELECT role FROM topic_participants
+                WHERE topic_id = ?
+                  AND participant_type = 'human'
+                  AND participant_id = ?
+                """,
+                (topic_id, participant_id),
+            ).fetchone()
+            if owner_row is not None and owner_row["role"] == "owner":
+                owner_count = conn.execute(
+                    """
+                    SELECT COUNT(*) AS c
+                    FROM topic_participants
+                    WHERE topic_id = ?
+                      AND participant_type = 'human'
+                      AND role = 'owner'
+                    """,
+                    (topic_id,),
+                ).fetchone()["c"]
+                if int(owner_count) <= 1:
+                    raise HTTPException(status_code=400, detail="cannot remove last topic owner")
         conn.execute(
             """
             DELETE FROM topic_participants
@@ -3059,14 +3167,19 @@ def update_topic(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     human_id = int(principal["human_id"])
-    _require_topic_member(topic_id, human_id)
+    workspace_id, visibility = _require_topic_manager(topic_id, human_id)
     sets, vals = [], []
     if payload.workspace_id is not None:
+        if visibility == "public":
+            raise HTTPException(status_code=400, detail="public topic cannot move workspace")
         from .workspaces import require_workspace_member
         require_workspace_member(payload.workspace_id, human_id)
         sets.append("workspace_id = ?")
         vals.append(payload.workspace_id)
     if payload.title is not None:
+        if visibility == "public" and workspace_id:
+            from .workspaces import require_workspace_owner
+            require_workspace_owner(workspace_id, human_id)
         sets.append("title = ?")
         vals.append(payload.title)
     if not sets:

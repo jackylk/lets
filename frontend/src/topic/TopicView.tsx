@@ -14,6 +14,7 @@ import { Composer, type MentionCandidate, type MentionResolver } from "./Compose
 import { topicDisplayTitle } from "./topicSummary";
 import type { MessageDTO, TaskTreeProposalMeta, WorkspaceMember } from "../api/types";
 import { agentShortName } from "../agent/display";
+import { ApiError } from "../api/client";
 
 interface Props {
   topicId: number;
@@ -217,7 +218,13 @@ export function TopicView({ topicId, workspaceMembers = [], onOpenResources }: P
         />
         <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-4">
           {initial.isLoading && <div className="text-text-dim">加载中…</div>}
-          {initial.isError && <div className="text-text-dim">加载失败</div>}
+          {initial.isError && (
+            <div className="text-text-dim">
+              {initial.error instanceof ApiError && initial.error.status === 403
+                ? "你不在这个话题中，请让管理员把你加入。"
+                : "加载失败"}
+            </div>
+          )}
           <Stream messages={merged} directory={directory} topicId={topicId} />
           <div ref={scrollEndRef} />
         </div>
@@ -250,15 +257,23 @@ function TopicParticipantsMenu({
 }) {
   const addParticipant = useAddTopicParticipant(topicId);
   const removeParticipant = useRemoveTopicParticipant(topicId);
+  const canManage = Boolean(participants?.can_manage) && !participants?.is_public;
+  const isPublic = Boolean(participants?.is_public);
 
   const humanIds = new Set((participants?.humans ?? []).map((h) => h.id));
+  const humanRoles = new Map((participants?.humans ?? []).map((h) => [h.id, h.role]));
   const agentIds = new Set((participants?.agents ?? []).map((a) => a.id));
   const currentHumans = workspaceMembers
     .filter((m): m is Extract<WorkspaceMember, { kind: "human" }> => m.kind === "human" && humanIds.has(m.id))
-    .map((m) => ({ kind: "human" as const, id: m.id, label: m.name, removable: m.id !== currentHumanId }));
+    .map((m) => ({
+      kind: "human" as const,
+      id: m.id,
+      label: m.name,
+      removable: canManage && m.id !== currentHumanId && humanRoles.get(m.id) !== "owner",
+    }));
   const currentAgents = workspaceMembers
     .filter((m): m is Extract<WorkspaceMember, { kind: "agent" }> => m.kind === "agent" && agentIds.has(m.id))
-    .map((m) => ({ kind: "agent" as const, id: m.id, label: agentShortName(m), removable: true }));
+    .map((m) => ({ kind: "agent" as const, id: m.id, label: agentShortName(m), removable: canManage }));
   const chips = [...currentHumans, ...currentAgents];
   const addableHumans = workspaceMembers.filter(
     (m): m is Extract<WorkspaceMember, { kind: "human" }> => m.kind === "human" && !humanIds.has(m.id),
@@ -279,6 +294,11 @@ function TopicParticipantsMenu({
   return (
     <div className="flex flex-col gap-2">
       <ParticipantSection title={`话题成员 ${chips.length}`}>
+        {isPublic && (
+          <div className="px-2 pb-1 text-[12px] text-text-dim">
+            全员话题自动包含工作区成员。
+          </div>
+        )}
         {chips.length === 0 ? (
           <div className="px-2 py-1 text-[12px] text-text-dim">暂无成员</div>
         ) : (
@@ -305,29 +325,38 @@ function TopicParticipantsMenu({
           ))
         )}
       </ParticipantSection>
-      <div className="border-t border-border-soft" />
-      <ParticipantSection title="添加成员">
-        {addableHumans.length === 0 ? (
-          <div className="px-2 py-1 text-[12px] text-text-dim">成员都在话题里</div>
-        ) : (
-          addableHumans.map((m) => (
-            <ParticipantAddButton key={m.id} onClick={() => add("human", m.id)}>
-              {m.name}
-            </ParticipantAddButton>
-          ))
-        )}
-      </ParticipantSection>
-      <ParticipantSection title="添加 Agents">
-        {addableAgents.length === 0 ? (
-          <div className="px-2 py-1 text-[12px] text-text-dim">Agents 都在话题里</div>
-        ) : (
-          addableAgents.map((m) => (
-            <ParticipantAddButton key={m.id} onClick={() => add("agent", m.id)}>
-              {agentShortName(m)}
-            </ParticipantAddButton>
-          ))
-        )}
-      </ParticipantSection>
+      {canManage && (
+        <>
+          <div className="border-t border-border-soft" />
+          <ParticipantSection title="添加成员">
+            {addableHumans.length === 0 ? (
+              <div className="px-2 py-1 text-[12px] text-text-dim">成员都在话题里</div>
+            ) : (
+              addableHumans.map((m) => (
+                <ParticipantAddButton key={m.id} onClick={() => add("human", m.id)}>
+                  {m.name}
+                </ParticipantAddButton>
+              ))
+            )}
+          </ParticipantSection>
+          <ParticipantSection title="添加 Agents">
+            {addableAgents.length === 0 ? (
+              <div className="px-2 py-1 text-[12px] text-text-dim">Agents 都在话题里</div>
+            ) : (
+              addableAgents.map((m) => (
+                <ParticipantAddButton key={m.id} onClick={() => add("agent", m.id)}>
+                  {agentShortName(m)}
+                </ParticipantAddButton>
+              ))
+            )}
+          </ParticipantSection>
+        </>
+      )}
+      {!canManage && !isPublic && (
+        <div className="px-2 py-1 text-[12px] text-text-dim">
+          只有管理员可以增删话题成员。
+        </div>
+      )}
     </div>
   );
 }

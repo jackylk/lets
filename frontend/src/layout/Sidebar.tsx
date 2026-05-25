@@ -27,6 +27,9 @@ interface Props {
   onDeleteTopic?: (id: number) => void | Promise<unknown>;
   onInviteMember: () => void;
   onInviteAgent?: () => void;
+  canManageMembers?: boolean;
+  onRemoveMember?: (humanId: number) => void | Promise<unknown>;
+  onRemoveAgent?: (agentId: number) => void | Promise<unknown>;
   onClickSettings?: () => void;
   onClickAgents?: () => void;
   onSelectAgent?: (agentId: number) => void;
@@ -202,6 +205,9 @@ export function Sidebar({
   onDeleteTopic,
   onInviteMember,
   onInviteAgent,
+  canManageMembers,
+  onRemoveMember,
+  onRemoveAgent,
   onClickSettings,
   onClickAgents,
   onSelectAgent,
@@ -350,6 +356,9 @@ export function Sidebar({
         messages={activeMessages.data?.messages ?? []}
         onInviteMember={onInviteMember}
         onInviteAgent={onInviteAgent}
+        canManageMembers={canManageMembers}
+        onRemoveMember={onRemoveMember}
+        onRemoveAgent={onRemoveAgent}
         onSelectAgent={onSelectAgent}
       />
 
