@@ -75,13 +75,12 @@ def test_participants_endpoint(client, auth):
     data = r.json()
     names = {p["name"] for p in data["humans"]}
     assert names == {"Neo", "Trinity"}
-    assert data["agents"] == [{
-        "id": agent_id,
-        "device_label": "neo-mbp",
-        "display_name": "Neo",
-        "role": "codex",
-        "human_name": "Neo",
-    }]
+    assert data["agents"][0]["id"] == agent_id
+    assert data["agents"][0]["device_label"] == "neo-mbp"
+    assert data["agents"][0]["display_name"] == "Neo"
+    assert data["agents"][0]["model"] is None
+    assert data["agents"][0]["role"] == "codex"
+    assert data["agents"][0]["human_name"] == "Neo"
 
 
 def test_git_status_endpoint(client, auth, tmp_path):
