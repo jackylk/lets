@@ -9,6 +9,7 @@ import { BottomTabs, type MobileTab } from "./layout/BottomTabs";
 import { SessionGate } from "./auth/SessionGate";
 import { LoginPage } from "./auth/LoginPage";
 import { SettingsTokensPage } from "./settings/SettingsTokensPage";
+import { HomePage } from "./home/HomePage";
 import {
   ConnectComputerBanner,
   isConnectBannerDismissed,
@@ -38,15 +39,21 @@ type DesktopView =
 
 export default function App() {
   const path = typeof window !== "undefined" ? window.location.pathname : "/";
+
   if (path.startsWith("/join/")) {
     const token = path.slice("/join/".length);
     return <JoinTokenPage token={token} />;
   }
-  return (
-    <SessionGate fallback={<LoginPage />}>
-      <Workspace />
-    </SessionGate>
-  );
+
+  if (path === "" || path === "/") {
+    return (
+      <SessionGate fallback={<HomePage />}>
+        <Workspace />
+      </SessionGate>
+    );
+  }
+
+  return <SessionGate fallback={<LoginPage />}><Workspace /></SessionGate>;
 }
 
 function Workspace() {

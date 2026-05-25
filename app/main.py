@@ -325,10 +325,11 @@ def ensure_agent(name: str, agent_type: str) -> int:
 
 @app.get("/", response_model=None)
 def home() -> RedirectResponse | FileResponse:
-    """Route root to the Track F SPA when it's been built.
+    """Serve the React SPA at root when it's been built.
 
     If ``frontend/dist/index.html`` (or the dir indicated by the
-    ``LETS_FRONTEND_DIST`` env override) exists, redirect to ``/app``.
+    ``LETS_FRONTEND_DIST`` env override) exists, serve it directly so the
+    public home route can render before authentication.
     Otherwise fall back to the legacy v1 ``web/index.html`` debug panel
     so a rollback path remains for one release.
     """
@@ -340,8 +341,9 @@ def home() -> RedirectResponse | FileResponse:
     else:
         dist_root = _pl.Path(__file__).parent.parent / "frontend" / "dist"
 
-    if dist_root.is_dir() and (dist_root / "index.html").exists():
-        return RedirectResponse(url="/app", status_code=307)
+    index = dist_root / "index.html"
+    if dist_root.is_dir() and index.exists():
+        return FileResponse(index)
     return FileResponse("web/index.html")
 
 
