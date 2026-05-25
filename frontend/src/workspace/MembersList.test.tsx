@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MembersList } from "./MembersList";
 import type { WorkspaceMember } from "../api/types";
 
@@ -64,12 +64,6 @@ describe("<MembersList />", () => {
     expect(screen.getByLabelText("Link 在线")).toBeInTheDocument();
   });
 
-  it("does not duplicate workspace invite actions in the members section", () => {
-    render(<MembersList members={[]} />);
-    expect(screen.queryByText(/邀请人加入这个工作区/)).toBeNull();
-    expect(screen.queryByText(/邀请 agent 加入这个工作区/)).toBeNull();
-  });
-
   it("renders mixed humans and agents in order", () => {
     render(
       <MembersList members={[ownerMember, agentMember]} />,
@@ -103,9 +97,23 @@ describe("<MembersList />", () => {
     expect(screen.getByText(/Trinity 管理/)).toBeInTheDocument();
   });
 
-  it("keeps invite actions out of the members section", () => {
-    render(<MembersList members={[]} />);
-    expect(screen.queryByText(/邀请人/)).toBeNull();
-    expect(screen.queryByText(/邀请 agent/)).toBeNull();
+  it("opens invite actions from the members header", () => {
+    const onInviteMember = vi.fn();
+    const onInviteAgent = vi.fn();
+    render(
+      <MembersList
+        members={[]}
+        onInviteMember={onInviteMember}
+        onInviteAgent={onInviteAgent}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "邀请工作区成员或 agent" }));
+    fireEvent.click(screen.getByText("邀请成员"));
+    expect(onInviteMember).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "邀请工作区成员或 agent" }));
+    fireEvent.click(screen.getByText("邀请 agent"));
+    expect(onInviteAgent).toHaveBeenCalledOnce();
   });
 });

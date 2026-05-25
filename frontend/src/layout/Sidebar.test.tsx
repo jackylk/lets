@@ -75,6 +75,27 @@ describe("<Sidebar />", () => {
     renderWithProviders(<Sidebar {...defaultProps} members={members} />);
     expect(screen.getByText("Neo")).toBeInTheDocument();
     expect(screen.getByText("owner")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "邀请工作区成员或 agent" })).toBeInTheDocument();
+  });
+
+  it("calls invite handlers from the members section add menu", () => {
+    const onInviteMember = vi.fn();
+    const onInviteAgent = vi.fn();
+    renderWithProviders(
+      <Sidebar
+        {...defaultProps}
+        onInviteMember={onInviteMember}
+        onInviteAgent={onInviteAgent}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "邀请工作区成员或 agent" }));
+    fireEvent.click(screen.getByText("邀请成员"));
+    expect(onInviteMember).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "邀请工作区成员或 agent" }));
+    fireEvent.click(screen.getByText("邀请 agent"));
+    expect(onInviteAgent).toHaveBeenCalledOnce();
   });
 
   it("calls onSelectTopic when a topic row is clicked", () => {

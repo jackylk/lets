@@ -89,7 +89,7 @@ function TopicRow({
     <div
       ref={rowRef}
       className={cn(
-        "group relative flex w-full items-center rounded text-[12.5px]",
+        "group relative flex w-full items-center rounded text-[14px]",
         active
           ? "bg-surface-elev text-text shadow-[inset_0_0_0_1px_var(--color-border)]"
           : "text-text-muted hover:bg-surface-hover hover:text-text",
@@ -97,7 +97,7 @@ function TopicRow({
     >
       {renaming ? (
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1">
-          <span className="w-12 flex-shrink-0 font-mono text-[11px] text-text-dim">
+          <span className="w-12 flex-shrink-0 font-mono text-[13px] text-text-dim">
             {topic.slug.slice(0, 6).toUpperCase()}
           </span>
           <input
@@ -111,7 +111,7 @@ function TopicRow({
                 setTitle(topic.title);
               }
             }}
-            className="min-w-0 flex-1 rounded border border-border bg-bg px-1.5 py-0.5 text-[12.5px] text-text outline-none focus:border-accent-border"
+            className="min-w-0 flex-1 rounded border border-border bg-bg px-1.5 py-0.5 text-[14px] text-text outline-none focus:border-accent-border"
           />
         </div>
       ) : (
@@ -120,7 +120,7 @@ function TopicRow({
           onClick={onSelect}
           className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 md:py-1 text-left"
         >
-          <span className="w-12 flex-shrink-0 font-mono text-[11px] text-text-dim">
+          <span className="w-12 flex-shrink-0 font-mono text-[13px] text-text-dim">
             {topic.slug.slice(0, 6).toUpperCase()}
           </span>
           <span className="truncate">{topic.title}</span>
@@ -336,6 +336,8 @@ export function Sidebar({
       <MembersList
         members={members}
         messages={activeMessages.data?.messages ?? []}
+        onInviteMember={onInviteMember}
+        onInviteAgent={onInviteAgent}
         onSelectAgent={onSelectAgent}
       />
 
