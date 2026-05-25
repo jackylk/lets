@@ -1388,6 +1388,45 @@ def test_proactive_prompt_tells_agent_not_to_take_over():
     assert "avoid taking over" in user_prompt
 
 
+def test_direct_prompt_tells_agent_to_nudge_off_topic_tangents():
+    from app import gateway
+
+    me = gateway.Identity(1, "Jacky", 7, "codex", "mac")
+    recent = [
+        {
+            "id": 1,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": 1,
+            "body": "自然语言 Everything 工具要解决文件检索。",
+        },
+        {
+            "id": 2,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": 2,
+            "body": "明天穿什么衣服去公司？",
+        },
+        {
+            "id": 3,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": 1,
+            "body": "@neo 你觉得呢？",
+        },
+    ]
+    system_prompt, user_prompt = gateway._build_prompt_split(
+        me, "自然语言Everything工具，让检索文件更灵活", recent, recent[-1],
+    )
+
+    assert "GOAL GUARDIAN" in system_prompt
+    assert "do not answer the tangent" in system_prompt
+    assert "gentle nudge back to the topic" in system_prompt
+    assert "suggest moving it to a separate topic" in system_prompt
+    assert "自然语言Everything工具" in user_prompt
+    assert "穿什么衣服" in user_prompt
+
+
 def test_health_prompt_switches_to_safety_mode():
     from app import gateway
 

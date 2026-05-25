@@ -562,6 +562,18 @@ _HEALTH_SAFETY_INSTRUCTIONS = (
 )
 
 
+_GOAL_GUARDIAN_INSTRUCTIONS = (
+    "\n\nGOAL GUARDIAN: use the topic title, current goal/task, and recent "
+    "history as the boundary for the conversation. If the newest human message "
+    "or recent exchange has drifted into a tangent that does not help the "
+    "topic, do not answer the tangent as if it were the task. Instead, give a "
+    "brief, gentle nudge back to the topic: name the drift, restate the main "
+    "thread, and suggest the next on-topic question or action. Keep the nudge "
+    "low-friction and do not scold, delete, or force a topic switch. If the "
+    "tangent looks worth preserving, suggest moving it to a separate topic."
+)
+
+
 def _is_health_topic(topic_title: str, recent: list[dict], trigger: dict) -> bool:
     text = "\n".join(
         [
@@ -701,6 +713,7 @@ def _build_prompt_split(
     health_mode = _is_health_topic(topic_title, recent, trigger)
     system_prompt = (
         f"{_discussion_partner_persona(me.role, persona)}\n\n{_PANE_UPDATE_INSTRUCTIONS}"
+        f"{_GOAL_GUARDIAN_INSTRUCTIONS}"
         f"{_HEALTH_SAFETY_INSTRUCTIONS if health_mode else ''}"
     )
 
