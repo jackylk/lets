@@ -13,6 +13,9 @@ interface Props {
   topics: TopicDTO[];
   allTopics: TopicDTO[];
   archivedTopics: TopicDTO[];
+  canViewAllTopics?: boolean;
+  isGuest?: boolean;
+  canCreateTopic?: boolean;
   members: WorkspaceMember[];
   activeTopicId: number | null;
   onSelectTopic: (id: number) => void;
@@ -191,6 +194,9 @@ export function Sidebar({
   topics,
   allTopics,
   archivedTopics,
+  canViewAllTopics = false,
+  isGuest = false,
+  canCreateTopic = true,
   members,
   activeTopicId,
   onSelectTopic,
@@ -215,6 +221,18 @@ export function Sidebar({
   const [creating, setCreating] = useState(false);
   const [topicListMode, setTopicListMode] = useState<"mine" | "all" | "archived">("mine");
   const activeMessages = useTopicMessages(activeTopicId);
+  const showTopicTabs = !isGuest;
+  const effectiveTopicListMode = (
+    isGuest || (!canViewAllTopics && topicListMode === "all")
+      ? "mine"
+      : topicListMode
+  );
+
+  useEffect(() => {
+    if ((isGuest && topicListMode !== "mine") || (!canViewAllTopics && topicListMode === "all")) {
+      setTopicListMode("mine");
+    }
+  }, [canViewAllTopics, isGuest, topicListMode]);
 
   const otherWorkspaces = workspaces.filter(
     (w) => w.id !== activeWorkspace?.id,
@@ -250,69 +268,76 @@ export function Sidebar({
       <div className="p-3 pt-1 border-b border-border-soft">
         <div className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-[11px] font-semibold text-text-dim">
           <span className="flex-1">话题</span>
-          <button
-            type="button"
-            onClick={() => setTopicListMode("mine")}
-            className={cn(
-              "rounded-[3px] px-1.5 py-0.5 font-medium",
-              topicListMode === "mine"
-                ? "bg-surface-elev text-text"
-                : "text-text-dim hover:bg-surface-hover hover:text-text",
-            )}
-          >
-            我的 {topics.length}
-          </button>
-          <button
-            type="button"
-            onClick={() => setTopicListMode("all")}
-            className={cn(
-              "rounded-[3px] px-1.5 py-0.5 font-medium",
-              topicListMode === "all"
-                ? "bg-surface-elev text-text"
-                : "text-text-dim hover:bg-surface-hover hover:text-text",
-            )}
-          >
-            全部 {allTopics.length}
-          </button>
-          <button
-            type="button"
-            onClick={() => setTopicListMode("archived")}
-            className={cn(
-              "rounded-[3px] px-1.5 py-0.5 font-medium",
-              topicListMode === "archived"
-                ? "bg-surface-elev text-text"
-                : "text-text-dim hover:bg-surface-hover hover:text-text",
-            )}
-          >
-            归档 {archivedTopics.length}
-          </button>
-          <button
-            type="button"
-            aria-label="新建话题"
-            title="新建话题"
-            disabled={topicListMode === "archived"}
-            onClick={() =>
-              onCreateTopic({
-                slug: `topic-${Date.now().toString(36)}`,
-                title: "新话题",
-              })
-            }
-            className="w-7 h-7 md:w-5 md:h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40 text-[16px] md:text-[14px] leading-none"
-          >
-            +
-          </button>
+          {showTopicTabs && (
+            <button
+              type="button"
+              onClick={() => setTopicListMode("mine")}
+              className={cn(
+                "rounded-[3px] px-1.5 py-0.5 font-medium",
+                topicListMode === "mine"
+                  ? "bg-surface-elev text-text"
+                  : "text-text-dim hover:bg-surface-hover hover:text-text",
+              )}
+            >
+              我的 {topics.length}
+            </button>
+          )}
+          {showTopicTabs && canViewAllTopics && (
+            <button
+              type="button"
+              onClick={() => setTopicListMode("all")}
+              className={cn(
+                "rounded-[3px] px-1.5 py-0.5 font-medium",
+                topicListMode === "all"
+                  ? "bg-surface-elev text-text"
+                  : "text-text-dim hover:bg-surface-hover hover:text-text",
+              )}
+            >
+              全部 {allTopics.length}
+            </button>
+          )}
+          {showTopicTabs && (
+            <button
+              type="button"
+              onClick={() => setTopicListMode("archived")}
+              className={cn(
+                "rounded-[3px] px-1.5 py-0.5 font-medium",
+                topicListMode === "archived"
+                  ? "bg-surface-elev text-text"
+                  : "text-text-dim hover:bg-surface-hover hover:text-text",
+              )}
+            >
+              归档 {archivedTopics.length}
+            </button>
+          )}
+          {canCreateTopic && effectiveTopicListMode !== "archived" && (
+            <button
+              type="button"
+              aria-label="新建话题"
+              title="新建话题"
+              onClick={() =>
+                onCreateTopic({
+                  slug: `topic-${Date.now().toString(36)}`,
+                  title: "新话题",
+                })
+              }
+              className="w-7 h-7 md:w-5 md:h-5 grid place-items-center rounded-[3px] text-text-dim hover:bg-surface-hover hover:text-text text-[16px] md:text-[14px] leading-none"
+            >
+              +
+            </button>
+          )}
         </div>
         <div className="mt-1 flex flex-col gap-0.5">
-          {topicList(topicListMode, topics, allTopics, archivedTopics).length === 0 ? (
+          {topicList(effectiveTopicListMode, topics, allTopics, archivedTopics).length === 0 ? (
             <div className="px-3 py-1 text-[11px] text-text-dim italic">
-              {topicListMode === "mine"
+              {effectiveTopicListMode === "mine"
                 ? "还没有参与的话题"
-                : topicListMode === "all"
+                : effectiveTopicListMode === "all"
                   ? "还没有话题"
                   : "没有已归档话题"}
             </div>
           ) : (
-            topicList(topicListMode, topics, allTopics, archivedTopics).map((t) => (
+            topicList(effectiveTopicListMode, topics, allTopics, archivedTopics).map((t) => (
               <TopicRow
                 key={t.id}
                 topic={t}
@@ -325,7 +350,7 @@ export function Sidebar({
                   setTopicListMode("mine");
                 }}
                 onDelete={onDeleteTopic}
-                archived={topicListMode === "archived"}
+                archived={effectiveTopicListMode === "archived"}
               />
             ))
           )}

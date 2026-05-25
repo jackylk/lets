@@ -55,9 +55,20 @@ describe("<Sidebar />", () => {
   });
 
   it("shows the topic count in the topics section header", () => {
-    renderWithProviders(<Sidebar {...defaultProps} />);
+    renderWithProviders(<Sidebar {...defaultProps} canViewAllTopics />);
     expect(screen.getByRole("button", { name: "我的 1" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "全部 1" })).toBeInTheDocument();
+  });
+
+  it("hides owner-only topic tabs and create action for guests", () => {
+    renderWithProviders(<Sidebar {...defaultProps} isGuest canCreateTopic={false} />);
+
+    expect(screen.getByText("话题")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "我的 1" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "全部 1" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "归档 0" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "新建话题" })).not.toBeInTheDocument();
+    expect(screen.getByText("新话题")).toBeInTheDocument();
   });
 
   it("renders members section", () => {

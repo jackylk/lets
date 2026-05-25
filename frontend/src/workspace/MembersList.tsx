@@ -196,7 +196,41 @@ export function MembersList({
           <div className="text-sm text-text-dim italic">暂无成员</div>
         )}
       </div>
+      <PermissionsGuide />
     </div>
+  );
+}
+
+function PermissionsGuide() {
+  const rows = [
+    ["Owner", "管理成员/agent；创建、归档、删除话题；查看全部话题"],
+    ["GitHub 成员", "创建话题；参与公开话题和被加入的私有话题"],
+    ["访客", "只参与可见话题；不能创建话题、邀请成员或管理 agent"],
+  ];
+  return (
+    <details className="mt-2 rounded border border-border-soft bg-surface-elev px-2 py-1.5">
+      <summary className="cursor-pointer select-none text-[11.5px] font-medium text-text-dim">
+        权限说明
+      </summary>
+      <div className="mt-1.5 overflow-x-auto">
+        <table className="w-full text-left text-[11px] leading-snug text-text-muted">
+          <thead className="text-text-dim">
+            <tr>
+              <th className="w-20 py-1 pr-2 font-medium">角色</th>
+              <th className="py-1 font-medium">权限</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([role, permissions]) => (
+              <tr key={role} className="border-t border-border-soft align-top">
+                <td className="py-1 pr-2 font-medium text-text">{role}</td>
+                <td className="py-1">{permissions}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   );
 }
 

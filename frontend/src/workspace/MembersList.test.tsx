@@ -103,6 +103,15 @@ describe("<MembersList />", () => {
     expect(screen.queryByText(/我的工作区/)).toBeNull();
   });
 
+  it("shows a workspace permission guide", () => {
+    render(<MembersList members={[ownerMember, regularMember]} />);
+    expect(screen.getByText("权限说明")).toBeInTheDocument();
+    expect(screen.getByText("Owner")).toBeInTheDocument();
+    expect(screen.getByText("GitHub 成员")).toBeInTheDocument();
+    expect(screen.getByText("访客")).toBeInTheDocument();
+    expect(screen.getByText(/不能创建话题/)).toBeInTheDocument();
+  });
+
   it("keeps agent owner name out of the compact status caption", () => {
     const secondAgent: WorkspaceMember = {
       ...agentMember,

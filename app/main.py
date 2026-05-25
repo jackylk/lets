@@ -2716,6 +2716,8 @@ def create_topic_in_workspace(
     principal: dict = Depends(get_api_principal),
 ) -> dict:
     from .workspaces import require_workspace_member
+    if principal.get("is_guest"):
+        raise HTTPException(status_code=403, detail="guest users cannot create topics")
     require_workspace_member(workspace_id, int(principal["human_id"]))
     with connect() as conn:
         try:

@@ -226,6 +226,9 @@ function Workspace() {
       topics={topics}
       allTopics={allTopics}
       archivedTopics={archivedTopics}
+      canViewAllTopics={activeWorkspace?.my_role === "owner"}
+      isGuest={Boolean(session.data?.human.is_guest)}
+      canCreateTopic={!session.data?.human.is_guest}
       members={members}
       activeTopicId={view.kind === "topic" ? view.id : null}
       onSelectTopic={handleSelectTopic}

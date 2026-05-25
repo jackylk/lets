@@ -233,6 +233,7 @@ def get_api_principal(
                 "human_id": int(principal["human_id"]),
                 "agent_instance_id": None,
                 "session_id": int(principal["session_id"]),
+                "is_guest": bool(principal.get("is_guest")),
                 "auth_type": "session",
             }
 

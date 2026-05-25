@@ -36,6 +36,25 @@ def test_create_topic_member_allowed(temp_db, client):
     assert participants["humans"][0]["role"] == "owner"
 
 
+def test_guest_cannot_create_topic(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+
+    client.post("/api/auth/logout")
+    joined = client.post(f"/api/invites/{inv['token']}/accept-guest", json={"name": "Guest"})
+    assert joined.status_code == 200
+
+    r = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "guest-topic", "title": "Guest Topic"},
+        cookies={"lets_session": joined.cookies["lets_session"]},
+    )
+
+    assert r.status_code == 403
+    assert r.json()["detail"] == "guest users cannot create topics"
+
+
 def test_create_topic_non_member_403(temp_db, client):
     _login(client, "alice")
     ws = client.post("/api/workspaces", json={"name": "A"}).json()
