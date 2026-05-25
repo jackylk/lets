@@ -32,6 +32,26 @@ describe("<InviteAgentDialog />", () => {
     expect(cmd.textContent).toBe("lets add codex --workspace my-ws");
   });
 
+  it("can invite local Claude Code provider commands", () => {
+    render(
+      <InviteAgentDialog
+        workspaceName="我的工作区"
+        workspaceSlug="my-ws"
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("radio", { name: "CC DeepSeek" }));
+    expect(screen.getByTestId("invite-agent-command").textContent).toBe(
+      "lets add cc-deepseek --workspace my-ws",
+    );
+    expect(screen.queryByText("模型")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "CC Doubao" }));
+    expect(screen.getByTestId("invite-agent-command").textContent).toBe(
+      "lets add cc-doubao --workspace my-ws",
+    );
+  });
+
   it("can invite Claude with the sonnet-4.6 model", () => {
     render(
       <InviteAgentDialog

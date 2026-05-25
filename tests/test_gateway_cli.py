@@ -507,6 +507,53 @@ def test_lets_add_claude_defaults_model_to_opus47(monkeypatch, tmp_path):
     assert spawns == [("claude", "https://h", ["--model", "claude-opus-4-7"])]
 
 
+def test_lets_add_cc_doubao_does_not_force_model(monkeypatch, tmp_path):
+    from app import gateway
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    monkeypatch.delenv("LETS_MODEL", raising=False)
+    start_paths: list[str] = []
+
+    def fake_http(host, method, path):
+        if path.startswith("/auth/device-flow/start"):
+            start_paths.append(path)
+            return {"device_code": "dc", "user_code": "X-Y",
+                    "verification_url": "https://h/verify", "interval": 0}
+        if path.startswith("/auth/device-flow/poll"):
+            return {"status": "authorized", "token": "lets_doubao_new",
+                    "agent_instance": {
+                        "id": 3,
+                        "role": "cc-doubao",
+                        "device_label": "mac",
+                    }}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(gateway, "_http_public", fake_http)
+    monkeypatch.setattr(gateway.webbrowser, "open", lambda url: True)
+    monkeypatch.setattr(gateway, "_require_local_cli_for_role", lambda role: True)
+
+    spawns: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(
+        gateway,
+        "_spawn_background_for",
+        lambda role, host, extra: spawns.append((role, host, extra)) or 12345,
+    )
+
+    rc = gateway.main([
+        "add",
+        "cc-doubao",
+        "--host",
+        "https://h",
+        "--device-label",
+        "mac",
+    ])
+
+    assert rc == 0
+    assert "role=cc-doubao" in start_paths[0]
+    assert "model=" not in start_paths[0]
+    assert spawns == [("cc-doubao", "https://h", [])]
+
+
 def test_codex_command_includes_model():
     from app import gateway
 
@@ -515,6 +562,17 @@ def test_codex_command_includes_model():
         "exec",
         "--model",
         "gpt-5-codex",
+    ]
+
+
+def test_cc_deepseek_command_can_include_explicit_model():
+    from app import gateway
+
+    assert gateway._with_model(["cc-deepseek", "--print"], "cc-deepseek", "deepseek-chat") == [
+        "cc-deepseek",
+        "--print",
+        "--model",
+        "deepseek-chat",
     ]
 
 
@@ -748,9 +806,47 @@ def test_local_cli_preflight_reports_missing_executable(monkeypatch, capsys):
     from app import gateway
 
     monkeypatch.setattr(gateway.shutil, "which", lambda executable: None)
+    monkeypatch.setattr(gateway, "_shell_resolves_command", lambda executable: False)
 
     assert gateway._require_local_cli_for_role("codex") is False
     assert "Local 'codex' CLI not found on PATH" in capsys.readouterr().err
+
+
+def test_local_cli_preflight_accepts_shell_function(monkeypatch):
+    from app import gateway
+
+    monkeypatch.setattr(gateway.shutil, "which", lambda executable: None)
+    monkeypatch.setattr(gateway, "_shell_resolves_command", lambda executable: executable == "cc-deepseek")
+
+    assert gateway._require_local_cli_for_role("cc-deepseek") is True
+
+
+def test_cc_deepseek_uses_claude_adapter_and_shell_wrapper(monkeypatch):
+    from app import gateway
+
+    monkeypatch.setattr(gateway.shutil, "which", lambda executable: None)
+    monkeypatch.setattr(gateway, "_shell_resolves_command", lambda executable: executable == "cc-deepseek")
+
+    cmd = gateway._agent_command(
+        ["cc-deepseek", "--print"],
+        "cc-deepseek",
+        "sess-1",
+        "PERSONA",
+    )
+
+    assert cmd == [
+        "zsh",
+        "-ic",
+        'cc-deepseek "$@"',
+        "cc-deepseek",
+        "--print",
+        "--output-format",
+        "json",
+        "--resume",
+        "sess-1",
+        "--append-system-prompt",
+        "PERSONA",
+    ]
 
 
 def test_lets_join_fails_when_saved_agent_cli_is_missing(monkeypatch):
@@ -1241,11 +1337,19 @@ def test_proactive_join_requires_multi_human_discussion_density():
     recent = [
         {"id": 1, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "A"},
         {"id": 2, "type": "chat", "actor_type": "human", "actor_id": 2, "body": "B"},
-        {"id": 3, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "C"},
-        {"id": 4, "type": "chat", "actor_type": "human", "actor_id": 2, "body": "D"},
     ]
 
     assert gateway._should_proactively_join(recent, recent[-1], my_agent_id=7) is True
+
+
+def test_proactive_join_waits_for_a_two_message_exchange():
+    from app import gateway
+
+    recent = [
+        {"id": 1, "type": "chat", "actor_type": "human", "actor_id": 1, "body": "A"},
+    ]
+
+    assert gateway._should_proactively_join(recent, recent[-1], my_agent_id=7) is False
 
 
 def test_proactive_join_stays_quiet_for_single_human():

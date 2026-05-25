@@ -34,6 +34,8 @@ function isGeneratedMatrixName(name: string) {
 export function roleTitle(role: string) {
   if (role === "codex") return "Codex";
   if (role === "claude") return "Claude Code";
+  if (role === "cc-deepseek") return "CC DeepSeek";
+  if (role === "cc-doubao") return "CC Doubao";
   return role;
 }
 

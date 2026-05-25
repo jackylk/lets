@@ -56,14 +56,76 @@ _DEFAULT_OPENER = urllib.request.build_opener()
 _DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 DEFAULT_CLAUDE_MODEL = "claude-opus-4-7"
 DEFAULT_CODEX_MODEL = "gpt-5.5"
+SUPPORTED_AGENT_ROLES = ("claude", "codex", "cc-deepseek", "cc-doubao")
+
+
+@dataclass(frozen=True)
+class AgentRoleSpec:
+    cli: str
+    adapter: str
+    label: str
+    default_model: str | None = None
+
+
+AGENT_ROLE_SPECS: dict[str, AgentRoleSpec] = {
+    "claude": AgentRoleSpec(
+        cli="claude",
+        adapter="claude",
+        label="Claude Code",
+        default_model=DEFAULT_CLAUDE_MODEL,
+    ),
+    "codex": AgentRoleSpec(
+        cli="codex",
+        adapter="codex",
+        label="Codex CLI",
+        default_model=DEFAULT_CODEX_MODEL,
+    ),
+    "cc-deepseek": AgentRoleSpec(
+        cli="cc-deepseek",
+        adapter="claude",
+        label="Claude Code (DeepSeek)",
+    ),
+    "cc-doubao": AgentRoleSpec(
+        cli="cc-doubao",
+        adapter="claude",
+        label="Claude Code (Doubao)",
+    ),
+}
+
+
+def _role_spec(role: str) -> AgentRoleSpec | None:
+    return AGENT_ROLE_SPECS.get(role)
+
+
+def _adapter_for_role(role: str) -> str:
+    return (_role_spec(role) or AgentRoleSpec(role, role, role)).adapter
+
+
+def _default_model_for_role(role: str) -> str | None:
+    spec = _role_spec(role)
+    return spec.default_model if spec else None
 
 
 def _local_cli_for_role(role: str) -> str | None:
-    if role == "claude":
-        return "claude"
-    if role == "codex":
-        return "codex"
-    return None
+    spec = _role_spec(role)
+    return spec.cli if spec else None
+
+
+def _shell_resolves_command(executable: str) -> bool:
+    try:
+        proc = subprocess.run(
+            ["zsh", "-ic", f"command -v -- {shlex.quote(executable)} >/dev/null"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except Exception:
+        return False
+    return proc.returncode == 0
+
+
+def _command_available(executable: str) -> bool:
+    return bool(shutil.which(executable)) or _shell_resolves_command(executable)
 
 
 def _require_local_cli_for_role(role: str) -> bool:
@@ -71,18 +133,25 @@ def _require_local_cli_for_role(role: str) -> bool:
     if not executable:
         print(f"unknown agent role: {role}", file=sys.stderr)
         return False
-    if shutil.which(executable):
+    if _command_available(executable):
         return True
-    install_hint = (
-        "Install Claude Code first, then rerun: lets add claude"
-        if role == "claude"
-        else "Install Codex CLI first, then rerun: lets add codex"
-    )
+    install_hint = f"Make `{executable}` available in your shell, then rerun: lets add {role}"
     print(
         f"Local {executable!r} CLI not found on PATH. {install_hint}",
         file=sys.stderr,
     )
     return False
+
+
+def _default_cli_command_for_role(role: str) -> list[str] | None:
+    spec = _role_spec(role)
+    if spec is None:
+        return None
+    if spec.adapter == "claude":
+        return [spec.cli, "--print"]
+    if spec.adapter == "codex":
+        return [spec.cli, "exec"]
+    return [spec.cli]
 
 
 def _urlopen(req: urllib.request.Request, timeout: float = 20.0):
@@ -361,10 +430,10 @@ def _shared_context_section(
 
 
 def _should_proactively_join(recent: list[dict], trigger: dict, my_agent_id: int) -> bool:
-    """Conservative observer-mode trigger for multi-human conversations.
+    """Observer-mode trigger for multi-human conversations.
 
     Direct mentions are handled elsewhere. This path is for "agent can speak at
-    the right time": after several consecutive human chat messages, and only
+    the right time": after a short human exchange, and only
     when at least two humans are actually participating, join with a broadening
     thought instead of answering every line.
     """
@@ -396,7 +465,7 @@ def _should_proactively_join(recent: list[dict], trigger: dict, my_agent_id: int
         ):
             human_msgs_since_agent += 1
 
-    return human_msgs_since_agent >= 4 and human_msgs_since_agent % 4 == 0
+    return human_msgs_since_agent >= 2 and human_msgs_since_agent % 2 == 0
 
 
 # Compact pane-updates spec — same parser, fraction of the tokens.
@@ -1082,9 +1151,19 @@ def _with_arg(cmd: list[str], *args: str) -> list[str]:
 
 
 def _with_model(cmd: list[str], engine: str, model: str | None) -> list[str]:
-    if engine not in ("claude", "codex") or not model or "--model" in cmd or "-m" in cmd:
+    adapter = _adapter_for_role(engine)
+    if adapter not in ("claude", "codex") or not model or "--model" in cmd or "-m" in cmd:
         return cmd
     return [*cmd, "--model", model]
+
+
+def _wrap_shell_resolved_command(cmd: list[str]) -> list[str]:
+    if not cmd:
+        return cmd
+    executable = cmd[0]
+    if shutil.which(executable) or not _shell_resolves_command(executable):
+        return cmd
+    return ["zsh", "-ic", f"{shlex.quote(executable)} \"$@\"", executable, *cmd[1:]]
 
 
 def _agent_command(
@@ -1093,7 +1172,8 @@ def _agent_command(
     session_id: str | None,
     system_prompt: str | None = None,
 ) -> list[str]:
-    if engine == "claude":
+    adapter = _adapter_for_role(engine)
+    if adapter == "claude":
         out = list(cmd)
         if "--output-format" not in out:
             out.extend(["--output-format", "json"])
@@ -1103,8 +1183,8 @@ def _agent_command(
         # so Anthropic's prompt cache hits this prefix on subsequent turns.
         if system_prompt and "--append-system-prompt" not in out:
             out.extend(["--append-system-prompt", system_prompt])
-        return out
-    if engine == "codex":
+        return _wrap_shell_resolved_command(out)
+    if adapter == "codex":
         if len(cmd) >= 2 and cmd[0] == "codex" and cmd[1] == "exec":
             out = [cmd[0], cmd[1]]
             if "--skip-git-repo-check" not in out:
@@ -1112,14 +1192,21 @@ def _agent_command(
             if session_id:
                 out.extend(["resume", session_id])
             out.extend(cmd[2:])
-            return _with_arg(out, "--json")
-        return cmd
-    return cmd
+            return _wrap_shell_resolved_command(_with_arg(out, "--json"))
+        return _wrap_shell_resolved_command(cmd)
+    return _wrap_shell_resolved_command(cmd)
 
 
 def _error_for_cli(engine: str, cmd: list[str], returncode: int, stderr: str) -> str:
-    name = "Claude CLI" if engine == "claude" else "Codex CLI" if engine == "codex" else "local CLI"
-    probe = "claude --print 'hi'" if engine == "claude" else "codex exec --skip-git-repo-check 'hi'" if engine == "codex" else "the CLI"
+    adapter = _adapter_for_role(engine)
+    spec = _role_spec(engine)
+    name = spec.label if spec else "Claude CLI" if adapter == "claude" else "Codex CLI" if adapter == "codex" else "local CLI"
+    if adapter == "claude":
+        probe = f"{(spec.cli if spec else 'claude')} --print 'hi'"
+    elif adapter == "codex":
+        probe = "codex exec --skip-git-repo-check 'hi'"
+    else:
+        probe = "the CLI"
     return (
         f"{name} 调用失败。\n\n"
         f"command: {' '.join(cmd)}\n"
@@ -1130,8 +1217,15 @@ def _error_for_cli(engine: str, cmd: list[str], returncode: int, stderr: str) ->
 
 
 def _timeout_for_cli(engine: str, timeout: int) -> str:
-    name = "Claude CLI" if engine == "claude" else "Codex CLI" if engine == "codex" else "local CLI"
-    probe = "claude --print 'hi'" if engine == "claude" else "codex exec --skip-git-repo-check 'hi'" if engine == "codex" else "the CLI"
+    adapter = _adapter_for_role(engine)
+    spec = _role_spec(engine)
+    name = spec.label if spec else "Claude CLI" if adapter == "claude" else "Codex CLI" if adapter == "codex" else "local CLI"
+    if adapter == "claude":
+        probe = f"{(spec.cli if spec else 'claude')} --print 'hi'"
+    elif adapter == "codex":
+        probe = "codex exec --skip-git-repo-check 'hi'"
+    else:
+        probe = "the CLI"
     return (
         f"{name} 超过 {timeout}s 没有返回。\n\n"
         f"在终端运行 `{probe}` 验证本机非交互模式可用；"
@@ -1237,6 +1331,7 @@ def _forget_session(session_dir: str, host: str, topic_id: int, engine: str) -> 
 
 def _invoke_local_cli(cmd: list[str], prompt: str, timeout: int) -> tuple[bool, str]:
     """Run the local agent CLI with the prompt; capture stdout."""
+    cmd = _wrap_shell_resolved_command(cmd)
     try:
         proc = subprocess.run(
             cmd + [prompt] if "--print" in cmd or "exec" in cmd[-1:] else cmd,
@@ -1436,9 +1531,8 @@ def _login(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--role",
-        choices=["claude", "codex"],
         default=os.environ.get("LETS_AGENT_ROLE", "claude"),
-        help="Local agent type to register",
+        help="Local agent type to register (claude, codex, cc-deepseek, cc-doubao)",
     )
     parser.add_argument(
         "--device-label",
@@ -1621,7 +1715,7 @@ def _print_main_help() -> None:
         """usage: lets <command> [options]
 
 Commands:
-  add <claude|codex>     authorize and start a local agent
+  add <agent>            authorize and start a local agent
   agents                 list local agents and their workspace/status
   doctor                 check tokens, local CLIs, logs, and autostart
   logs                   show local gateway logs
@@ -1659,7 +1753,7 @@ def _list_agent_workspaces(argv: list[str]) -> int:
     parser.add_argument(
         "--agent",
         default=None,
-        help="Agent role to use (claude / codex). Defaults to the saved token.",
+        help="Agent role to use. Defaults to the saved token.",
     )
     parser.add_argument(
         "--host",
@@ -1782,7 +1876,7 @@ def _leave_workspace(argv: list[str]) -> int:
     parser.add_argument(
         "--agent",
         default=None,
-        help="Agent role to use (claude / codex). Defaults to the saved token.",
+        help="Agent role to use. Defaults to the saved token.",
     )
     parser.add_argument(
         "--host",
@@ -1846,7 +1940,7 @@ def _join_workspace(argv: list[str]) -> int:
     parser.add_argument(
         "--agent",
         default=None,
-        help="Agent role to join with (claude / codex). Defaults to the saved token.",
+        help="Agent role to join with. Defaults to the saved token.",
     )
     parser.add_argument("--host", default=None)
     parser.add_argument("--no-open", action="store_true")
@@ -1858,8 +1952,8 @@ def _join_workspace(argv: list[str]) -> int:
         return 2
     ai = rec.get("agent_instance") or {}
     role = args.agent or ai.get("role")
-    if role not in ("claude", "codex"):
-        print("Could not determine agent role. Pass --agent claude or --agent codex.", file=sys.stderr)
+    if not role:
+        print("Could not determine agent role. Pass --agent <role>.", file=sys.stderr)
         return 2
     if not _require_local_cli_for_role(str(role)):
         return 2
@@ -1880,7 +1974,7 @@ def _join_workspace(argv: list[str]) -> int:
 
 def _set_agent_model(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lets model set")
-    parser.add_argument("--agent", default=None, help="Agent role (claude / codex).")
+    parser.add_argument("--agent", default=None, help="Agent role.")
     parser.add_argument("--model", required=True, help="Model alias or full model id.")
     parser.add_argument("--host", default=None)
     args = parser.parse_args(argv)
@@ -1931,7 +2025,7 @@ def _stop_gateway_for_agent(agent_id: int) -> bool:
 
 def _retire_agent(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lets retire")
-    parser.add_argument("--agent", default=None, help="Agent role to retire (claude / codex).")
+    parser.add_argument("--agent", default=None, help="Agent role to retire.")
     parser.add_argument("--host", default=None)
     parser.add_argument("--no-stop", action="store_true", help="Do not try to stop the local gateway process.")
     parser.add_argument("--keep-token", action="store_true", help="Do not remove local token files.")
@@ -1970,7 +2064,7 @@ def _tail_file(path: str, lines: int) -> str:
 
 def _show_logs(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lets logs")
-    parser.add_argument("--agent", default=None, help="Agent role (claude / codex).")
+    parser.add_argument("--agent", default=None, help="Agent role.")
     parser.add_argument("--err", action="store_true", help="Show stderr log instead of stdout.")
     parser.add_argument("--lines", type=int, default=80)
     parser.add_argument("--follow", "-f", action="store_true")
@@ -1989,11 +2083,12 @@ def _show_logs(argv: list[str]) -> int:
 
 
 def _cli_supports_model(executable: str, args: list[str]) -> bool | None:
-    if not shutil.which(executable):
+    if not _command_available(executable):
         return None
     try:
+        cmd = _wrap_shell_resolved_command([executable, *args, "--help"])
         proc = subprocess.run(
-            [executable, *args, "--help"],
+            cmd,
             capture_output=True,
             text=True,
             timeout=5,
@@ -2005,7 +2100,7 @@ def _cli_supports_model(executable: str, args: list[str]) -> bool | None:
 
 def _doctor(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="lets doctor")
-    parser.add_argument("--agent", default=None, help="Agent role to check (claude / codex).")
+    parser.add_argument("--agent", default=None, help="Agent role to check.")
     parser.add_argument("--host", default=None)
     args = parser.parse_args(argv)
 
@@ -2032,11 +2127,13 @@ def _doctor(argv: list[str]) -> int:
             print(f"  token: ERROR {e}")
         cli = _local_cli_for_role(str(role))
         if cli:
-            found = shutil.which(cli)
+            found_path = shutil.which(cli)
+            found = found_path or ("shell function" if _shell_resolves_command(cli) else None)
             print(f"  cli: {'ok ' + found if found else 'ERROR not found'}")
             if not found:
                 ok = False
-            support = _cli_supports_model(cli, ["exec"] if cli == "codex" else [])
+            adapter = _adapter_for_role(str(role))
+            support = _cli_supports_model(cli, ["exec"] if adapter == "codex" else [])
             if support is not None:
                 print(f"  --model: {'ok' if support else 'not detected'}")
         out_log, err_log = _log_paths(role=str(role))
@@ -2487,7 +2584,7 @@ def _start_background(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--agent", default=None,
-        help="Role to start (claude / codex). Omit to start every registered agent.",
+        help="Role to start. Omit to start every registered agent.",
     )
     args, passthrough = parser.parse_known_args(argv)
 
@@ -2526,7 +2623,6 @@ def _add_agent(argv: list[str]) -> int:
     parser.add_argument(
         "role",
         nargs="?",
-        choices=["claude", "codex"],
         default="claude",
         help="Agent role to add (default: claude)",
     )
@@ -2562,7 +2658,7 @@ def _add_agent(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
     if not args.model:
-        args.model = DEFAULT_CODEX_MODEL if args.role == "codex" else DEFAULT_CLAUDE_MODEL
+        args.model = _default_model_for_role(args.role)
     if not _require_local_cli_for_role(args.role):
         return 2
 
@@ -2726,7 +2822,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] in ("model",):
         if len(argv) >= 2 and argv[1] == "set":
             return _set_agent_model(argv[2:])
-        print("usage: lets model set --agent <claude|codex> --model <model>", file=sys.stderr)
+        print("usage: lets model set --agent <role> --model <model>", file=sys.stderr)
         return 2
     if argv and argv[0] in ("retire",):
         return _retire_agent(argv[1:])
@@ -2792,7 +2888,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--agent",
         default=None,
-        help="Role to run (claude / codex). Picks the matching token from "
+        help="Role to run. Picks the matching token from "
              "~/.lets/tokens/<role>.json; falls back to the legacy single "
              "token file when omitted.",
     )
@@ -2839,10 +2935,8 @@ def main(argv: list[str] | None = None) -> int:
     custom_cmd = bool(args.cmd)
     if custom_cmd:
         cli_cmd = shlex.split(args.cmd)
-    elif me.role == "claude":
-        cli_cmd = ["claude", "--print"]
-    elif me.role == "codex":
-        cli_cmd = ["codex", "exec"]
+    elif _default_cli_command_for_role(me.role):
+        cli_cmd = _default_cli_command_for_role(me.role) or []
     else:
         print(f"unknown role '{me.role}' — pass --cmd explicitly", file=sys.stderr)
         return 2
@@ -2870,7 +2964,7 @@ def main(argv: list[str] | None = None) -> int:
     pending: dict[int, dict] = {}
     QUIET_WINDOW_URGENT = 1.0
     QUIET_WINDOW_NORMAL = 6.0
-    QUIET_WINDOW_PROACTIVE = 10.0
+    QUIET_WINDOW_PROACTIVE = 5.0
 
     while True:
         try:
@@ -2971,7 +3065,7 @@ def main(argv: list[str] | None = None) -> int:
                     me = _whoami(args.host, args.token)
                 except Exception as e:
                     print(f"  WARN: failed to refresh agent settings: {e}", file=sys.stderr)
-                default_model = DEFAULT_CODEX_MODEL if me.role == "codex" else DEFAULT_CLAUDE_MODEL
+                default_model = _default_model_for_role(me.role)
                 effective_model = args.model or me.model or default_model
                 effective_cli_cmd = _with_model(cli_cmd, me.role, effective_model)
                 shared_context = _shared_context_section(

@@ -1153,6 +1153,10 @@ def init_db() -> None:
                          ("claude", "Anthropic Claude Code"))
             conn.execute("INSERT INTO agent_types (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
                          ("codex", "OpenAI Codex CLI"))
+            conn.execute("INSERT INTO agent_types (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
+                         ("cc-deepseek", "Claude Code via DeepSeek-compatible local command"))
+            conn.execute("INSERT INTO agent_types (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
+                         ("cc-doubao", "Claude Code via Doubao-compatible local command"))
         _initialized_url = url
 
 

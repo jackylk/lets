@@ -36,7 +36,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Let's", lifespan=lifespan)
 DEFAULT_CLAUDE_MODEL = "claude-opus-4-7"
 DEFAULT_CODEX_MODEL = "gpt-5.5"
+SUPPORTED_AGENT_ROLES = {"claude", "codex", "cc-deepseek", "cc-doubao"}
 PUBLIC_TOPIC_TITLE = "全员话题"
+
+
+def _default_model_for_agent_role(role: str) -> str | None:
+    if role == "claude":
+        return DEFAULT_CLAUDE_MODEL
+    if role == "codex":
+        return DEFAULT_CODEX_MODEL
+    return None
 
 
 class BearerAuthMiddleware:
@@ -630,6 +639,8 @@ cat <<MSG
 Next, choose which local agent to connect:
   lets add claude     # if this computer has Claude Code
   lets add codex      # if this computer has Codex CLI
+  lets add cc-deepseek # if this shell has a cc-deepseek command
+  lets add cc-doubao   # if this shell has a cc-doubao command
 MSG
 """
     return PlainTextResponse(script, media_type="text/x-shellscript; charset=utf-8")
@@ -4048,12 +4059,13 @@ def _device_flow_start_impl(
     workspace_id: int | None,
     workspace_slug: str | None = None,
 ) -> dict:
-    if role not in ("claude", "codex"):
-        raise HTTPException(status_code=400, detail="role must be claude or codex")
+    if role not in SUPPORTED_AGENT_ROLES:
+        allowed = ", ".join(sorted(SUPPORTED_AGENT_ROLES))
+        raise HTTPException(status_code=400, detail=f"role must be one of: {allowed}")
     device_label = device_label.strip()[:80] or "local"
     requested_model = (model or "").strip()
     if not requested_model:
-        requested_model = DEFAULT_CODEX_MODEL if role == "codex" else DEFAULT_CLAUDE_MODEL
+        requested_model = _default_model_for_agent_role(role) or ""
     model = requested_model[:128] or None
     if model and any(ch.isspace() for ch in model):
         raise HTTPException(status_code=400, detail="model cannot contain whitespace")
@@ -4531,6 +4543,9 @@ def create_my_token(
         raise HTTPException(status_code=401, detail="invalid session")
     if principal.get("is_guest"):
         raise HTTPException(status_code=403, detail="guest users cannot create agent tokens")
+    if payload.role not in SUPPORTED_AGENT_ROLES:
+        allowed = ", ".join(sorted(SUPPORTED_AGENT_ROLES))
+        raise HTTPException(status_code=400, detail=f"role must be one of: {allowed}")
 
     _token_ws_id = payload.workspace_id
     if _token_ws_id is None:
@@ -4546,7 +4561,7 @@ def create_my_token(
         human_id=principal["human_id"],
         device_label=payload.device_label,
         workspace_id=int(_token_ws_id),
-        model=payload.model,
+        model=payload.model or _default_model_for_agent_role(payload.role),
     )
     raw_value, token_id = issue_token(
         human_id=principal["human_id"],

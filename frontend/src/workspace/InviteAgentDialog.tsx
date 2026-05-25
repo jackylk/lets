@@ -7,11 +7,14 @@ interface Props {
 }
 
 const ROLES = [
-  { id: "claude", label: "Claude Code" },
-  { id: "codex", label: "Codex CLI" },
+  { id: "claude", label: "Claude Code", modelKind: "claude" },
+  { id: "codex", label: "Codex CLI", modelKind: "codex" },
+  { id: "cc-deepseek", label: "CC DeepSeek", modelKind: "none" },
+  { id: "cc-doubao", label: "CC Doubao", modelKind: "none" },
 ] as const;
 
 type RoleId = (typeof ROLES)[number]["id"];
+type ModelKind = (typeof ROLES)[number]["modelKind"];
 type ClaudeModel = "haiku" | "sonnet" | "sonnet-4.6" | "claude-opus-4-7";
 const DEFAULT_CLAUDE_MODEL: ClaudeModel = "claude-opus-4-7";
 const DEFAULT_CODEX_MODEL = "gpt-5.5";
@@ -52,8 +55,16 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
   const [codexModel, setCodexModel] = useState(DEFAULT_CODEX_MODEL);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const model = role === "claude" ? claudeModel : codexModel.trim();
-  const defaultModel = role === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CODEX_MODEL;
+  const modelKind: ModelKind = ROLES.find((r) => r.id === role)?.modelKind ?? "none";
+  let model = "";
+  let defaultModel = "";
+  if (modelKind === "claude") {
+    model = claudeModel;
+    defaultModel = DEFAULT_CLAUDE_MODEL;
+  } else if (modelKind === "codex") {
+    model = codexModel.trim();
+    defaultModel = DEFAULT_CODEX_MODEL;
+  }
   const explicitModel = model && model !== defaultModel ? model : "";
   const modelArg = explicitModel ? ` --model ${explicitModel}` : "";
   const install = installCommand();
@@ -100,30 +111,32 @@ export function InviteAgentDialog({ workspaceName, workspaceSlug, onClose }: Pro
           ))}
         </div>
 
-        <div className="mb-4 flex items-center gap-2 text-[12.5px]">
-          <span className="text-text-dim">模型</span>
-          {role === "claude" ? (
-            <select
-              aria-label="Claude 模型"
-              value={claudeModel}
-              onChange={(e) => setClaudeModel(e.target.value as ClaudeModel)}
-              className="rounded border border-border bg-surface-elev px-2 py-1 text-[13px]"
-            >
-              <option value="haiku">Haiku</option>
-              <option value="sonnet">Sonnet</option>
-              <option value="sonnet-4.6">Sonnet 4.6</option>
-              <option value={DEFAULT_CLAUDE_MODEL}>Opus</option>
-            </select>
-          ) : (
-            <input
-              aria-label="Codex 模型"
-              value={codexModel}
-              onChange={(e) => setCodexModel(e.target.value)}
-              placeholder="gpt-5.5"
-              className="w-40 rounded border border-border bg-surface-elev px-2 py-1 text-[13px]"
-            />
-          )}
-        </div>
+        {modelKind !== "none" ? (
+          <div className="mb-4 flex items-center gap-2 text-[12.5px]">
+            <span className="text-text-dim">模型</span>
+            {modelKind === "claude" ? (
+              <select
+                aria-label="Claude 模型"
+                value={claudeModel}
+                onChange={(e) => setClaudeModel(e.target.value as ClaudeModel)}
+                className="rounded border border-border bg-surface-elev px-2 py-1 text-[13px]"
+              >
+                <option value="haiku">Haiku</option>
+                <option value="sonnet">Sonnet</option>
+                <option value="sonnet-4.6">Sonnet 4.6</option>
+                <option value={DEFAULT_CLAUDE_MODEL}>Opus</option>
+              </select>
+            ) : (
+              <input
+                aria-label="Codex 模型"
+                value={codexModel}
+                onChange={(e) => setCodexModel(e.target.value)}
+                placeholder="gpt-5.5"
+                className="w-40 rounded border border-border bg-surface-elev px-2 py-1 text-[13px]"
+              />
+            )}
+          </div>
+        ) : null}
 
         <div className="mb-4 flex flex-col gap-3">
           <CommandRow

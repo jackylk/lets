@@ -62,7 +62,8 @@ def ensure_agent_instance(
             """
             SELECT id FROM agent_instances
             WHERE agent_type_id = ? AND owner_human_id = ? AND device_label = ?
-              AND deleted_at IS NULL
+            ORDER BY CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END, id DESC
+            LIMIT 1
             """,
             (agent_type_id, human_id, device_label),
         ).fetchone()

@@ -92,6 +92,26 @@ def test_device_flow_codex_defaults_model_to_gpt55(temp_db, client, monkeypatch)
     assert poll.json()["agent"]["model"] == "gpt-5.5"
 
 
+def test_device_flow_cc_deepseek_keeps_model_unset_by_default(temp_db, client, monkeypatch):
+    monkeypatch.setenv("LETS_DEV_SESSIONS", "1")
+    _login_or_seed_alice(client)
+
+    r = client.post(
+        "/api/auth/device-flow/start",
+        params={"role": "cc-deepseek", "device_label": "mac"},
+    )
+    assert r.status_code == 200
+    user_code = r.json()["user_code"]
+    auth = client.post(f"/api/auth/device-flow/authorize/{user_code}")
+    assert auth.status_code == 200
+
+    poll = client.get(f"/api/auth/device-flow/poll/{r.json()['device_code']}")
+    assert poll.status_code == 200
+    agent = poll.json()["agent"]
+    assert agent["role"] == "cc-deepseek"
+    assert agent["model"] is None
+
+
 def test_device_flow_with_workspace(temp_db, client, monkeypatch):
     monkeypatch.setenv("LETS_DEV_SESSIONS", "1")
     alice_id = _login_or_seed_alice(client)

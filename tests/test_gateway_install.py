@@ -17,6 +17,8 @@ def test_gateway_install_script_uses_public_base_url(client):
     assert '"$LETS_HOME/bin/lets" install --host "$BASE_URL"' not in body
     assert "lets add claude" in body
     assert "lets add codex" in body
+    assert "lets add cc-deepseek" in body
+    assert "lets add cc-doubao" in body
     assert "$LETS_HOME/bin/lets" in body
 
 

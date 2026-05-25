@@ -42,12 +42,14 @@ def test_agent_types_columns(temp_db):
 
 
 def test_agent_types_seeded(temp_db):
-    """init_db should seed claude and codex roles."""
+    """init_db should seed built-in agent adapter types."""
     from app.db import connect
     with connect() as conn:
         names = {r["name"] for r in conn.execute("SELECT name FROM agent_types").fetchall()}
     assert "claude" in names
     assert "codex" in names
+    assert "cc-deepseek" in names
+    assert "cc-doubao" in names
 
 
 def test_agent_instances_table_exists(temp_db):
