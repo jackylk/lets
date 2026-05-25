@@ -62,6 +62,21 @@ describe("<TopicView />", () => {
     expect(textarea.value).toBe("@neo ");
   });
 
+  it("lets topic managers change agent intervention settings", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TopicView topicId={1} />);
+
+    await user.click(await screen.findByRole("button", { name: "话题菜单" }));
+    const intervention = screen.getByLabelText("插话") as HTMLSelectElement;
+    const context = screen.getByLabelText("上下文") as HTMLSelectElement;
+
+    await user.selectOptions(intervention, "mentions");
+    await waitFor(() => expect(intervention.value).toBe("mentions"));
+
+    await user.selectOptions(context, "topic_only");
+    await waitFor(() => expect(context.value).toBe("topic_only"));
+  });
+
   it("shows a clear message when the user is not in the topic", async () => {
     server.use(
       http.get("/api/topics/:id/messages", () =>

@@ -54,7 +54,35 @@ from typing import Any
 # connections in networks that require a proxy.
 _DEFAULT_OPENER = urllib.request.build_opener()
 _DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+DEFAULT_CLAUDE_MODEL = "claude-opus-4-7"
 DEFAULT_CODEX_MODEL = "gpt-5.5"
+
+
+def _local_cli_for_role(role: str) -> str | None:
+    if role == "claude":
+        return "claude"
+    if role == "codex":
+        return "codex"
+    return None
+
+
+def _require_local_cli_for_role(role: str) -> bool:
+    executable = _local_cli_for_role(role)
+    if not executable:
+        print(f"unknown agent role: {role}", file=sys.stderr)
+        return False
+    if shutil.which(executable):
+        return True
+    install_hint = (
+        "Install Claude Code first, then rerun: lets add claude"
+        if role == "claude"
+        else "Install Codex CLI first, then rerun: lets add codex"
+    )
+    print(
+        f"Local {executable!r} CLI not found on PATH. {install_hint}",
+        file=sys.stderr,
+    )
+    return False
 
 
 def _urlopen(req: urllib.request.Request, timeout: float = 20.0):
@@ -289,6 +317,49 @@ _PROACTIVE_REPLY_TYPES = {
 }
 
 
+def _topic_agent_intervention_mode(topic: dict) -> str:
+    mode = str(topic.get("agent_intervention_mode") or "auto")
+    return mode if mode in {"auto", "mentions", "silent"} else "auto"
+
+
+def _topic_shared_context_mode(topic: dict) -> str:
+    mode = str(topic.get("shared_context_mode") or "topic_with_files")
+    return mode if mode in {"topic_only", "topic_with_files"} else "topic_with_files"
+
+
+def _list_topic_attachments(host: str, token: str, topic_id: int) -> list[dict]:
+    try:
+        raw = _http(host, token, "GET", f"/api/topics/{topic_id}/attachments")
+    except Exception as exc:
+        print(f"  WARN: failed to load attachments for topic {topic_id}: {exc}", file=sys.stderr)
+        return []
+    if raw is None:
+        return []
+    return raw if isinstance(raw, list) else [raw]
+
+
+def _shared_context_section(
+    host: str,
+    token: str,
+    topic_id: int,
+    shared_context_mode: str,
+) -> str:
+    if shared_context_mode != "topic_with_files":
+        return ""
+    attachments = _list_topic_attachments(host, token, topic_id)
+    if not attachments:
+        return ""
+    lines = []
+    for a in attachments[-12:]:
+        name = str(a.get("filename") or "attachment").replace("\n", " ")[:120]
+        kind = str(a.get("kind") or "file")
+        mime = str(a.get("mime_type") or "application/octet-stream")
+        size = a.get("byte_size")
+        size_part = f", {size} bytes" if isinstance(size, int) else ""
+        lines.append(f"- {kind}: {name} ({mime}{size_part})")
+    return "\nShared files/images in this topic:\n" + "\n".join(lines) + "\n"
+
+
 def _should_proactively_join(recent: list[dict], trigger: dict, my_agent_id: int) -> bool:
     """Conservative observer-mode trigger for multi-human conversations.
 
@@ -480,9 +551,18 @@ def _collect_open_annotations(recent: list[dict]) -> list[dict]:
     return out
 
 
-def _build_prompt(me: Identity, topic_title: str, recent: list[dict], trigger: dict) -> str:
+def _build_prompt(
+    me: Identity,
+    topic_title: str,
+    recent: list[dict],
+    trigger: dict,
+    shared_context_section: str = "",
+) -> str:
     """Legacy single-string prompt — kept for back-compat with --cmd custom CLIs."""
-    sys_part, user_part = _build_prompt_split(me, topic_title, recent, trigger)
+    sys_part, user_part = _build_prompt_split(
+        me, topic_title, recent, trigger,
+        shared_context_section=shared_context_section,
+    )
     return sys_part + "\n\n" + user_part
 
 
@@ -493,6 +573,7 @@ def _build_prompt_split(
     trigger: dict,
     persona: str = "default",
     intervention_mode: str = "direct",
+    shared_context_section: str = "",
 ) -> tuple[str, str]:
     """Return ``(system_prompt, user_prompt)``.
 
@@ -562,6 +643,7 @@ def _build_prompt_split(
         )
     user_prompt = (
         f"Topic: {topic_title}\n\n"
+        f"{shared_context_section}"
         f"Recent:\n{history}\n"
         f"{annotation_section}"
         f"{resolved_section}\n"
@@ -1762,6 +1844,8 @@ def _join_workspace(argv: list[str]) -> int:
     if role not in ("claude", "codex"):
         print("Could not determine agent role. Pass --agent claude or --agent codex.", file=sys.stderr)
         return 2
+    if not _require_local_cli_for_role(str(role)):
+        return 2
     host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "https://lets.up.railway.app")
     login_args = [
         "--host", host,
@@ -1929,7 +2013,7 @@ def _doctor(argv: list[str]) -> int:
         except Exception as e:
             ok = False
             print(f"  token: ERROR {e}")
-        cli = "claude" if role == "claude" else "codex" if role == "codex" else None
+        cli = _local_cli_for_role(str(role))
         if cli:
             found = shutil.which(cli)
             print(f"  cli: {'ok ' + found if found else 'ERROR not found'}")
@@ -2460,8 +2544,10 @@ def _add_agent(argv: list[str]) -> int:
         help="Workspace slug to bind this agent to (default: caller's first workspace).",
     )
     args = parser.parse_args(argv)
-    if not args.model and args.role == "codex":
-        args.model = DEFAULT_CODEX_MODEL
+    if not args.model:
+        args.model = DEFAULT_CODEX_MODEL if args.role == "codex" else DEFAULT_CLAUDE_MODEL
+    if not _require_local_cli_for_role(args.role):
+        return 2
 
     print(f"Adding agent: {args.role} on {args.device_label}")
     login_args = [
@@ -2639,7 +2725,8 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("LETS_MODEL"),
         help="Model alias to pass to the local CLI (haiku/sonnet/opus or full "
              "model id). When omitted, uses the web setting on this "
-             "agent_instance, falling back to haiku.",
+             "agent_instance, falling back to claude-opus-4-7 for Claude and "
+             "gpt-5.5 for Codex.",
     )
     parser.add_argument(
         "--session-dir",
@@ -2742,6 +2829,7 @@ def main(argv: list[str] | None = None) -> int:
 
             # ── Phase 1: poll for new messages and accumulate pending state ──
             for tid, t in topic_by_id.items():
+                intervention_setting = _topic_agent_intervention_mode(t)
                 cur = last_seen_per_topic.get(tid, 0)
                 new_msgs = _read_topic(args.host, args.token, tid, cur)
                 if not new_msgs:
@@ -2755,9 +2843,15 @@ def main(argv: list[str] | None = None) -> int:
                             and int(m.get("actor_id") or 0) == me.agent_instance_id):
                         continue  # own posts
                     addressed = _addressed_to_me(m, me.agent_instance_id, me.human_id)
+                    if intervention_setting == "silent":
+                        continue
                     proactive = False
                     if not addressed:
-                        if m.get("actor_type") == "human" and m.get("type") == "chat":
+                        if (
+                            intervention_setting == "auto"
+                            and m.get("actor_type") == "human"
+                            and m.get("type") == "chat"
+                        ):
                             try:
                                 proactive = _should_proactively_join(
                                     _read_topic(args.host, args.token, tid, None),
@@ -2827,8 +2921,15 @@ def main(argv: list[str] | None = None) -> int:
                     me = _whoami(args.host, args.token)
                 except Exception as e:
                     print(f"  WARN: failed to refresh agent settings: {e}", file=sys.stderr)
-                effective_model = args.model or me.model or "haiku"
+                default_model = DEFAULT_CODEX_MODEL if me.role == "codex" else DEFAULT_CLAUDE_MODEL
+                effective_model = args.model or me.model or default_model
                 effective_cli_cmd = _with_model(cli_cmd, me.role, effective_model)
+                shared_context = _shared_context_section(
+                    args.host,
+                    args.token,
+                    tid,
+                    _topic_shared_context_mode(t),
+                )
 
                 system_prompt, user_prompt = _build_prompt_split(
                     me=me,
@@ -2837,6 +2938,7 @@ def main(argv: list[str] | None = None) -> int:
                     trigger=trigger,
                     persona=args.persona,
                     intervention_mode="proactive" if p.get("proactive") else "direct",
+                    shared_context_section=shared_context,
                 )
                 print(
                     f"[topic {tid}] firing on {len(trigger_ids)} message(s) "

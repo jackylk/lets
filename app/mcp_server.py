@@ -482,6 +482,8 @@ def list_my_topics(limit: int = 50) -> list[dict]:
             SELECT
                 t.id, t.slug, t.title, t.workspace_id AS project_id,
                 w.slug AS project_slug, w.name AS project_name,
+                t.agent_intervention_mode,
+                t.shared_context_mode,
                 m.id AS last_message_id,
                 m.created_at AS last_message_at,
                 m.body AS last_message_body

@@ -99,3 +99,42 @@ def test_artifact_versions_label_unique_per_artifact(temp_db):
             assert False, "should raise IntegrityError"
         except sqlite3.IntegrityError:
             pass
+
+
+def test_attachments_tables_exist(temp_db):
+    from app.db import connect
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('attachments', 'attachment_chunks')"
+        ).fetchall()
+    assert {r["name"] for r in rows} == {"attachments", "attachment_chunks"}
+
+
+def test_attachments_columns(temp_db):
+    from app.db import connect
+    with connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(attachments)").fetchall()}
+    expected = {
+        "id", "workspace_id", "topic_id", "message_id", "uploaded_by_human_id",
+        "kind", "filename", "mime_type", "byte_size", "sha256",
+        "storage_backend", "storage_key", "created_at",
+    }
+    assert expected.issubset(cols)
+
+
+def test_attachment_chunks_columns(temp_db):
+    from app.db import connect
+    with connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(attachment_chunks)").fetchall()}
+    expected = {
+        "id", "attachment_id", "workspace_id", "topic_id", "chunk_index",
+        "text", "metadata", "created_at",
+    }
+    assert expected.issubset(cols)
+
+
+def test_topics_agent_context_columns(temp_db):
+    from app.db import connect
+    with connect() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(topics)").fetchall()}
+    assert {"agent_intervention_mode", "shared_context_mode"}.issubset(cols)

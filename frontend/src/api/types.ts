@@ -30,6 +30,8 @@ export interface TopicDTO {
   workspace_id?: number | null;
   mode?: "exploratory" | "actionable";
   visibility?: "private" | "public";
+  agent_intervention_mode?: "auto" | "mentions" | "silent";
+  shared_context_mode?: "topic_only" | "topic_with_files";
   archived_at?: string | null;
   created_at: string;
   updated_at: string;
@@ -64,6 +66,23 @@ export interface ArtifactDTO {
   id: number; slug: string; type: string; backend: string;
   backend_ref: string; title: string; topic_id: number;
   current_version_id: number | null; versions: ArtifactVersionDTO[];
+}
+
+export interface AttachmentDTO {
+  id: number;
+  workspace_id: number | null;
+  topic_id: number;
+  message_id: number | null;
+  uploaded_by_human_id: number;
+  kind: "file" | "image";
+  filename: string;
+  mime_type: string;
+  byte_size: number;
+  sha256: string;
+  storage_backend: "local_volume" | string;
+  storage_key: string;
+  download_url: string;
+  created_at: string;
 }
 
 export interface SpecChangeMeta {

@@ -16,6 +16,7 @@ import { useTopic, useTopicMessages } from "../api/queries";
 import { apiRequest } from "../api/client";
 import { useIdentity } from "../identity/useIdentity";
 import { HealthContextPane } from "./HealthContextPane";
+import { AttachmentsPanel } from "./AttachmentsPanel";
 import { useTopicContextKind, type TopicContextOverride } from "./useTopicContextKind";
 
 interface Props {
@@ -110,7 +111,8 @@ export function TopicContext({ topicId }: Props) {
             <ConstraintsPanel items={items.constraints} />
           </ContextBlock>
 
-          <ContextBlock label="图与资料" hint="聊天里出现的 mermaid 图和链接自动收集到这里">
+          <ContextBlock label="图与资料" hint="聊天里的图、链接和手动上传的文件集中到这里">
+            <AttachmentsPanel topicId={topicId} />
             <ReferencesPanel messages={allMessages} topicId={topicId} />
           </ContextBlock>
 

@@ -64,6 +64,33 @@ def test_patch_topic_moves_workspace(temp_db, client):
     assert r.json()["workspace_id"] == ws_b["id"]
 
 
+def test_patch_topic_agent_context_settings(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "agent-rules", "title": "Agent Rules"},
+    ).json()
+    assert topic["agent_intervention_mode"] == "auto"
+    assert topic["shared_context_mode"] == "topic_with_files"
+
+    r = client.patch(
+        f"/api/topics/{topic['id']}",
+        json={
+            "agent_intervention_mode": "mentions",
+            "shared_context_mode": "topic_only",
+        },
+    )
+
+    assert r.status_code == 200
+    assert r.json()["agent_intervention_mode"] == "mentions"
+    assert r.json()["shared_context_mode"] == "topic_only"
+
+    fetched = client.get(f"/api/topics/{topic['id']}").json()
+    assert fetched["agent_intervention_mode"] == "mentions"
+    assert fetched["shared_context_mode"] == "topic_only"
+
+
 def test_patch_topic_403_if_not_member_of_target(temp_db, client):
     alice_id = _login(client, "alice")
     ws_a = client.post("/api/workspaces", json={"name": "A"}).json()
@@ -412,6 +439,81 @@ def test_removing_workspace_agent_cleans_topic_participants(temp_db, client):
             WHERE topic_id = ? AND participant_type = 'agent' AND participant_id = ?
             """,
             (topic["id"], agent_id),
+        ).fetchone()
+    assert row is None
+
+
+def test_deleted_agent_not_returned_as_topic_participant(temp_db, client):
+    alice_id = _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "deleted-agent", "title": "Deleted Agent"},
+    ).json()
+
+    from app.db import connect
+    from app.identity import ensure_agent_instance
+    agent_id = ensure_agent_instance("codex", alice_id, "alice-mbp", workspace_id=ws["id"])
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO topic_participants (topic_id, participant_type, participant_id, role)
+            VALUES (?, 'agent', ?, 'member')
+            ON CONFLICT DO NOTHING
+            RETURNING topic_id
+            """,
+            (topic["id"], agent_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO messages (topic_id, type, actor_type, actor_id, body)
+            VALUES (?, 'chat', 'agent', ?, 'old reply')
+            RETURNING id
+            """,
+            (topic["id"], agent_id),
+        )
+        conn.execute(
+            "UPDATE agent_instances SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (agent_id,),
+        )
+
+    r = client.get(f"/api/topics/{topic['id']}/participants")
+    assert r.status_code == 200
+    assert r.json()["agents"] == []
+
+
+def test_delete_agent_cleans_topic_participants(temp_db, client):
+    alice_id = _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "delete-agent-cleanup", "title": "Delete Agent Cleanup"},
+    ).json()
+
+    from app.db import connect
+    from app.identity import ensure_agent_instance
+    agent_id = ensure_agent_instance("codex", alice_id, "alice-mbp", workspace_id=ws["id"])
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO topic_participants (topic_id, participant_type, participant_id, role)
+            VALUES (?, 'agent', ?, 'member')
+            ON CONFLICT DO NOTHING
+            RETURNING topic_id
+            """,
+            (topic["id"], agent_id),
+        )
+
+    r = client.delete(f"/api/agents/{agent_id}")
+    assert r.status_code == 200
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM topic_participants
+            WHERE participant_type = 'agent' AND participant_id = ?
+            """,
+            (agent_id,),
         ).fetchone()
     assert row is None
 

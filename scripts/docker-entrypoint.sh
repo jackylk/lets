@@ -14,6 +14,8 @@ if [ ! -d "$LETS_GIT_REPO/.git" ]; then
   git -C "$LETS_GIT_REPO" commit --allow-empty -m "init"
 fi
 
+mkdir -p "${LETS_UPLOAD_DIR:-/data/lets-uploads}"
+
 python -m app.onboarding_reset
 
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"

@@ -30,6 +30,7 @@ COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 RUN chmod +x ./scripts/docker-entrypoint.sh
 
 ENV LETS_GIT_REPO=/data/lets-artifacts
+ENV LETS_UPLOAD_DIR=/data/lets-uploads
 ENV LETS_FRONTEND_DIST=/app/frontend/dist
 
 EXPOSE 8000

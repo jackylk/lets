@@ -3,6 +3,7 @@ import {
   useTopicMessages, usePostMessage, useIdentityMe,
   useTopic, useTopicParticipants, useAllAgents,
   useAddTopicParticipant, useRemoveTopicParticipant,
+  useUpdateTopicSettings,
 } from "../api/queries";
 import { useTopicStream } from "../api/sse";
 import { TopicHeader } from "./TopicHeader";
@@ -210,6 +211,7 @@ export function TopicView({ topicId, workspaceMembers = [], onOpenResources }: P
           menu={
             <TopicParticipantsMenu
               topicId={topicId}
+              topic={topic.data}
               participants={participants.data}
               workspaceMembers={workspaceMembers}
               currentHumanId={me.data?.human.id ?? null}
@@ -246,17 +248,20 @@ function mentionKey(name: string) {
 
 function TopicParticipantsMenu({
   topicId,
+  topic,
   participants,
   workspaceMembers,
   currentHumanId,
 }: {
   topicId: number;
+  topic: ReturnType<typeof useTopic>["data"];
   participants: ReturnType<typeof useTopicParticipants>["data"];
   workspaceMembers: WorkspaceMember[];
   currentHumanId: number | null;
 }) {
   const addParticipant = useAddTopicParticipant(topicId);
   const removeParticipant = useRemoveTopicParticipant(topicId);
+  const updateTopic = useUpdateTopicSettings(topicId);
   const canManage = Boolean(participants?.can_manage) && !participants?.is_public;
   const isPublic = Boolean(participants?.is_public);
 
@@ -293,6 +298,34 @@ function TopicParticipantsMenu({
 
   return (
     <div className="flex flex-col gap-2">
+      <ParticipantSection title="Agent 规则">
+        <TopicSettingSelect
+          label="插话"
+          value={topic?.agent_intervention_mode ?? "auto"}
+          disabled={!canManage || updateTopic.isPending}
+          options={[
+            ["auto", "自动"],
+            ["mentions", "提到才回"],
+            ["silent", "静默"],
+          ]}
+          onChange={(agent_intervention_mode) =>
+            updateTopic.mutate({ agent_intervention_mode })
+          }
+        />
+        <TopicSettingSelect
+          label="上下文"
+          value={topic?.shared_context_mode ?? "topic_with_files"}
+          disabled={!canManage || updateTopic.isPending}
+          options={[
+            ["topic_with_files", "聊天 + 文件"],
+            ["topic_only", "只看聊天"],
+          ]}
+          onChange={(shared_context_mode) =>
+            updateTopic.mutate({ shared_context_mode })
+          }
+        />
+      </ParticipantSection>
+      <div className="border-t border-border-soft" />
       <ParticipantSection title={`话题成员 ${chips.length}`}>
         {isPublic && (
           <div className="px-2 pb-1 text-[12px] text-text-dim">
@@ -367,6 +400,38 @@ function ParticipantSection({ title, children }: { title: string; children: Reac
       <div className="px-2 pb-1 text-[11px] font-semibold text-text-dim">{title}</div>
       {children}
     </div>
+  );
+}
+
+function TopicSettingSelect<T extends string>({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<[T, string]>;
+  disabled: boolean;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label className="mb-1 flex items-center gap-2 px-2 text-[12px] text-text-muted last:mb-0">
+      <span className="w-12 shrink-0 text-text-dim">{label}</span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.currentTarget.value as T)}
+        className="min-w-0 flex-1 rounded border border-border-soft bg-bg px-2 py-1 text-[12px] text-text outline-none disabled:opacity-50"
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

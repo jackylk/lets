@@ -1,6 +1,12 @@
 import { http, HttpResponse } from "msw";
 import { makeSeed, type SeedState } from "./seed";
-import type { MessageDTO, PostMessageInput, IdentityDTO, TokenRowDTO } from "../api/types";
+import type {
+  AttachmentDTO,
+  IdentityDTO,
+  MessageDTO,
+  PostMessageInput,
+  TokenRowDTO,
+} from "../api/types";
 
 type TokenRow = TokenRowDTO;
 
@@ -49,6 +55,52 @@ export const handlers = [
   }),
 
   http.get("/api/topics", () => HttpResponse.json(seed.topics)),
+
+  http.get("/api/topics/:id/attachments", ({ params }) => {
+    const topicId = Number(params.id);
+    const slot = seed as unknown as { fixtureAttachments?: AttachmentDTO[] };
+    return HttpResponse.json(
+      (slot.fixtureAttachments ?? []).filter((attachment) => attachment.topic_id === topicId),
+    );
+  }),
+
+  http.post("/api/topics/:id/attachments", async ({ params, request }) => {
+    const topicId = Number(params.id);
+    const url = new URL(request.url);
+    const filename = url.searchParams.get("filename") || "attachment";
+    const mimeType = request.headers.get("content-type") || "application/octet-stream";
+    const body = await request.arrayBuffer();
+    const slot = seed as unknown as { fixtureAttachments?: AttachmentDTO[] };
+    const attachments = (slot.fixtureAttachments ??= []);
+    const id = attachments.length + 1;
+    const row: AttachmentDTO = {
+      id,
+      workspace_id: 1,
+      topic_id: topicId,
+      message_id: null,
+      uploaded_by_human_id: 1,
+      kind: mimeType.startsWith("image/") ? "image" : "file",
+      filename,
+      mime_type: mimeType,
+      byte_size: body.byteLength,
+      sha256: `mock-sha-${id}`,
+      storage_backend: "local_volume",
+      storage_key: `mock/topic-${topicId}/attachment-${id}`,
+      download_url: `/api/attachments/${id}/download`,
+      created_at: new Date().toISOString(),
+    };
+    attachments.push(row);
+    return HttpResponse.json(row, { status: 200 });
+  }),
+
+  http.get("/api/attachments/:id/download", ({ params }) => {
+    const slot = seed as unknown as { fixtureAttachments?: AttachmentDTO[] };
+    const attachment = (slot.fixtureAttachments ?? []).find((row) => row.id === Number(params.id));
+    if (!attachment) return new HttpResponse(null, { status: 404 });
+    return new HttpResponse("mock attachment", {
+      headers: { "Content-Type": attachment.mime_type },
+    });
+  }),
 
   http.get("/api/topics/:id/messages", ({ params, request }) => {
     const url = new URL(request.url);
@@ -298,6 +350,27 @@ export const handlers = [
       });
     return HttpResponse.json(topic);
   }),
+  http.patch("/api/topics/:id", async ({ params, request }) => {
+    const topic = seed.topics.find((t) => t.id === Number(params.id));
+    if (!topic)
+      return new HttpResponse(JSON.stringify({ detail: "topic not found" }), {
+        status: 404,
+      });
+    const body = (await request.json()) as {
+      title?: string;
+      agent_intervention_mode?: "auto" | "mentions" | "silent";
+      shared_context_mode?: "topic_only" | "topic_with_files";
+    };
+    if (body.title !== undefined) topic.title = body.title;
+    if (body.agent_intervention_mode !== undefined) {
+      topic.agent_intervention_mode = body.agent_intervention_mode;
+    }
+    if (body.shared_context_mode !== undefined) {
+      topic.shared_context_mode = body.shared_context_mode;
+    }
+    topic.updated_at = new Date().toISOString();
+    return HttpResponse.json(topic);
+  }),
   http.post("/api/topics/:id/archive", ({ params }) => {
     const topic = seed.topics.find((t) => t.id === Number(params.id));
     if (!topic)
@@ -415,6 +488,8 @@ export const handlers = [
       id: seed.topics.length + 100,
       slug: body.slug, title: body.title,
       project_id: Number(params.id),
+      agent_intervention_mode: "auto" as const,
+      shared_context_mode: "topic_with_files" as const,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };

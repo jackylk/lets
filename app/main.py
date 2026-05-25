@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import json
 import importlib
@@ -8,6 +9,7 @@ import os
 import re
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Query, Request
@@ -32,6 +34,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Let's", lifespan=lifespan)
+DEFAULT_CLAUDE_MODEL = "claude-opus-4-7"
 DEFAULT_CODEX_MODEL = "gpt-5.5"
 PUBLIC_TOPIC_TITLE = "全员话题"
 
@@ -239,6 +242,42 @@ class ArtifactCreate(BaseModel):
     summary: str | None = None
 
 
+def _uploads_root() -> Path:
+    return Path(os.environ.get("LETS_UPLOAD_DIR", "/data/lets-uploads")).expanduser().resolve()
+
+
+def _max_attachment_bytes() -> int:
+    raw = os.environ.get("LETS_MAX_ATTACHMENT_BYTES", str(25 * 1024 * 1024))
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 25 * 1024 * 1024
+
+
+def _safe_attachment_filename(filename: str | None) -> str:
+    name = os.path.basename((filename or "").replace("\x00", "")).strip()
+    return (name or "attachment")[:255]
+
+
+def _attachment_storage_key(workspace_id: int | None, topic_id: int, attachment_id: int) -> str:
+    workspace_part = str(workspace_id) if workspace_id is not None else "none"
+    return f"workspaces/{workspace_part}/topics/{topic_id}/attachments/{attachment_id}/original"
+
+
+def _attachment_path(storage_key: str) -> Path:
+    root = _uploads_root()
+    path = (root / storage_key).resolve()
+    if path != root and root not in path.parents:
+        raise HTTPException(status_code=400, detail="invalid attachment storage key")
+    return path
+
+
+def _attachment_out(row: dict) -> dict:
+    out = dict(row)
+    out["download_url"] = f"/api/attachments/{out['id']}/download"
+    return out
+
+
 class ArtifactUpdate(BaseModel):
     content_b64: str
     summary: str | None = None
@@ -257,11 +296,15 @@ class TopicCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     mode: str = Field(default="exploratory")
     visibility: Literal["private", "public"] = "private"
+    agent_intervention_mode: Literal["auto", "mentions", "silent"] = "auto"
+    shared_context_mode: Literal["topic_only", "topic_with_files"] = "topic_with_files"
 
 
 class TopicUpdate(BaseModel):
     workspace_id: int | None = None
     title: str | None = None
+    agent_intervention_mode: Literal["auto", "mentions", "silent"] | None = None
+    shared_context_mode: Literal["topic_only", "topic_with_files"] | None = None
 
 
 class TopicParticipantCreate(BaseModel):
@@ -1029,6 +1072,17 @@ def delete_agent_instance(
             "UPDATE tokens SET revoked_at = CURRENT_TIMESTAMP WHERE agent_instance_id = ? AND revoked_at IS NULL",
             (agent_instance_id,),
         )
+        conn.execute(
+            "DELETE FROM workspace_agent_members WHERE agent_instance_id = ?",
+            (agent_instance_id,),
+        )
+        conn.execute(
+            """
+            DELETE FROM topic_participants
+            WHERE participant_type = 'agent' AND participant_id = ?
+            """,
+            (agent_instance_id,),
+        )
     return {"ok": True}
 
 
@@ -1461,9 +1515,18 @@ async def post_message_endpoint(
         and payload.actor_type == "human"
         and payload.type == "chat"
     ):
-        addressed_to = _health_addressee_for(
-            payload.topic_id, payload.actor_id, payload.body
-        ) or _default_addressee_for(payload.topic_id, payload.actor_id)
+        with connect() as conn:
+            topic_settings = conn.execute(
+                "SELECT agent_intervention_mode FROM topics WHERE id = ?",
+                (payload.topic_id,),
+            ).fetchone()
+        intervention_mode = (
+            topic_settings["agent_intervention_mode"] if topic_settings else "auto"
+        )
+        if intervention_mode == "auto":
+            addressed_to = _health_addressee_for(
+                payload.topic_id, payload.actor_id, payload.body
+            ) or _default_addressee_for(payload.topic_id, payload.actor_id)
 
     # First-chat-renames-topic: replace the auto-created "新话题" with a
     # short snippet of the first human message so the sidebar + header
@@ -2003,6 +2066,127 @@ def read_artifact(
     }
 
 
+@app.post("/api/topics/{topic_id}/attachments")
+async def upload_topic_attachment(
+    topic_id: int,
+    request: Request,
+    filename: str = Query(default="attachment"),
+    kind: Literal["file", "image"] | None = Query(default=None),
+    message_id: int | None = Query(default=None),
+    content_type: str | None = Header(default=None, alias="Content-Type"),
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    workspace_id = _require_topic_member(topic_id, human_id)
+    workspace_ref = workspace_id if workspace_id else None
+    if message_id is not None:
+        with connect() as conn:
+            msg = conn.execute(
+                "SELECT 1 FROM messages WHERE id = ? AND topic_id = ?",
+                (message_id, topic_id),
+            ).fetchone()
+        if msg is None:
+            raise HTTPException(status_code=400, detail="message does not belong to topic")
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="empty attachment")
+    max_bytes = _max_attachment_bytes()
+    if len(body) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"attachment exceeds {max_bytes} bytes")
+
+    mime_type = (content_type or "application/octet-stream").split(";", 1)[0].strip()
+    inferred_kind = "image" if mime_type.startswith("image/") else "file"
+    attachment_kind = kind or inferred_kind
+    safe_name = _safe_attachment_filename(filename)
+    digest = hashlib.sha256(body).hexdigest()
+
+    with connect() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO attachments
+                (workspace_id, topic_id, message_id, uploaded_by_human_id, kind,
+                 filename, mime_type, byte_size, sha256, storage_backend, storage_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING *
+            """,
+            (
+                workspace_ref,
+                topic_id,
+                message_id,
+                human_id,
+                attachment_kind,
+                safe_name,
+                mime_type,
+                len(body),
+                digest,
+                "local_volume",
+                "",
+            ),
+        ).fetchone()
+        attachment_id = int(row["id"])
+        storage_key = _attachment_storage_key(workspace_ref, topic_id, attachment_id)
+        conn.execute(
+            "UPDATE attachments SET storage_key = ? WHERE id = ?",
+            (storage_key, attachment_id),
+        )
+        row = dict(row)
+        row["storage_key"] = storage_key
+
+    try:
+        path = _attachment_path(storage_key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
+    except OSError as exc:
+        with connect() as conn:
+            conn.execute("DELETE FROM attachments WHERE id = ?", (attachment_id,))
+        raise HTTPException(status_code=500, detail=f"failed to store attachment: {exc}") from exc
+
+    return _attachment_out(row)
+
+
+@app.get("/api/topics/{topic_id}/attachments")
+def list_topic_attachments(
+    topic_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> list[dict]:
+    _require_topic_member(topic_id, int(principal["human_id"]))
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM attachments
+            WHERE topic_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (topic_id,),
+        ).fetchall()
+    return [_attachment_out(dict(row)) for row in rows]
+
+
+@app.get("/api/attachments/{attachment_id}/download")
+def download_attachment(
+    attachment_id: int,
+    principal: dict = Depends(get_api_principal),
+) -> FileResponse:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM attachments WHERE id = ?",
+            (attachment_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="attachment not found")
+    data = dict(row)
+    _require_topic_member(int(data["topic_id"]), int(principal["human_id"]))
+    path = _attachment_path(str(data["storage_key"]))
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="attachment file missing")
+    return FileResponse(
+        path,
+        media_type=data.get("mime_type") or "application/octet-stream",
+        filename=str(data["filename"]),
+    )
+
+
 class WorkspaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
@@ -2144,6 +2328,7 @@ def list_workspace_members(
             JOIN humans h ON h.id = ai.owner_human_id
             LEFT JOIN tokens t ON t.agent_instance_id = ai.id AND t.revoked_at IS NULL
             WHERE wam.workspace_id = ?
+              AND ai.deleted_at IS NULL
             GROUP BY ai.id, ar.name, ai.device_label, ai.model,
                      ai.display_name, ai.paused_at, ai.deleted_at,
                      ai.owner_human_id, h.name, wam.joined_at
@@ -2507,6 +2692,7 @@ def list_topics_in_workspace(
         rows = conn.execute(
             """
             SELECT id, slug, title, workspace_id, mode, visibility,
+                   agent_intervention_mode, shared_context_mode,
                    archived_at, created_at, updated_at
             FROM topics
             WHERE workspace_id = ?
@@ -2535,12 +2721,23 @@ def create_topic_in_workspace(
         try:
             row = conn.execute(
                 """
-                INSERT INTO topics (slug, title, workspace_id, mode, visibility)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO topics
+                    (slug, title, workspace_id, mode, visibility,
+                     agent_intervention_mode, shared_context_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 RETURNING id, slug, title, workspace_id, mode, visibility,
+                          agent_intervention_mode, shared_context_mode,
                           created_at, updated_at
                 """,
-                (payload.slug, payload.title, workspace_id, payload.mode, payload.visibility),
+                (
+                    payload.slug,
+                    payload.title,
+                    workspace_id,
+                    payload.mode,
+                    payload.visibility,
+                    payload.agent_intervention_mode,
+                    payload.shared_context_mode,
+                ),
             ).fetchone()
             _add_topic_participant(
                 conn,
@@ -3061,6 +3258,7 @@ def get_topic_participants(
             JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans ah ON ah.id = ai.owner_human_id
             WHERE tp.topic_id = ? AND tp.participant_type = 'agent'
+              AND ai.deleted_at IS NULL
             UNION
             SELECT DISTINCT
                 ai.id,
@@ -3075,6 +3273,7 @@ def get_topic_participants(
             JOIN agent_types ar ON ar.id = ai.agent_type_id
             JOIN humans ah ON ah.id = ai.owner_human_id
             WHERE m.topic_id = ? AND m.actor_type = 'agent'
+              AND ai.deleted_at IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM topic_participants tp
                 WHERE tp.topic_id = m.topic_id
@@ -3182,6 +3381,12 @@ def update_topic(
             require_workspace_owner(workspace_id, human_id)
         sets.append("title = ?")
         vals.append(payload.title)
+    if payload.agent_intervention_mode is not None:
+        sets.append("agent_intervention_mode = ?")
+        vals.append(payload.agent_intervention_mode)
+    if payload.shared_context_mode is not None:
+        sets.append("shared_context_mode = ?")
+        vals.append(payload.shared_context_mode)
     if not sets:
         raise HTTPException(status_code=400, detail="no fields to update")
     sets.append("updated_at = NOW()")  # literal, no value appended to vals
@@ -3189,7 +3394,9 @@ def update_topic(
     with connect() as conn:
         row = conn.execute(
             f"UPDATE topics SET {', '.join(sets)} WHERE id = ? "
-            "RETURNING id, slug, title, workspace_id, mode, visibility, updated_at",
+            "RETURNING id, slug, title, workspace_id, mode, visibility, "
+            "agent_intervention_mode, shared_context_mode, archived_at, "
+            "created_at, updated_at",
             tuple(vals),
         ).fetchone()
     return dict(row)
@@ -3639,8 +3846,8 @@ def _device_flow_start_impl(
         raise HTTPException(status_code=400, detail="role must be claude or codex")
     device_label = device_label.strip()[:80] or "local"
     requested_model = (model or "").strip()
-    if not requested_model and role == "codex":
-        requested_model = DEFAULT_CODEX_MODEL
+    if not requested_model:
+        requested_model = DEFAULT_CODEX_MODEL if role == "codex" else DEFAULT_CLAUDE_MODEL
     model = requested_model[:128] or None
     if model and any(ch.isspace() for ch in model):
         raise HTTPException(status_code=400, detail="model cannot contain whitespace")

@@ -108,6 +108,46 @@ def test_run_help_does_not_expose_persona(capsys):
     assert "--persona" not in out
 
 
+def test_gateway_topic_mode_helpers_default_and_validate():
+    from app import gateway
+
+    assert gateway._topic_agent_intervention_mode({}) == "auto"
+    assert gateway._topic_agent_intervention_mode({"agent_intervention_mode": "mentions"}) == "mentions"
+    assert gateway._topic_agent_intervention_mode({"agent_intervention_mode": "bogus"}) == "auto"
+    assert gateway._topic_shared_context_mode({}) == "topic_with_files"
+    assert gateway._topic_shared_context_mode({"shared_context_mode": "topic_only"}) == "topic_only"
+    assert gateway._topic_shared_context_mode({"shared_context_mode": "bogus"}) == "topic_with_files"
+
+
+def test_gateway_shared_context_section_lists_topic_attachments(monkeypatch):
+    from app import gateway
+
+    def fake_http(host, token, method, path, body=None):
+        assert method == "GET"
+        assert path == "/api/topics/42/attachments"
+        return [
+            {
+                "kind": "image",
+                "filename": "screen.png",
+                "mime_type": "image/png",
+                "byte_size": 123,
+            }
+        ]
+
+    monkeypatch.setattr(gateway, "_http", fake_http)
+
+    section = gateway._shared_context_section(
+        "https://lets.test",
+        "lets_token",
+        42,
+        "topic_with_files",
+    )
+
+    assert "Shared files/images" in section
+    assert "screen.png" in section
+    assert gateway._shared_context_section("https://lets.test", "lets_token", 42, "topic_only") == ""
+
+
 def test_gateway_status_uses_human_name_and_human_id_fallback(monkeypatch, tmp_path, capsys):
     import json
     from app import gateway
@@ -287,6 +327,7 @@ def test_lets_add_writes_per_role_token_and_starts_background(monkeypatch, tmp_p
 
     monkeypatch.setattr(gateway, "_http_public", fake_http)
     monkeypatch.setattr(gateway.webbrowser, "open", lambda url: True)
+    monkeypatch.setattr(gateway, "_require_local_cli_for_role", lambda role: True)
 
     spawns: list[tuple[str, str]] = []
     monkeypatch.setattr(
@@ -332,6 +373,7 @@ def test_lets_add_codex_passes_model_to_login_and_gateway(monkeypatch, tmp_path)
 
     monkeypatch.setattr(gateway, "_http_public", fake_http)
     monkeypatch.setattr(gateway.webbrowser, "open", lambda url: True)
+    monkeypatch.setattr(gateway, "_require_local_cli_for_role", lambda role: True)
 
     spawns: list[tuple[str, str, list[str]]] = []
     monkeypatch.setattr(
@@ -381,6 +423,7 @@ def test_lets_add_codex_defaults_model_to_gpt55(monkeypatch, tmp_path):
 
     monkeypatch.setattr(gateway, "_http_public", fake_http)
     monkeypatch.setattr(gateway.webbrowser, "open", lambda url: True)
+    monkeypatch.setattr(gateway, "_require_local_cli_for_role", lambda role: True)
 
     spawns: list[tuple[str, str, list[str]]] = []
     monkeypatch.setattr(
@@ -402,6 +445,54 @@ def test_lets_add_codex_defaults_model_to_gpt55(monkeypatch, tmp_path):
     assert "role=codex" in start_paths[0]
     assert "model=gpt-5.5" in start_paths[0]
     assert spawns == [("codex", "https://h", ["--model", "gpt-5.5"])]
+
+
+def test_lets_add_claude_defaults_model_to_opus47(monkeypatch, tmp_path):
+    from app import gateway
+
+    monkeypatch.setenv("LETS_HOME", str(tmp_path))
+    monkeypatch.delenv("LETS_MODEL", raising=False)
+    start_paths: list[str] = []
+
+    def fake_http(host, method, path):
+        if path.startswith("/auth/device-flow/start"):
+            start_paths.append(path)
+            return {"device_code": "dc", "user_code": "X-Y",
+                    "verification_url": "https://h/verify", "interval": 0}
+        if path.startswith("/auth/device-flow/poll"):
+            return {"status": "authorized", "token": "lets_claude_new",
+                    "agent_instance": {
+                        "id": 1,
+                        "role": "claude",
+                        "device_label": "mac",
+                        "model": "claude-opus-4-7",
+                    }}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(gateway, "_http_public", fake_http)
+    monkeypatch.setattr(gateway.webbrowser, "open", lambda url: True)
+    monkeypatch.setattr(gateway, "_require_local_cli_for_role", lambda role: True)
+
+    spawns: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(
+        gateway,
+        "_spawn_background_for",
+        lambda role, host, extra: spawns.append((role, host, extra)) or 12345,
+    )
+
+    rc = gateway.main([
+        "add",
+        "claude",
+        "--host",
+        "https://h",
+        "--device-label",
+        "mac",
+    ])
+
+    assert rc == 0
+    assert "role=claude" in start_paths[0]
+    assert "model=claude-opus-4-7" in start_paths[0]
+    assert spawns == [("claude", "https://h", ["--model", "claude-opus-4-7"])]
 
 
 def test_codex_command_includes_model():
@@ -612,6 +703,7 @@ def test_lets_join_reuses_existing_agent_registration(monkeypatch):
         },
     )
     login_args = []
+    monkeypatch.setattr(gateway, "_require_local_cli_for_role", lambda role: True)
     monkeypatch.setattr(gateway, "_login", lambda args: login_args.extend(args) or 0)
 
     rc = gateway.main(["join", "--workspace", "research", "--agent", "codex", "--no-open"])
@@ -625,6 +717,50 @@ def test_lets_join_reuses_existing_agent_registration(monkeypatch):
         "--model", "gpt-5-codex",
         "--no-open",
     ]
+
+
+def test_lets_add_fails_when_local_cli_is_missing(monkeypatch):
+    from app import gateway
+
+    monkeypatch.setattr(gateway, "_require_local_cli_for_role", lambda role: False)
+    calls: list[str] = []
+    monkeypatch.setattr(gateway, "_login", lambda args: calls.append("login") or 0)
+
+    rc = gateway.main(["add", "codex", "--host", "https://h"])
+
+    assert rc == 2
+    assert calls == []
+
+
+def test_local_cli_preflight_reports_missing_executable(monkeypatch, capsys):
+    from app import gateway
+
+    monkeypatch.setattr(gateway.shutil, "which", lambda executable: None)
+
+    assert gateway._require_local_cli_for_role("codex") is False
+    assert "Local 'codex' CLI not found on PATH" in capsys.readouterr().err
+
+
+def test_lets_join_fails_when_saved_agent_cli_is_missing(monkeypatch):
+    from app import gateway
+
+    monkeypatch.setattr(
+        gateway,
+        "_load_token_for_agent",
+        lambda role: {
+            "host": "https://h",
+            "token": "lets_codex",
+            "agent_instance": {"id": 7, "role": "codex", "device_label": "mac"},
+        },
+    )
+    monkeypatch.setattr(gateway, "_require_local_cli_for_role", lambda role: False)
+    calls: list[str] = []
+    monkeypatch.setattr(gateway, "_login", lambda args: calls.append("login") or 0)
+
+    rc = gateway.main(["join", "--workspace", "research", "--agent", "codex"])
+
+    assert rc == 2
+    assert calls == []
 
 
 def test_lets_logs_prints_agent_log(monkeypatch, tmp_path, capsys):
@@ -652,6 +788,30 @@ def test_lets_update_downloads_gateway(monkeypatch, tmp_path, capsys):
     assert rc == 0
     assert (tmp_path / "gateway.py").read_text() == "# new gateway\n"
     assert "updated" in capsys.readouterr().out
+
+
+def test_urlopen_uses_proxy_only_for_public_hosts(monkeypatch):
+    import urllib.request
+
+    from app import gateway
+
+    calls: list[str] = []
+
+    class Opener:
+        def __init__(self, name: str):
+            self.name = name
+
+        def open(self, req, timeout):
+            calls.append(self.name)
+            return object()
+
+    monkeypatch.setattr(gateway, "_DEFAULT_OPENER", Opener("default"))
+    monkeypatch.setattr(gateway, "_DIRECT_OPENER", Opener("direct"))
+
+    gateway._urlopen(urllib.request.Request("http://localhost:8000/health"))
+    gateway._urlopen(urllib.request.Request("https://lets.up.railway.app/install/gateway.py"))
+
+    assert calls == ["direct", "default"]
 
 
 def test_lets_doctor_reports_missing_tokens(monkeypatch, tmp_path, capsys):

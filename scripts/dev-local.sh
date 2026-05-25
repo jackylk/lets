@@ -12,8 +12,10 @@ HOST="${LETS_HOST:-http://127.0.0.1:8000}"
 HUMAN="${LETS_DEV_HUMAN:-${USER:-Neo}}"
 DB_PATH="${LETS_DB_PATH:-$ROOT/lets.db}"
 ARTIFACTS="${LETS_GIT_REPO:-$ROOT/.local/lets-artifacts}"
+UPLOADS="${LETS_UPLOAD_DIR:-$ROOT/.local/lets-uploads}"
 
 mkdir -p "$ARTIFACTS"
+mkdir -p "$UPLOADS"
 if [ ! -d "$ARTIFACTS/.git" ]; then
   git init "$ARTIFACTS" >/dev/null
   git -C "$ARTIFACTS" commit --allow-empty -m init >/dev/null
@@ -41,6 +43,7 @@ MSG
 
 LETS_DB_PATH="$DB_PATH" \
 LETS_GIT_REPO="$ARTIFACTS" \
+LETS_UPLOAD_DIR="$UPLOADS" \
 LETS_FRONTEND_DIST="$ROOT/frontend/dist" \
 LETS_COOKIE_SECURE=false \
 LETS_DEV_SESSIONS=1 \

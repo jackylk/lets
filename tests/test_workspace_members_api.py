@@ -57,6 +57,42 @@ def test_list_members_includes_agents(temp_db, client):
     assert agents[0]["last_seen_at"] is None
 
 
+def test_list_members_excludes_deleted_agents(temp_db, client):
+    alice_id = _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    from app.db import connect
+    from app.identity import ensure_agent_instance
+
+    agent_id = ensure_agent_instance("codex", alice_id, "mac", workspace_id=ws["id"])
+    with connect() as conn:
+        conn.execute(
+            "UPDATE agent_instances SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (agent_id,),
+        )
+
+    r = client.get(f"/api/workspaces/{ws['id']}/members")
+    assert r.status_code == 200
+    assert [m for m in r.json() if m["kind"] == "agent"] == []
+
+
+def test_delete_agent_cleans_workspace_membership(temp_db, client):
+    alice_id = _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    from app.db import connect
+    from app.identity import ensure_agent_instance
+
+    agent_id = ensure_agent_instance("codex", alice_id, "mac", workspace_id=ws["id"])
+    r = client.delete(f"/api/agents/{agent_id}")
+    assert r.status_code == 200
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM workspace_agent_members WHERE agent_instance_id = ?",
+            (agent_id,),
+        ).fetchone()
+    assert row is None
+
+
 def test_list_members_marks_online_agent(temp_db, client):
     alice_id = _login(client, "alice")
     ws = client.post("/api/workspaces", json={"name": "A"}).json()

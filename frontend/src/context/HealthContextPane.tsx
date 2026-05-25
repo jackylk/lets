@@ -3,6 +3,7 @@ import { ContextBlock } from "../layout/ContextPane";
 import type { MessageDTO } from "../api/types";
 import { jumpToMessage } from "./jumpToMessage";
 import { useIdentityMe, usePostMessage } from "../api/queries";
+import { AttachmentsPanel } from "./AttachmentsPanel";
 
 const HEALTH_KEYWORDS = [
   "肚子疼", "肚子痛", "腹痛", "胃痛", "胃疼", "腹泻", "拉肚子", "呕吐",
@@ -215,6 +216,12 @@ export function HealthContextPane({ messages, topicId }: { messages: MessageDTO[
           ))}
         </div>
       </ContextBlock>
+
+      {topicId != null && (
+        <ContextBlock label="图与资料" hint="报告、照片和其他文件会进入当前话题的共享上下文">
+          <AttachmentsPanel topicId={topicId} />
+        </ContextBlock>
+      )}
 
       <ContextBlock label="下一步" hint="按风险分流，而不是直接给诊断">
         <div className="rounded border border-border-soft bg-surface-elev p-2.5 text-[12.5px] leading-relaxed text-text">

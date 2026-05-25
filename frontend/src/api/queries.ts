@@ -6,7 +6,7 @@ import type {
   TokenRowDTO, CreateTokenInput, CreateTokenResponseDTO,
   ProjectDTO, ParticipantsDTO, GitStatusDTO, OnlineAgentDTO,
   AgentDetailDTO, AgentInstanceRowDTO,
-  AttentionDTO, ArtifactDTO,
+  AttentionDTO, ArtifactDTO, AttachmentDTO,
   Workspace, WorkspaceMember, WorkspaceInvite,
 } from "./types";
 import type { DriftContextDTO } from "./taskTreeTypes";
@@ -50,6 +50,26 @@ export function useTopic(topicId: number | null) {
     queryKey: ["topics", topicId, "info"],
     queryFn: () => apiRequest<TopicDTO>(`/api/topics/${topicId}`, { identity }),
     enabled: topicId !== null,
+  });
+}
+
+export function useUpdateTopicSettings(topicId: number) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      agent_intervention_mode?: TopicDTO["agent_intervention_mode"];
+      shared_context_mode?: TopicDTO["shared_context_mode"];
+    }) =>
+      apiRequest<TopicDTO>(`/api/topics/${topicId}`, {
+        method: "PATCH",
+        body: input,
+        identity,
+      }),
+    onSuccess: (topic) => {
+      qc.setQueryData(["topics", topicId, "info"], topic);
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+    },
   });
 }
 
@@ -103,6 +123,51 @@ export function useArtifactsByTopic(topicId: number | null) {
     queryFn: () =>
       apiRequest<ArtifactDTO[]>(`/api/artifacts?topic_id=${topicId}`, { identity }),
     enabled: topicId !== null,
+  });
+}
+
+export function useTopicAttachments(topicId: number | null) {
+  const identity = useIdentity();
+  return useQuery({
+    queryKey: ["topics", topicId, "attachments"],
+    queryFn: () =>
+      apiRequest<AttachmentDTO[]>(`/api/topics/${topicId}/attachments`, { identity }),
+    enabled: topicId !== null,
+  });
+}
+
+export function useUploadTopicAttachment(topicId: number) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { file: File; kind?: "file" | "image"; messageId?: number }) =>
+      apiRequest<AttachmentDTO>(`/api/topics/${topicId}/attachments`, {
+        method: "POST",
+        rawBody: await readFileBytes(input.file),
+        contentType: input.file.type || "application/octet-stream",
+        query: {
+          filename: input.file.name || "attachment",
+          kind: input.kind,
+          message_id: input.messageId === undefined ? undefined : String(input.messageId),
+        },
+        identity,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["topics", topicId, "attachments"] });
+    },
+  });
+}
+
+function readFileBytes(file: File): Promise<ArrayBuffer> {
+  if (typeof file.arrayBuffer === "function") return file.arrayBuffer();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("failed to read file"));
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) resolve(reader.result);
+      else reject(new Error("failed to read file"));
+    };
+    reader.readAsArrayBuffer(file);
   });
 }
 

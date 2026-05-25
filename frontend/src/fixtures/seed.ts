@@ -46,12 +46,14 @@ export function makeSeed(): SeedState {
     {
       id: 1, slug: "t-ppt", title: "为 Agent 记忆写一个研讨 PPT",
       project_id: 1, workspace_id: 1, archived_at: null,
+      agent_intervention_mode: "auto", shared_context_mode: "topic_with_files",
       created_at: "2026-05-19T09:14:00Z",
       updated_at: "2026-05-19T10:32:00Z",
     },
     {
       id: 2, slug: "old-brief", title: "旧版活动 brief",
       project_id: 1, workspace_id: 1, archived_at: "2026-05-18T10:00:00Z",
+      agent_intervention_mode: "auto", shared_context_mode: "topic_with_files",
       created_at: "2026-05-18T09:00:00Z",
       updated_at: "2026-05-18T10:00:00Z",
     },
