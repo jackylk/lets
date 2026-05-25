@@ -83,6 +83,7 @@ def test_top_level_help_lists_commands_without_run_options(capsys):
     out = capsys.readouterr().out
     assert "usage: lets <command> [options]" in out
     assert "leave" in out
+    assert "workspaces" in out
     assert "--persona" not in out
     assert "--poll-interval" not in out
 
@@ -395,6 +396,40 @@ def test_lets_leave_removes_current_agent_from_workspace(monkeypatch, capsys):
         ("DELETE", "https://h", "/api/workspaces/3/agent-members/7"),
     ]
     assert "codex:mac left workspace 我的工作区" in capsys.readouterr().out
+
+
+def test_lets_workspaces_lists_current_agent_memberships(monkeypatch, capsys):
+    from app import gateway
+
+    monkeypatch.setattr(
+        gateway,
+        "_load_token_for_agent",
+        lambda role: {
+            "host": "https://h",
+            "token": "lets_codex",
+            "agent_instance": {"id": 7, "role": "codex", "device_label": "mac"},
+        },
+    )
+
+    def fake_http(host, token, method, path, body=None):
+        assert (method, host, path) == ("GET", "https://h", "/api/agents/me/memberships")
+        return [
+            {"id": 3, "slug": "my-ws", "name": "我的工作区"},
+            {"id": 12, "slug": "research", "name": "Research"},
+        ]
+
+    monkeypatch.setattr(gateway, "_http", fake_http)
+
+    rc = gateway.main(["workspaces", "--agent", "codex"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "ID" in out
+    assert "SLUG" in out
+    assert "my-ws" in out
+    assert "我的工作区" in out
+    assert "12" in out
+    assert "research" in out
 
 
 def test_lets_gateway_with_agent_picks_per_role_token(monkeypatch, tmp_path):

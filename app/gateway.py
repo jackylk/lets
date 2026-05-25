@@ -1422,6 +1422,7 @@ def _print_main_help() -> None:
 Commands:
   add <claude|codex>     authorize and start a local agent
   leave                  remove this agent from a workspace
+  workspaces             list workspaces this agent has joined
   gateway                start registered agent gateways in the background
   status                 show local Lets login and autostart status
   login                  authorize this computer
@@ -1443,6 +1444,44 @@ def _workspace_matches(workspace: dict, target: str) -> bool:
         or str(workspace.get("slug") or "").lower() == normalized
         or str(workspace.get("name") or "").lower() == normalized
     )
+
+
+def _list_agent_workspaces(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="lets workspaces")
+    parser.add_argument(
+        "--agent",
+        default=None,
+        help="Agent role to use (claude / codex). Defaults to the saved token.",
+    )
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="Lets backend URL. Defaults to the host stored at login.",
+    )
+    args = parser.parse_args(argv)
+
+    rec = _load_token_for_agent(args.agent)
+    if not rec or not rec.get("token"):
+        print("Missing token. Run: lets add claude", file=sys.stderr)
+        return 2
+
+    host = args.host or rec.get("host") or os.environ.get("LETS_HOST", "http://127.0.0.1:8000")
+    try:
+        memberships = _http(host, rec["token"], "GET", "/api/agents/me/memberships") or []
+    except Exception as e:
+        print(f"Failed to list agent workspaces: {e}", file=sys.stderr)
+        return 1
+    if not memberships:
+        print("this agent is not in any workspace.")
+        return 0
+
+    print(f"{'ID':>6}  {'SLUG':<18}  NAME")
+    for workspace in memberships:
+        wid = workspace.get("id", "?")
+        slug = str(workspace.get("slug") or "-")
+        name = str(workspace.get("name") or "-")
+        print(f"{str(wid):>6}  {slug:<18}  {name}")
+    return 0
 
 
 def _leave_workspace(argv: list[str]) -> int:
@@ -2109,6 +2148,8 @@ def main(argv: list[str] | None = None) -> int:
         return _add_agent(argv[1:])
     if argv and argv[0] in ("leave",):
         return _leave_workspace(argv[1:])
+    if argv and argv[0] in ("workspaces", "workspace"):
+        return _list_agent_workspaces(argv[1:])
     if argv and argv[0] in ("spec",):
         return _spec(argv[1:])
     if argv and argv[0] in ("topics",):
