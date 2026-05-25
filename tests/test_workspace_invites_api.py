@@ -125,6 +125,29 @@ def test_accept_invite_as_guest_disambiguates_existing_name(temp_db, client):
     assert second.json()["human"]["name"] == "Sam (2)"
 
 
+def test_authenticated_member_can_rename_self(temp_db, client):
+    _login(client, "alice")
+
+    r = client.patch("/auth/me", json={"name": "Alice Li"})
+    assert r.status_code == 200
+    assert r.json()["human"]["name"] == "Alice Li"
+
+    me = client.get("/auth/me")
+    assert me.status_code == 200
+    assert me.json()["human"]["name"] == "Alice Li"
+
+
+def test_authenticated_member_rename_disambiguates_existing_name(temp_db, client):
+    _login(client, "alice")
+    from app.db import connect
+    with connect() as conn:
+        conn.execute("INSERT INTO humans (name, email) VALUES ('bob', 'b@b')")
+
+    r = client.patch("/auth/me", json={"name": "bob"})
+    assert r.status_code == 200
+    assert r.json()["human"]["name"] == "bob (2)"
+
+
 def test_join_token_unauthenticated_returns_spa(temp_db, client):
     _login(client, "alice")
     ws = client.post("/api/workspaces", json={"name": "A"}).json()

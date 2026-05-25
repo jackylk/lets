@@ -19,6 +19,14 @@ export interface MessageDTO {
   metadata: Record<string, unknown>;
   ref_event_id: number | null;
   addressed_to?: string | null;
+  edited_at?: string | null;
+  edited_by_human_id?: number | null;
+  edit_count?: number;
+  edited_after_agent_read?: boolean;
+  deleted_at?: string | null;
+  deleted_by_human_id?: number | null;
+  deletion_kind?: "deleted" | "retracted" | null;
+  deletion_reason?: string | null;
   created_at: string;
 }
 

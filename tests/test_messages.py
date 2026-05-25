@@ -49,6 +49,13 @@ def test_messages_columns(temp_db):
         "body",
         "metadata",
         "ref_event_id",
+        "edited_at",
+        "edited_by_human_id",
+        "edit_count",
+        "deleted_at",
+        "deleted_by_human_id",
+        "deletion_kind",
+        "deletion_reason",
         "created_at",
     }
 
@@ -270,3 +277,124 @@ def test_get_topic_messages_type_filter(client):
     assert response2.status_code == 200
     types = sorted(message["type"] for message in response2.json()["messages"])
     assert types == ["chat", "chat", "decision"]
+
+
+def test_edit_message_updates_body_and_marks_agent_read(client):
+    import uuid
+    from app.db import connect
+
+    headers = _auth_header()
+    slug = f"t-edit-{uuid.uuid4().hex}"
+    with connect() as conn:
+        human_id = conn.execute("SELECT id FROM humans WHERE name = 'admin'").fetchone()["id"]
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES (?, 'T Edit')", (slug,))
+        topic_id = cursor.lastrowid
+
+    created = client.post(
+        "/api/messages",
+        headers=headers,
+        json={
+            "topic_id": topic_id,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": human_id,
+            "body": "helo",
+        },
+    )
+    assert created.status_code == 200
+    message_id = created.json()["id"]
+    client.post(
+        "/api/messages",
+        headers=headers,
+        json={
+            "topic_id": topic_id,
+            "type": "chat",
+            "actor_type": "agent",
+            "actor_id": 7,
+            "body": "I read that",
+            "metadata": {"cites": [message_id]},
+        },
+    )
+
+    edited = client.patch(
+        f"/api/messages/{message_id}",
+        headers=headers,
+        json={"body": "hello"},
+    )
+
+    assert edited.status_code == 200
+    body = edited.json()
+    assert body["body"] == "hello"
+    assert body["edited_at"] is not None
+    assert body["edit_count"] == 1
+    assert body["edited_after_agent_read"] is True
+
+
+def test_retract_message_soft_deletes_with_tombstone(client):
+    import uuid
+    from app.db import connect
+
+    headers = _auth_header()
+    slug = f"t-retract-{uuid.uuid4().hex}"
+    with connect() as conn:
+        human_id = conn.execute("SELECT id FROM humans WHERE name = 'admin'").fetchone()["id"]
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES (?, 'T Retract')", (slug,))
+        topic_id = cursor.lastrowid
+
+    created = client.post(
+        "/api/messages",
+        headers=headers,
+        json={
+            "topic_id": topic_id,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": human_id,
+            "body": "wrong room",
+        },
+    )
+    message_id = created.json()["id"]
+
+    retracted = client.post(f"/api/messages/{message_id}/retract", headers=headers, json={})
+    assert retracted.status_code == 200
+    assert retracted.json()["body"] == "这条消息已撤回"
+    assert retracted.json()["deletion_kind"] == "retracted"
+
+    response = client.get(f"/api/topics/{topic_id}/messages", headers=headers)
+    assert response.status_code == 200
+    messages = response.json()["messages"]
+    assert messages[0]["body"] == "这条消息已撤回"
+    assert messages[0]["metadata"] == {}
+
+    with connect() as conn:
+        stored = conn.execute("SELECT body FROM messages WHERE id = ?", (message_id,)).fetchone()
+    assert stored["body"] == "wrong room"
+
+
+def test_delete_message_soft_deletes_with_tombstone(client):
+    import uuid
+    from app.db import connect
+
+    headers = _auth_header()
+    slug = f"t-delete-{uuid.uuid4().hex}"
+    with connect() as conn:
+        human_id = conn.execute("SELECT id FROM humans WHERE name = 'admin'").fetchone()["id"]
+        cursor = conn.execute("INSERT INTO topics (slug, title) VALUES (?, 'T Delete')", (slug,))
+        topic_id = cursor.lastrowid
+
+    created = client.post(
+        "/api/messages",
+        headers=headers,
+        json={
+            "topic_id": topic_id,
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": human_id,
+            "body": "remove me",
+        },
+    )
+    message_id = created.json()["id"]
+
+    deleted = client.delete(f"/api/messages/{message_id}", headers=headers)
+    assert deleted.status_code == 200
+    assert deleted.json()["body"] == "这条消息已删除"
+    assert deleted.json()["deletion_kind"] == "deleted"

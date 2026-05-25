@@ -375,6 +375,7 @@ def _should_proactively_join(recent: list[dict], trigger: dict, my_agent_id: int
         for m in recent[-12:]
         if m.get("actor_type") == "human"
         and m.get("type") == "chat"
+        and m.get("deleted_at") is None
         and m.get("actor_id") is not None
     }
     if len(recent_human_ids) < 2:
@@ -388,7 +389,11 @@ def _should_proactively_join(recent: list[dict], trigger: dict, my_agent_id: int
             and m.get("type") in _PROACTIVE_REPLY_TYPES
         ):
             break
-        if m.get("actor_type") == "human" and m.get("type") == "chat":
+        if (
+            m.get("actor_type") == "human"
+            and m.get("type") == "chat"
+            and m.get("deleted_at") is None
+        ):
             human_msgs_since_agent += 1
 
     return human_msgs_since_agent >= 4 and human_msgs_since_agent % 4 == 0
@@ -527,6 +532,8 @@ def _collect_open_annotations(recent: list[dict]) -> list[dict]:
     Walk the stream once to bucket these."""
     resolved_ids: set[int] = set()
     for m in recent:
+        if m.get("deleted_at") is not None:
+            continue
         if m.get("type") != "annotation":
             continue
         meta = m.get("metadata") or {}
@@ -535,6 +542,8 @@ def _collect_open_annotations(recent: list[dict]) -> list[dict]:
 
     out: list[dict] = []
     for m in recent:
+        if m.get("deleted_at") is not None:
+            continue
         if m.get("type") != "annotation":
             continue
         meta = m.get("metadata") or {}
@@ -589,6 +598,8 @@ def _build_prompt_split(
     # keeping the user prompt small enough that input is no longer the
     # bottleneck. Older history is already in the agent's --resume session.
     for m in recent[-8:]:
+        if m.get("deleted_at") is not None:
+            continue
         if m["id"] == trigger["id"]:
             continue
         if m.get("type") == "annotation":
@@ -661,6 +672,8 @@ def _collect_resolved_questions_section(recent: list[dict]) -> str:
     # Map question_id → question_body
     questions: dict[int, str] = {}
     for m in recent:
+        if m.get("deleted_at") is not None:
+            continue
         meta = m.get("metadata") or {}
         if meta.get("discussion_kind") != "open_question":
             continue
@@ -668,6 +681,8 @@ def _collect_resolved_questions_section(recent: list[dict]) -> str:
     # Find decisions that resolve them
     pairs: list[tuple[str, str]] = []
     for m in recent:
+        if m.get("deleted_at") is not None:
+            continue
         meta = m.get("metadata") or {}
         if meta.get("discussion_kind") != "decision":
             continue

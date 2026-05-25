@@ -5,6 +5,20 @@ import { renderWithProviders } from "../../test/render";
 import { SettingsTokensPage } from "./SettingsTokensPage";
 
 describe("<SettingsTokensPage />", () => {
+  it("lets the current member update their account name", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SettingsTokensPage />);
+    const input = await screen.findByRole("textbox", { name: /名字/i });
+    expect(input).toHaveValue("Neo");
+
+    await user.clear(input);
+    await user.type(input, "Jacky Li");
+    await user.click(screen.getByRole("button", { name: /^保存$/ }));
+
+    await waitFor(() => expect(input).toHaveValue("Jacky Li"));
+    expect(screen.getByText("已保存为 Jacky Li")).toBeInTheDocument();
+  });
+
   it("shows the install + lets-add commands instead of minting a token via the UI", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SettingsTokensPage />);

@@ -10,8 +10,28 @@ import type {
   Workspace, WorkspaceMember, WorkspaceInvite,
 } from "./types";
 import type { DriftContextDTO } from "./taskTreeTypes";
+import type { SessionResponse } from "../auth/useSession";
 
 export { useSession as useSessionMe } from "../auth/useSession";
+
+export function useUpdateMyName() {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiRequest<SessionResponse>("/auth/me", {
+        method: "PATCH",
+        body: { name },
+        identity,
+      }),
+    onSuccess: (session) => {
+      qc.setQueryData(["auth.me"], session);
+      qc.invalidateQueries({ queryKey: ["workspace-members"] });
+      qc.invalidateQueries({ queryKey: ["workspace-topics"] });
+      qc.invalidateQueries({ queryKey: ["topics"] });
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // v1.5 chrome queries — projects, topics, participants, git, attention,
@@ -311,6 +331,47 @@ export function usePostMessage(topicId: number) {
   return useMutation({
     mutationFn: (input: PostMessageInput) =>
       apiRequest<MessageDTO>("/api/messages", { method: "POST", body: input, identity }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["topics", topicId, "messages"] }),
+  });
+}
+
+export function useEditMessage(topicId: number) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { messageId: number; body: string }) =>
+      apiRequest<MessageDTO>(`/api/messages/${input.messageId}`, {
+        method: "PATCH",
+        body: { body: input.body },
+        identity,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["topics", topicId, "messages"] }),
+  });
+}
+
+export function useRetractMessage(topicId: number) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: number) =>
+      apiRequest<MessageDTO>(`/api/messages/${messageId}/retract`, {
+        method: "POST",
+        body: {},
+        identity,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["topics", topicId, "messages"] }),
+  });
+}
+
+export function useDeleteMessage(topicId: number) {
+  const identity = useIdentity();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (messageId: number) =>
+      apiRequest<MessageDTO>(`/api/messages/${messageId}`, {
+        method: "DELETE",
+        identity,
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["topics", topicId, "messages"] }),
   });
 }

@@ -1,15 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   useMyTokens, useRevokeToken, useUpdateAgentModel,
-  useSessionMe, useLogout,
+  useSessionMe, useLogout, useUpdateMyName,
 } from "../api/queries";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 
 export function SettingsTokensPage() {
   const [openNew, setOpenNew] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [savedName, setSavedName] = useState<string | null>(null);
   const tokens = useMyTokens();
   const revoke = useRevokeToken();
   const updateModel = useUpdateAgentModel();
+  const updateName = useUpdateMyName();
   const session = useSessionMe();
   const logout = useLogout();
 
@@ -20,6 +23,20 @@ export function SettingsTokensPage() {
   };
 
   const human = session.data?.human;
+  const normalizedDraftName = draftName.trim();
+
+  useEffect(() => {
+    if (human?.name) setDraftName(human.name);
+  }, [human?.name]);
+
+  function submitName(event: FormEvent) {
+    event.preventDefault();
+    if (!normalizedDraftName || normalizedDraftName === human?.name) return;
+    setSavedName(null);
+    updateName.mutate(normalizedDraftName, {
+      onSuccess: (res) => setSavedName(res.human.name),
+    });
+  }
 
   return (
     <div className="flex flex-col gap-6 p-8 overflow-y-auto h-full">
@@ -27,12 +44,44 @@ export function SettingsTokensPage() {
         <div className="flex flex-col gap-0.5">
           <h2 className="font-[var(--font-display)] text-2xl">账户</h2>
           {human ? (
-            <div className="text-[13px] text-text-muted">
-              <span className="text-text">{human.name}</span>
+            <form onSubmit={submitName} className="mt-2 flex flex-col gap-2">
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-1 text-[12px] text-text-dim">
+                  名字
+                  <input
+                    value={draftName}
+                    onChange={(event) => {
+                      setDraftName(event.target.value);
+                      setSavedName(null);
+                    }}
+                    maxLength={40}
+                    className="w-56 max-w-full rounded border border-border bg-bg px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-text"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={
+                    updateName.isPending ||
+                    !normalizedDraftName ||
+                    normalizedDraftName === human.name
+                  }
+                  className="px-3 py-1.5 rounded border border-border text-[13px] text-text hover:bg-hover disabled:opacity-50"
+                >
+                  {updateName.isPending ? "保存中…" : "保存"}
+                </button>
+              </div>
               {human.github_login && (
-                <span className="text-text-dim"> · @{human.github_login}</span>
+                <span className="text-[13px] text-text-dim">@{human.github_login}</span>
               )}
-            </div>
+              {savedName && (
+                <span className="text-[12px] text-text-dim">
+                  已保存为 {savedName}
+                </span>
+              )}
+              {updateName.isError && (
+                <span className="text-[12px] text-red-500">保存失败，请稍后再试</span>
+              )}
+            </form>
           ) : (
             <div className="text-[13px] text-text-dim">未登录</div>
           )}

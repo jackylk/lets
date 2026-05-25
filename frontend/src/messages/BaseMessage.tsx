@@ -17,6 +17,9 @@ interface Props {
   timeIso: string;
   body: ReactNode;
   tag?: string;
+  actions?: ReactNode;
+  editedAt?: string | null;
+  editedAfterAgentRead?: boolean;
   tone?: "default" | "status" | "finding" | "decision" | "handoff" | "review" |
         "artifact" | "spec" | "proactive" | "tree" | "nudge" | "question";
 }
@@ -53,7 +56,17 @@ const tagToneClass: Record<NonNullable<Props["tone"]>, string> = {
   question: "text-accent-text",
 };
 
-export function BaseMessage({ msgId, actor, timeIso, body, tag, tone = "default" }: Props) {
+export function BaseMessage({
+  msgId,
+  actor,
+  timeIso,
+  body,
+  tag,
+  actions,
+  editedAt,
+  editedAfterAgentRead,
+  tone = "default",
+}: Props) {
   const { highlighted, readCursor } = useStream();
   const isCited = msgId !== undefined && highlighted.has(msgId);
   // Mark as "unread by the agent" only for non-self posts that arrived
@@ -96,6 +109,15 @@ export function BaseMessage({ msgId, actor, timeIso, body, tag, tone = "default"
               未读
             </span>
           )}
+          {editedAt && (
+            <span
+              className="text-text-dim text-[10.5px] font-mono"
+              title={editedAfterAgentRead ? "AI 已经读过编辑前的原文" : undefined}
+            >
+              已编辑{editedAfterAgentRead ? " · AI 已读过原文" : ""}
+            </span>
+          )}
+          {actions && <div className="ml-auto">{actions}</div>}
         </div>
         <div className={cn("text-[14.5px] leading-[1.72] py-1 px-2 md:px-3 rounded mt-px overflow-x-auto", toneClasses[tone])}>
           {body}

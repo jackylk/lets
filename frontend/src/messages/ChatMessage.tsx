@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { MessageDTO } from "../api/types";
+import { useDeleteMessage, useEditMessage, useRetractMessage, useSessionMe } from "../api/queries";
 import { BaseMessage } from "./BaseMessage";
 import { MentionText } from "./MentionText";
 import { PromoteChips } from "./PromoteChips";
@@ -97,18 +98,65 @@ function renderTextSegment(value: string, keyBase: string): ReactNode[] {
 }
 
 export function ChatMessage({ message, actor }: { message: MessageDTO; actor: Actor }) {
+  const session = useSessionMe();
+  const editMessage = useEditMessage(message.topic_id);
+  const retractMessage = useRetractMessage(message.topic_id);
+  const deleteMessage = useDeleteMessage(message.topic_id);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.body);
   const isAgent = actor.kind === "claude" || actor.kind === "codex";
   const cites = extractCites(message.metadata);
   const segments = splitMermaid(message.body);
   const { viewMode, toggleExpanded } = useStream();
+  const isOwnHuman =
+    message.actor_type === "human" &&
+    message.actor_id === session.data?.human.id;
   // When global mode is "collapsed" and this message is rendered as
   // full ChatMessage, the user manually expanded it — offer a "收起" link.
   const showCollapseLink = isAgent && viewMode === "collapsed";
+  const busy = editMessage.isPending || retractMessage.isPending || deleteMessage.isPending;
+  const actions = isOwnHuman ? (
+    <div className="flex items-center gap-1 text-[10.5px] font-mono">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          setDraft(message.body);
+          setEditing(true);
+        }}
+        className="text-text-dim hover:text-accent-text disabled:opacity-50"
+      >
+        编辑
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => retractMessage.mutate(message.id)}
+        className="text-text-dim hover:text-accent-text disabled:opacity-50"
+      >
+        撤回
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          if (window.confirm("删除这条消息？")) deleteMessage.mutate(message.id);
+        }}
+        className="text-text-dim hover:text-danger disabled:opacity-50"
+      >
+        删除
+      </button>
+    </div>
+  ) : null;
+
   return (
     <BaseMessage
       msgId={message.id}
       actor={actor}
       timeIso={message.created_at}
+      actions={actions}
+      editedAt={message.edited_at}
+      editedAfterAgentRead={message.edited_after_agent_read}
       body={
         <div>
           {showCollapseLink && (
@@ -120,8 +168,47 @@ export function ChatMessage({ message, actor }: { message: MessageDTO; actor: Ac
               >收起</button>
             </div>
           )}
-          {isAgent && cites.length > 0 && <Provenance cites={cites} />}
-          {isAgent ? (
+          {editing ? (
+            <form
+              className="space-y-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const body = draft.trim();
+                if (!body) return;
+                editMessage.mutate(
+                  { messageId: message.id, body },
+                  { onSuccess: () => setEditing(false) },
+                );
+              }}
+            >
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.currentTarget.value)}
+                className="w-full min-h-24 resize-y rounded border border-border bg-surface px-2 py-1.5 text-[14px] leading-relaxed outline-none focus:border-accent-border"
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setEditing(false)}
+                  className="px-2 py-1 text-[12px] text-text-dim hover:text-text disabled:opacity-50"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy || !draft.trim()}
+                  className="px-2 py-1 text-[12px] text-accent-text hover:text-text disabled:opacity-50"
+                >
+                  保存
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              {isAgent && cites.length > 0 && <Provenance cites={cites} />}
+              {isAgent ? (
             <Annotatable topicId={message.topic_id} targetMessageId={message.id}>
               {segments.map((seg, i) =>
                 seg.kind === "mermaid" ? (
@@ -139,6 +226,8 @@ export function ChatMessage({ message, actor }: { message: MessageDTO; actor: Ac
                 <div key={i}>{renderTextSegment(seg.value, String(i))}</div>
               ),
             )
+          )}
+            </>
           )}
           {isAgent && (
             <>

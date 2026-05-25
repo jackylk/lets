@@ -466,6 +466,13 @@ CREATE TABLE IF NOT EXISTS messages (
     metadata TEXT NOT NULL DEFAULT '{}',
     ref_event_id BIGINT REFERENCES events(id),
     addressed_to TEXT,
+    edited_at TIMESTAMPTZ,
+    edited_by_human_id BIGINT REFERENCES humans(id),
+    edit_count INTEGER NOT NULL DEFAULT 0,
+    deleted_at TIMESTAMPTZ,
+    deleted_by_human_id BIGINT REFERENCES humans(id),
+    deletion_kind TEXT CHECK (deletion_kind IN ('deleted', 'retracted')),
+    deletion_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_messages_topic_created ON messages(topic_id, created_at DESC);
@@ -964,6 +971,22 @@ def _migrate_topic_participants(conn) -> None:
     )
 
 
+def _migrate_messages_lifecycle(conn) -> None:
+    conn.execute("ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ")
+    conn.execute("ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS edited_by_human_id BIGINT REFERENCES humans(id)")
+    conn.execute("ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS edit_count INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
+    conn.execute("ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS deleted_by_human_id BIGINT REFERENCES humans(id)")
+    conn.execute(
+        "ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS deletion_kind TEXT "
+        "CHECK (deletion_kind IN ('deleted', 'retracted'))"
+    )
+    conn.execute("ALTER TABLE IF EXISTS messages ADD COLUMN IF NOT EXISTS deletion_reason TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_deleted ON messages(topic_id, deleted_at)"
+    )
+
+
 def _migrate_workspace_public_topics(conn) -> None:
     """Ensure each workspace has one all-member topic and roster participants."""
     conn.execute(
@@ -1107,6 +1130,8 @@ def init_db() -> None:
     global _initialized_url
     url = database_url()
     with _init_lock:
+        if _initialized_url == url:
+            return
         with connect() as conn:
             # Pre-migration runs FIRST so renamed columns exist before
             # executescript() tries to build indexes that reference them.
@@ -1114,6 +1139,7 @@ def init_db() -> None:
             _migrate_projects_to_workspaces(conn)
             _migrate_topics_lifecycle(conn)
             conn.executescript(_SCHEMA_SQL)
+            _migrate_messages_lifecycle(conn)
             _migrate_humans_guest_flag(conn)
             _migrate_agent_instances_independent(conn)
             _migrate_device_auth_flows_workspace(conn)

@@ -14,6 +14,7 @@ import { TaskTreeProposalMessage } from "./TaskTreeProposalMessage";
 import { GoalProposalMessage } from "./GoalProposalMessage";
 import { SystemMessage } from "./SystemMessage";
 import { CollapsedAgentMessage } from "./CollapsedAgentMessage";
+import { BaseMessage } from "./BaseMessage";
 import { useStream } from "./StreamContext";
 
 export interface ActorResolver {
@@ -32,6 +33,19 @@ interface Props {
 export function Message({ message, resolveActor }: Props) {
   const actor = resolveActor(message);
   const { viewMode, isExpanded } = useStream();
+
+  if (message.deleted_at) {
+    return (
+      <BaseMessage
+        msgId={message.id}
+        actor={actor}
+        timeIso={message.created_at}
+        tag={message.deletion_kind === "retracted" ? "撤回" : "删除"}
+        tone="status"
+        body={<span className="text-text-dim">{message.body}</span>}
+      />
+    );
+  }
 
   // "AI 折叠" view: agent chat messages become a one-line summary unless
   // the user has manually expanded that specific one.

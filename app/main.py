@@ -192,6 +192,14 @@ class MessageCreate(BaseModel):
     addressed_to: str | None = None
 
 
+class MessageEdit(BaseModel):
+    body: str = Field(min_length=1)
+
+
+class MessageDelete(BaseModel):
+    reason: str | None = None
+
+
 class EventCreate(BaseModel):
     event_type: str
     actor_type: ActorType
@@ -1569,6 +1577,78 @@ async def post_message_endpoint(
     return message
 
 
+@app.patch("/api/messages/{message_id}")
+def edit_message_endpoint(
+    message_id: int,
+    payload: MessageEdit,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .messages import edit_message
+
+    ctx = _message_action_context(message_id, principal)
+    if ctx["deleted_at"] is not None:
+        raise HTTPException(status_code=409, detail="message is deleted")
+    if not ctx["can_edit"]:
+        raise HTTPException(status_code=403, detail="cannot edit this message")
+    if ctx["type"] in {"system", "status"}:
+        raise HTTPException(status_code=400, detail="message type cannot be edited")
+
+    message = edit_message(
+        message_id,
+        payload.body.strip(),
+        edited_by_human_id=int(principal["human_id"]),
+    )
+    message["edited_after_agent_read"] = bool(ctx["read_by_agent"])
+    return message
+
+
+@app.post("/api/messages/{message_id}/retract")
+def retract_message_endpoint(
+    message_id: int,
+    payload: MessageDelete | None = None,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .messages import mark_message_deleted
+
+    ctx = _message_action_context(message_id, principal)
+    if ctx["deleted_at"] is not None:
+        raise HTTPException(status_code=409, detail="message is already deleted")
+    if not ctx["is_own"]:
+        raise HTTPException(status_code=403, detail="cannot retract this message")
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT created_at >= datetime('now', '-5 minutes') AS ok FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+    if row is None or not row["ok"]:
+        raise HTTPException(status_code=409, detail="retract window expired")
+    return mark_message_deleted(
+        message_id,
+        deleted_by_human_id=int(principal["human_id"]),
+        kind="retracted",
+        reason=(payload.reason if payload else None),
+    )
+
+
+@app.delete("/api/messages/{message_id}")
+def delete_message_endpoint(
+    message_id: int,
+    payload: MessageDelete | None = None,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    from .messages import mark_message_deleted
+
+    ctx = _message_action_context(message_id, principal)
+    if not ctx["can_delete"]:
+        raise HTTPException(status_code=403, detail="cannot delete this message")
+    return mark_message_deleted(
+        message_id,
+        deleted_by_human_id=int(principal["human_id"]),
+        kind="deleted",
+        reason=(payload.reason if payload else None),
+    )
+
+
 @app.get("/api/topics/{topic_id}/messages")
 def get_topic_messages(
     topic_id: int,
@@ -2497,14 +2577,30 @@ class GuestInviteAccept(BaseModel):
     name: str = Field(min_length=1, max_length=40)
 
 
-def _unique_guest_name(conn, display_name: str) -> str:
+class CurrentUserUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+def _unique_human_name(
+    conn,
+    display_name: str,
+    *,
+    exclude_human_id: int | None = None,
+) -> str:
     base = " ".join(display_name.strip().split()) or "Guest"
     candidate = base
     i = 2
-    while conn.execute("SELECT 1 FROM humans WHERE name = ?", (candidate,)).fetchone():
+    while True:
+        row = conn.execute(
+            "SELECT id FROM humans WHERE name = ?",
+            (candidate,),
+        ).fetchone()
+        if row is None or (
+            exclude_human_id is not None and int(row["id"]) == exclude_human_id
+        ):
+            return candidate
         candidate = f"{base} ({i})"
         i += 1
-    return candidate
 
 
 @app.get("/join/{token}", response_model=None)
@@ -2601,7 +2697,7 @@ def accept_invite_as_guest(token: str, payload: GuestInviteAccept) -> JSONRespon
         if inv is None:
             raise HTTPException(status_code=404, detail="invite not valid")
 
-        guest_name = _unique_guest_name(conn, payload.name)
+        guest_name = _unique_human_name(conn, payload.name)
         cursor = conn.execute(
             """
             INSERT INTO humans (name, is_guest)
@@ -2966,6 +3062,63 @@ def _require_topic_actor(topic_id: int, principal: dict) -> int:
         if not _participant_exists(conn, topic_id, "agent", int(agent_id)):
             raise HTTPException(status_code=403, detail="agent is not a topic participant")
     return workspace_id
+
+
+def _message_action_context(message_id: int, principal: dict) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT m.*,
+                   t.workspace_id,
+                   wm.role AS workspace_role,
+                   ai.owner_human_id AS agent_owner_human_id,
+                   EXISTS (
+                       SELECT 1 FROM messages later
+                       WHERE later.topic_id = m.topic_id
+                         AND later.actor_type = 'agent'
+                         AND later.id > m.id
+                         AND later.deleted_at IS NULL
+                         AND jsonb_typeof(later.metadata::jsonb -> 'cites') = 'array'
+                         AND later.metadata::jsonb -> 'cites' @> jsonb_build_array(m.id)
+                   ) AS read_by_agent
+            FROM messages m
+            JOIN topics t ON t.id = m.topic_id
+            LEFT JOIN workspace_members wm
+              ON wm.workspace_id = t.workspace_id
+             AND wm.human_id = ?
+            LEFT JOIN agent_instances ai
+              ON m.actor_type = 'agent'
+             AND ai.id = m.actor_id
+            WHERE m.id = ? AND t.deleted_at IS NULL
+            """,
+            (human_id, message_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    topic_id = int(row["topic_id"])
+    _require_topic_member(topic_id, human_id)
+
+    agent_id = principal.get("agent_instance_id")
+    is_own = (
+        (row["actor_type"] == "human" and row["actor_id"] is not None and int(row["actor_id"]) == human_id)
+        or (
+            row["actor_type"] == "agent"
+            and agent_id is not None
+            and row["actor_id"] is not None
+            and int(row["actor_id"]) == int(agent_id)
+        )
+    )
+    is_workspace_owner = row["workspace_role"] == "owner"
+    is_agent_owner = (
+        row["agent_owner_human_id"] is not None
+        and int(row["agent_owner_human_id"]) == human_id
+    )
+    out = dict(row)
+    out["is_own"] = is_own
+    out["can_delete"] = is_own or is_workspace_owner or is_agent_owner
+    out["can_edit"] = is_own and row["actor_type"] != "system"
+    return out
 
 
 @app.get("/api/topics/{topic_id}")
@@ -3720,6 +3873,39 @@ def auth_me(
             "github_login": principal["github_login"],
             "avatar_url": principal["avatar_url"],
             "is_guest": principal["is_guest"],
+        }
+    }
+
+
+@app.patch("/auth/me")
+def update_auth_me(
+    payload: CurrentUserUpdate,
+    principal: dict = Depends(get_api_principal),
+) -> dict:
+    human_id = int(principal["human_id"])
+    with connect() as conn:
+        name = _unique_human_name(conn, payload.name, exclude_human_id=human_id)
+        conn.execute(
+            "UPDATE humans SET name = ?, updated_at = NOW() WHERE id = ?",
+            (name, human_id),
+        )
+        row = conn.execute(
+            """
+            SELECT id, name, github_login, avatar_url, is_guest
+            FROM humans
+            WHERE id = ?
+            """,
+            (human_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="human not found")
+    return {
+        "human": {
+            "id": int(row["id"]),
+            "name": row["name"],
+            "github_login": row["github_login"],
+            "avatar_url": row["avatar_url"],
+            "is_guest": bool(row["is_guest"]),
         }
     }
 

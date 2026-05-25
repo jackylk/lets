@@ -47,6 +47,28 @@ MessageType = Literal[
 ActorType = Literal["human", "agent", "system"]
 
 
+def _decode_metadata(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if raw in (None, ""):
+        return {}
+    return json.loads(raw)
+
+
+def _deleted_placeholder(kind: str | None) -> str:
+    return "这条消息已撤回" if kind == "retracted" else "这条消息已删除"
+
+
+def message_from_row(row: Any, *, redact_deleted: bool = True) -> dict[str, Any]:
+    message = dict(row)
+    message["metadata"] = _decode_metadata(message.get("metadata"))
+    if redact_deleted and message.get("deleted_at") is not None:
+        message["body"] = _deleted_placeholder(message.get("deletion_kind"))
+        message["metadata"] = {}
+        message["addressed_to"] = None
+    return message
+
+
 def post_message(
     topic_id: int,
     type: str,
@@ -117,9 +139,62 @@ def topic_stream(
     with connect() as conn:
         rows = conn.execute(sql, params).fetchall()
 
-    messages = []
-    for row in rows:
-        message = dict(row)
-        message["metadata"] = json.loads(message["metadata"])
-        messages.append(message)
+    messages = [message_from_row(row) for row in rows]
+    cited_ids: set[int] = set()
+    for message in messages:
+        meta = message.get("metadata") or {}
+        raw_cites = meta.get("cites")
+        if isinstance(raw_cites, list):
+            cited_ids.update(n for n in raw_cites if isinstance(n, int))
+    for message in messages:
+        message["edited_after_agent_read"] = (
+            message.get("edited_at") is not None
+            and int(message["id"]) in cited_ids
+        )
     return messages
+
+
+def edit_message(message_id: int, body: str, edited_by_human_id: int) -> dict[str, Any]:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            UPDATE messages
+            SET body = ?,
+                edited_at = CURRENT_TIMESTAMP,
+                edited_by_human_id = ?,
+                edit_count = edit_count + 1
+            WHERE id = ? AND deleted_at IS NULL
+            RETURNING *
+            """,
+            (body, edited_by_human_id, message_id),
+        ).fetchone()
+    if row is None:
+        raise ValueError("message not found")
+    return message_from_row(row)
+
+
+def mark_message_deleted(
+    message_id: int,
+    *,
+    deleted_by_human_id: int,
+    kind: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    if kind not in {"deleted", "retracted"}:
+        raise ValueError("invalid deletion kind")
+    with connect() as conn:
+        row = conn.execute(
+            """
+            UPDATE messages
+            SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+                deleted_by_human_id = COALESCE(deleted_by_human_id, ?),
+                deletion_kind = COALESCE(deletion_kind, ?),
+                deletion_reason = COALESCE(deletion_reason, ?)
+            WHERE id = ?
+            RETURNING *
+            """,
+            (deleted_by_human_id, kind, reason, message_id),
+        ).fetchone()
+    if row is None:
+        raise ValueError("message not found")
+    return message_from_row(row)

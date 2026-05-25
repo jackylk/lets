@@ -234,12 +234,36 @@ export const handlers = [
   http.get("/auth/me", () =>
     HttpResponse.json({
       human: {
-        id: 1, name: "Neo", github_login: "neo",
+        id: 1,
+        name: seed.humans.find((h) => h.id === 1)?.name ?? "Neo",
+        github_login: "neo",
         avatar_url: "https://avatars.example/neo.png",
         is_guest: false,
       },
     }),
   ),
+
+  http.patch("/auth/me", async ({ request }) => {
+    const body = (await request.json()) as { name?: string };
+    const base = (body.name ?? "").trim().replace(/\s+/g, " ") || "Guest";
+    let candidate = base;
+    let i = 2;
+    while (seed.humans.some((h) => h.id !== 1 && h.name === candidate)) {
+      candidate = `${base} (${i})`;
+      i += 1;
+    }
+    const human = seed.humans.find((h) => h.id === 1);
+    if (human) human.name = candidate;
+    return HttpResponse.json({
+      human: {
+        id: 1,
+        name: candidate,
+        github_login: "neo",
+        avatar_url: "https://avatars.example/neo.png",
+        is_guest: false,
+      },
+    });
+  }),
 
   http.post("/auth/logout", () => new HttpResponse(null, { status: 204 })),
 
@@ -285,7 +309,11 @@ export const handlers = [
   http.get("/api/workspaces/:id/members", () =>
     HttpResponse.json([
       {
-        kind: "human", id: 1, name: "Neo", email: null, avatar_url: null,
+        kind: "human",
+        id: 1,
+        name: seed.humans.find((h) => h.id === 1)?.name ?? "Neo",
+        email: null,
+        avatar_url: null,
         role: "owner", joined_at: "2026-01-01T00:00:00Z",
       },
     ]),
