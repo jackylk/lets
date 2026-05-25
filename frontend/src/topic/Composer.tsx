@@ -21,10 +21,12 @@ export interface MentionCandidate {
 
 interface Props {
   onSend: (msg: ComposerMessage) => void;
+  onAttachFile?: (file: File) => void | Promise<void>;
   resolver?: MentionResolver;
   mentionCandidates?: MentionCandidate[];
   placeholder?: string;
   disabled?: boolean;
+  attachmentDisabled?: boolean;
 }
 
 /**
@@ -58,14 +60,19 @@ function activeMentionQuery(text: string, caret: number): { start: number; query
 
 export function Composer({
   onSend,
+  onAttachFile,
   resolver,
   mentionCandidates = [],
   placeholder,
   disabled,
+  attachmentDisabled,
 }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const [attachStatus, setAttachStatus] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingCaretRef = useRef<number | null>(null);
 
@@ -131,6 +138,21 @@ export function Composer({
     onSend({ body: trimmed, addressedTo });
     setText("");
     setCaret(0);
+  }
+
+  async function attachFile(file: File | undefined) {
+    if (!file || !onAttachFile) return;
+    setAttachBusy(true);
+    setAttachStatus(null);
+    try {
+      await onAttachFile(file);
+      setAttachStatus(`已上传 ${file.name}`);
+    } catch (e) {
+      setAttachStatus(e instanceof Error ? `上传失败：${e.message}` : "上传失败");
+    } finally {
+      setAttachBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -234,7 +256,29 @@ export function Composer({
                 : isChoosingMention ? "" : " (无法解析)"}
             </span>
           )}
+          {attachStatus && (
+            <span className="min-w-0 truncate text-text-dim">{attachStatus}</span>
+          )}
           <div className="flex-1" />
+          {onAttachFile && (
+            <>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={disabled || attachmentDisabled || attachBusy}
+                className="rounded-[3px] border border-border-soft px-2.5 py-1 md:py-0.5 text-[12px] text-text-dim hover:border-border hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {attachBusy ? "上传中" : "附件"}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                aria-label="添加附件"
+                className="sr-only"
+                onChange={(event) => void attachFile(event.currentTarget.files?.[0])}
+              />
+            </>
+          )}
           <button
             type="button"
             onClick={submit}

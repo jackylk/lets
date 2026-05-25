@@ -109,6 +109,8 @@ describe("<MembersList />", () => {
     expect(screen.getByText("Owner")).toBeInTheDocument();
     expect(screen.getByText("GitHub 成员")).toBeInTheDocument();
     expect(screen.getByText("访客")).toBeInTheDocument();
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.getByText(/按插话规则回复/)).toBeInTheDocument();
     expect(screen.getByText(/不能创建话题/)).toBeInTheDocument();
   });
 

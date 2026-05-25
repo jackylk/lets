@@ -206,6 +206,7 @@ function PermissionsGuide() {
     ["Owner", "管理成员/agent；创建、归档、删除话题；查看全部话题"],
     ["GitHub 成员", "创建话题；参与公开话题和被加入的私有话题"],
     ["访客", "只参与可见话题；不能创建话题、邀请成员或管理 agent"],
+    ["Agent", "只参与被加入的话题；按插话规则回复；可读取聊天和共享文件上下文；不能管理成员或创建话题"],
   ];
   return (
     <details className="mt-2 rounded border border-border-soft bg-surface-elev px-2 py-1.5">

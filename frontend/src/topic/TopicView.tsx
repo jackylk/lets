@@ -4,6 +4,7 @@ import {
   useTopic, useTopicParticipants, useAllAgents,
   useAddTopicParticipant, useRemoveTopicParticipant,
   useUpdateTopicSettings,
+  useUploadTopicAttachment,
 } from "../api/queries";
 import { useTopicStream } from "../api/sse";
 import { TopicHeader } from "./TopicHeader";
@@ -30,6 +31,7 @@ export function TopicView({ topicId, workspaceMembers = [], onOpenResources }: P
   const initial = useTopicMessages(topicId);
   const live = useTopicStream(topicId);
   const postMessage = usePostMessage(topicId);
+  const uploadAttachment = useUploadTopicAttachment(topicId);
   const agents = useAllAgents();
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -232,9 +234,13 @@ export function TopicView({ topicId, workspaceMembers = [], onOpenResources }: P
         </div>
         <Composer
           onSend={send}
+          onAttachFile={async (file) => {
+            await uploadAttachment.mutateAsync({ file });
+          }}
           resolver={resolver}
           mentionCandidates={mentionCandidates}
           disabled={postMessage.isPending}
+          attachmentDisabled={uploadAttachment.isPending}
         />
       </div>
       <DiagramOverlay />

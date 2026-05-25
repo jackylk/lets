@@ -194,4 +194,16 @@ describe("<Composer />", () => {
     expect(onSend).not.toHaveBeenCalled();
     expect((textarea as HTMLTextAreaElement).value).toBe("line1\nline2");
   });
+
+  it("uploads an attachment from the composer", async () => {
+    const onAttachFile = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderWithProviders(<Composer onSend={vi.fn()} onAttachFile={onAttachFile} />);
+
+    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    await user.upload(screen.getByLabelText("添加附件"), file);
+
+    expect(onAttachFile).toHaveBeenCalledWith(file);
+    expect(await screen.findByText("已上传 notes.txt")).toBeInTheDocument();
+  });
 });
