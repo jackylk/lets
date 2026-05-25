@@ -75,7 +75,7 @@ export function WorkspaceSwitcher({
   }
 
   return (
-    <div className="relative flex items-center gap-1 px-3 py-2 border-b border-border">
+    <div className="relative flex items-center gap-1 px-3 py-2 pr-11 border-b border-border">
       <div ref={menuRef} className="relative min-w-0">
         <button
           type="button"
@@ -162,15 +162,6 @@ export function WorkspaceSwitcher({
           {w.name}
         </button>
       ))}
-      <button
-        type="button"
-        onClick={onCreate}
-        title="新建工作区"
-        aria-label="新建工作区"
-        className="text-xs text-text-dim hover:text-text px-2 py-1 rounded hover:bg-surface-hover ml-auto"
-      >
-        ＋
-      </button>
     </div>
   );
 }

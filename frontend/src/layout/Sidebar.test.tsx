@@ -161,9 +161,10 @@ describe("<Sidebar />", () => {
     await waitFor(() => expect(onRestoreTopic).toHaveBeenCalledWith(11));
   });
 
-  it("shows create-workspace inline form when + is clicked", () => {
+  it("shows create-workspace inline form from the workspace menu", () => {
     renderWithProviders(<Sidebar {...defaultProps} />);
-    fireEvent.click(screen.getByRole("button", { name: "新建工作区" }));
+    fireEvent.click(screen.getByRole("button", { name: /我的工作区/ }));
+    fireEvent.click(screen.getByText("新建工作区"));
     expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 
