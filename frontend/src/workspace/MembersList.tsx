@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MessageDTO, WorkspaceMember, WorkspaceMemberAgent } from "../api/types";
 import { agentShortName, roleTitle } from "../agent/display";
 import { parseBackendTs } from "../lib/time";
@@ -7,6 +7,7 @@ interface Props {
   members: WorkspaceMember[];
   messages?: MessageDTO[];
   title?: string;
+  titleAction?: ReactNode;
   showPermissionsGuide?: boolean;
   onInviteMember?: () => void;
   onInviteAgent?: () => void;
@@ -20,6 +21,7 @@ export function MembersList({
   members,
   messages = [],
   title = "当前工作区成员",
+  titleAction,
   showPermissionsGuide = true,
   onInviteMember,
   onInviteAgent,
@@ -84,6 +86,7 @@ export function MembersList({
           <div className="flex-1 text-[12px] font-semibold text-text-dim">
             {title}
           </div>
+          {titleAction}
           {(onInviteMember || onInviteAgent) && (
             <div ref={inviteMenuRef} className="relative">
               <button

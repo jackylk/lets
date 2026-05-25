@@ -229,6 +229,7 @@ export function Sidebar({
 }: Props) {
   const [creating, setCreating] = useState(false);
   const [topicListMode, setTopicListMode] = useState<"mine" | "all" | "archived">("mine");
+  const [memberScope, setMemberScope] = useState<"topic" | "workspace">("topic");
   const activeMessages = useTopicMessages(activeTopicId);
   const activeParticipants = useTopicParticipants(activeTopicId);
   const showTopicTabs = !isGuest;
@@ -244,6 +245,10 @@ export function Sidebar({
     }
   }, [canViewAllTopics, isGuest, topicListMode]);
 
+  useEffect(() => {
+    setMemberScope(activeTopicId === null ? "workspace" : "topic");
+  }, [activeTopicId]);
+
   const otherWorkspaces = workspaces.filter(
     (w) => w.id !== activeWorkspace?.id,
   );
@@ -252,10 +257,12 @@ export function Sidebar({
   const regularTopics = selectedTopics.filter((topic) => !isPublicTopic(topic));
   const activeTopic =
     [...topics, ...allTopics, ...archivedTopics].find((topic) => topic.id === activeTopicId) ?? null;
-  const showingTopicMembers = activeTopicId !== null;
+  const canShowTopicMembers = activeTopicId !== null;
+  const showingTopicMembers = canShowTopicMembers && memberScope === "topic";
   const displayedMembers = showingTopicMembers
     ? topicMembersFromParticipants(members, activeParticipants.data, activeTopic)
     : members;
+  const memberMessages = showingTopicMembers ? activeMessages.data?.messages ?? [] : [];
 
   return (
     <div className="flex flex-col h-full">
@@ -422,8 +429,19 @@ export function Sidebar({
       {/* Members list */}
       <MembersList
         members={displayedMembers}
-        messages={activeMessages.data?.messages ?? []}
+        messages={memberMessages}
         title={showingTopicMembers ? "当前话题成员" : "当前工作区成员"}
+        titleAction={
+          canShowTopicMembers ? (
+            <button
+              type="button"
+              onClick={() => setMemberScope(showingTopicMembers ? "workspace" : "topic")}
+              className="shrink-0 text-[11.5px] font-medium text-text-dim underline-offset-2 hover:text-accent-text hover:underline"
+            >
+              {showingTopicMembers ? "看工作区全部" : "看当前话题"}
+            </button>
+          ) : undefined
+        }
         showPermissionsGuide={!showingTopicMembers}
         onInviteMember={showingTopicMembers ? undefined : onInviteMember}
         onInviteAgent={showingTopicMembers ? undefined : onInviteAgent}

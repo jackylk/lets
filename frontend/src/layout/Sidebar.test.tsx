@@ -129,6 +129,52 @@ describe("<Sidebar />", () => {
     expect(screen.getByRole("button", { name: "邀请工作区成员或 agent" })).toBeInTheDocument();
   });
 
+  it("toggles the member section between current topic and workspace roster", async () => {
+    const members: WorkspaceMember[] = [
+      {
+        kind: "human",
+        id: 1,
+        name: "Neo",
+        email: null,
+        avatar_url: null,
+        role: "owner",
+        joined_at: "2026-01-01T00:00:00Z",
+        last_seen_at: "2026-01-01T00:00:00Z",
+        is_online: 1,
+      },
+      {
+        kind: "human",
+        id: 99,
+        name: "Outside Member",
+        email: null,
+        avatar_url: null,
+        role: "member",
+        joined_at: "2026-01-01T00:00:00Z",
+        last_seen_at: null,
+        is_online: 0,
+      },
+    ];
+    renderWithProviders(
+      <Sidebar
+        {...defaultProps}
+        topics={[makeTopic(1, "t-ppt", "为 Agent 记忆写一个研讨 PPT")]}
+        allTopics={[makeTopic(1, "t-ppt", "为 Agent 记忆写一个研讨 PPT")]}
+        activeTopicId={1}
+        members={members}
+      />,
+    );
+
+    expect(await screen.findByText("当前话题成员")).toBeInTheDocument();
+    expect(screen.queryByText("Outside Member")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "看工作区全部" }));
+
+    expect(screen.getByText("当前工作区成员")).toBeInTheDocument();
+    expect(screen.getByText("Outside Member")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "看当前话题" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "邀请工作区成员或 agent" })).toBeInTheDocument();
+  });
+
   it("calls invite handlers from the members section add menu", () => {
     const onInviteMember = vi.fn();
     const onInviteAgent = vi.fn();
