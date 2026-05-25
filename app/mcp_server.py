@@ -506,7 +506,7 @@ def list_my_topics(limit: int = 50) -> list[dict]:
 def _require_mcp_topic_actor(topic_id: int, principal: dict) -> None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT workspace_id FROM topics WHERE id = ?",
+            "SELECT workspace_id FROM topics WHERE id = ? AND deleted_at IS NULL",
             (topic_id,),
         ).fetchone()
         if row is None:

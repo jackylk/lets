@@ -573,6 +573,17 @@ def test_delete_topic_hides_it_and_blocks_direct_access(temp_db, client):
     topics = client.get(f"/api/workspaces/{ws['id']}/topics").json()
     assert all(t["id"] != topic["id"] for t in topics)
     assert client.get(f"/api/topics/{topic['id']}").status_code == 404
+    assert client.get(f"/api/topics/{topic['id']}/messages").status_code == 404
+    send = client.post(
+        "/api/messages",
+        json={
+            "topic_id": topic["id"],
+            "type": "chat",
+            "actor_type": "human",
+            "body": "should not post",
+        },
+    )
+    assert send.status_code == 404
 
 
 def test_topic_lifecycle_actions_require_membership(temp_db, client):

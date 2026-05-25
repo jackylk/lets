@@ -560,6 +560,7 @@ export function useTopicsInWorkspace(
   return useQuery({
     queryKey: ["workspace-topics", workspaceId, archived ? "archived" : "active", scope],
     enabled: workspaceId != null,
+    refetchInterval: 3_000,
     queryFn: () =>
       apiRequest<TopicDTO[]>(
         `/api/workspaces/${workspaceId}/topics?scope=${scope}${archived ? "&archived=true" : ""}`,

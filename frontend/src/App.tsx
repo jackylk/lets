@@ -116,6 +116,24 @@ function Workspace() {
       setView({ kind: "topic", id: topicId });
     }
   }, [topicId, view]);
+
+  const topicListsLoaded =
+    topicsQuery.isSuccess && allTopicsQuery.isSuccess && archivedTopicsQuery.isSuccess;
+
+  useEffect(() => {
+    if (topicId === null || !topicListsLoaded) return;
+    const topicStillVisible = [...topics, ...allTopics, ...archivedTopics].some(
+      (topic) => topic.id === topicId,
+    );
+    if (topicStillVisible) return;
+    setTopicId(null);
+    setView((current) =>
+      current.kind === "topic" && current.id === topicId
+        ? { kind: "topic", id: 0 }
+        : current,
+    );
+  }, [topicId, topicListsLoaded, topics, allTopics, archivedTopics]);
+
   const [mobileTab, setMobileTab] = useState<MobileTab>("topic");
   const [mobileBoardOpen, setMobileBoardOpen] = useState(false);
   const isMobile = useMediaQuery("(max-width: 767px)");

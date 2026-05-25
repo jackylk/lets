@@ -71,6 +71,21 @@ def _call(client, headers, name, arguments, *, expect_list: bool = False):
     return parsed if len(parsed) > 1 else parsed[0]
 
 
+def _tool_call_text(client, headers, name, arguments) -> str:
+    resp = client.post(
+        "/mcp/",
+        headers=headers,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.text
+
+
 @pytest.fixture
 def agent_auth(client):
     """Issue an agent-bound token for Neo + claude on neo-mbp and return Bearer headers."""
@@ -171,6 +186,39 @@ def test_post_typed_message_writes_as_calling_agent(client, agent_auth):
     assert msg["actor_type"] == "agent"
     assert msg["actor_id"] == ai_id
     assert msg["body"] == "hello from MCP agent"
+
+
+def test_deleted_topic_is_not_readable_or_writable_via_mcp(client, agent_auth):
+    headers, _, _ = agent_auth
+    from app.db import connect
+
+    with connect() as conn:
+        topic_id = conn.execute(
+            "INSERT INTO topics (slug, title) VALUES ('mcp-deleted-topic', 'Deleted')"
+        ).lastrowid
+        conn.execute(
+            "UPDATE topics SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (topic_id,),
+        )
+
+    topics = _call(client, headers, "list_my_topics", {"limit": 200}, expect_list=True)
+    assert "mcp-deleted-topic" not in {t["slug"] for t in topics}
+
+    read_body = _tool_call_text(
+        client,
+        headers,
+        "read_topic",
+        {"topic_id": topic_id},
+    )
+    assert "topic not found" in read_body
+
+    post_body = _tool_call_text(
+        client,
+        headers,
+        "post_typed_message",
+        {"topic_id": topic_id, "type": "chat", "body": "should not post"},
+    )
+    assert "topic not found" in post_body
 
 
 def test_post_typed_message_addressed_to_lands_in_attention(client, agent_auth):
