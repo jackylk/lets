@@ -70,6 +70,24 @@ describe("<MembersList />", () => {
     expect(screen.getByTitle("Claude Code · gpt-5-codex · 在线")).toBeInTheDocument();
   });
 
+  it("uses the Doubao default model label for cc-doubao agents", () => {
+    render(
+      <MembersList
+        members={[
+          {
+            ...agentMember,
+            role: "cc-doubao",
+            model: null,
+            display_name: "Morpheus",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("CC Doubao · doubao-seed-2.0-pro · 在线")).toBeInTheDocument();
+    expect(screen.getByTitle("CC Doubao · doubao-seed-2.0-pro · 在线")).toBeInTheDocument();
+  });
+
   it("renders mixed humans and agents in order", () => {
     render(
       <MembersList members={[ownerMember, agentMember]} />,

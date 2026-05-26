@@ -42,6 +42,7 @@ export function roleTitle(role: string) {
 export function defaultModelForRole(role: string) {
   if (role === "claude") return "claude-opus-4-7";
   if (role === "codex") return "gpt-5.5";
+  if (role === "cc-doubao") return "doubao-seed-2.0-pro";
   return null;
 }
 
