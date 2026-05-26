@@ -3479,12 +3479,12 @@ def get_topic_participants(
         context = _topic_management_context(conn, topic_id, human_id)
         humans = [dict(r) for r in conn.execute(
             """
-            SELECT h.id, h.name, h.email, tp.role, tp.created_at
+            SELECT h.id, h.name, h.email, tp.role, tp.created_at, TRUE AS is_explicit
             FROM topic_participants tp
             JOIN humans h ON h.id = tp.participant_id
             WHERE tp.topic_id = ? AND tp.participant_type = 'human'
             UNION
-            SELECT DISTINCT h.id, h.name, h.email, 'member' AS role, MIN(m.created_at) AS created_at
+            SELECT DISTINCT h.id, h.name, h.email, 'member' AS role, MIN(m.created_at) AS created_at, FALSE AS is_explicit
             FROM messages m
             JOIN humans h ON h.id = m.actor_id
             WHERE m.topic_id = ? AND m.actor_type = 'human'

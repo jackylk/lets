@@ -75,6 +75,7 @@ def test_participants_endpoint(client, auth):
     data = r.json()
     names = {p["name"] for p in data["humans"]}
     assert names == {"Neo", "Trinity"}
+    assert {p["is_explicit"] for p in data["humans"]} == {True}
     assert data["agents"][0]["id"] == agent_id
     assert data["agents"][0]["device_label"] == "neo-mbp"
     assert data["agents"][0]["display_name"] == "Neo"

@@ -293,8 +293,9 @@ function TopicParticipantsMenu({
   const canManage = Boolean(participants?.can_manage) && !participants?.is_public;
   const isPublic = Boolean(participants?.is_public);
 
-  const humanIds = new Set((participants?.humans ?? []).map((h) => h.id));
-  const humanRoles = new Map((participants?.humans ?? []).map((h) => [h.id, h.role]));
+  const explicitHumans = (participants?.humans ?? []).filter((h) => h.is_explicit !== false);
+  const humanIds = new Set(explicitHumans.map((h) => h.id));
+  const humanRoles = new Map(explicitHumans.map((h) => [h.id, h.role]));
   const explicitAgentIds = new Set(
     (participants?.agents ?? [])
       .filter((a) => a.is_explicit !== false)

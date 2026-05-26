@@ -299,6 +299,48 @@ def test_add_topic_participants_from_workspace_pool(temp_db, client):
     assert agent_id not in {a["id"] for a in r.json()["agents"]}
 
 
+def test_removed_human_participant_returns_only_as_historical_speaker(temp_db, client):
+    _login(client, "alice")
+    ws = client.post("/api/workspaces", json={"name": "A"}).json()
+    topic = client.post(
+        f"/api/workspaces/{ws['id']}/topics",
+        json={"slug": "remove-human", "title": "Remove Human"},
+    ).json()
+
+    from app.db import connect
+    with connect() as conn:
+        bob_id = conn.execute(
+            "INSERT INTO humans (name, email) VALUES ('bob', 'b@b') RETURNING id"
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO workspace_members (workspace_id, human_id, role) "
+            "VALUES (?, ?, 'member') RETURNING workspace_id",
+            (ws["id"], bob_id),
+        )
+
+    r = client.post(
+        f"/api/topics/{topic['id']}/participants",
+        json={"participant_type": "human", "participant_id": bob_id},
+    )
+    assert r.status_code == 200
+    r = client.post(
+        "/api/messages",
+        json={
+            "topic_id": topic["id"],
+            "type": "chat",
+            "actor_type": "human",
+            "actor_id": bob_id,
+            "body": "hi",
+        },
+    )
+    assert r.status_code == 200
+
+    r = client.delete(f"/api/topics/{topic['id']}/participants/human/{bob_id}")
+    assert r.status_code == 200
+    bob = next(h for h in r.json()["humans"] if h["id"] == bob_id)
+    assert bob["is_explicit"] is False
+
+
 def test_topic_member_cannot_add_participant_unless_owner(temp_db, client):
     _login(client, "alice")
     ws = client.post("/api/workspaces", json={"name": "A"}).json()

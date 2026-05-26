@@ -149,6 +149,29 @@ describe("<AgentListenStatus />", () => {
     expect(screen.getByText(/Neo 在听/)).toBeInTheDocument();
   });
 
+  it("does not treat historical agent replies as an active listener", () => {
+    const messages: MessageDTO[] = [
+      msg({ id: 1, body: "ping" }),
+      msg({
+        id: 2,
+        type: "chat",
+        actor_type: "agent",
+        actor_id: 4,
+        body: "old reply",
+        metadata: { cites: [1] },
+      }),
+    ];
+
+    render(<AgentListenStatus messages={messages} workspaceMembers={[]} showIdle />);
+    expect(screen.getByText(/还没有 agent，只有人类成员/)).toBeInTheDocument();
+    expect(screen.queryByText(/Neo 在听/)).toBeNull();
+  });
+
+  it("shows no-agent state for an empty human-only topic", () => {
+    render(<AgentListenStatus messages={[]} workspaceMembers={[]} showIdle />);
+    expect(screen.getByText(/还没有 agent，只有人类成员/)).toBeInTheDocument();
+  });
+
   it("shows silent mode as not about to intervene", () => {
     render(
       <AgentListenStatus

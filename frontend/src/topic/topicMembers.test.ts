@@ -85,6 +85,16 @@ describe("topicMembersFromParticipants", () => {
     expect(topicMembersFromParticipants([agentMember], participants, { visibility: "private" })).toEqual([]);
   });
 
+  it("excludes historical human speakers from current topic members", () => {
+    const participants: ParticipantsDTO = {
+      is_public: false,
+      humans: [{ id: 2, name: "Trinity", email: null, is_explicit: false }],
+      agents: [],
+    };
+
+    expect(topicMembersFromParticipants([regularMember], participants, { visibility: "private" })).toEqual([]);
+  });
+
   it("preserves agent model from participant fallback rows", () => {
     const participants: ParticipantsDTO = {
       is_public: false,

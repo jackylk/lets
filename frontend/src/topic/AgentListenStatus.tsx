@@ -171,6 +171,11 @@ export function AgentListenStatus({
     ) {
       phase = "impending";
     }
+    if (topicAgents.length === 0) {
+      phase = "idle";
+      pendingStatus = null;
+      lastFailure = null;
+    }
 
     const statusAgentId =
       pendingStatus?.actor_id ??
@@ -185,7 +190,7 @@ export function AgentListenStatus({
     return {
       lastReadAt, lastAgentReplyAt, unreadCount,
       agentLabel: statusAgent?.kind === "agent" ? agentShortName(statusAgent) : "agent",
-      hasAgent: topicAgents.length > 0 || statusAgentId !== null,
+      hasAgent: topicAgents.length > 0,
       phase, pendingStatus, lastHumanMsg, lastFailure,
     };
   }, [agentInterventionMode, messages, workspaceMembers]);
@@ -211,6 +216,8 @@ export function AgentListenStatus({
     ? "bg-accent shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-accent)_30%,transparent)] animate-pulse"
     : summary.phase === "failed"
       ? "bg-finding shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-finding)_25%,transparent)]"
+    : !summary.hasAgent
+      ? "bg-text-dim/45"
     : "bg-status-on shadow-[0_0_0_3px_color-mix(in_oklch,var(--color-status-on)_25%,transparent)]";
 
   const labelClass =
@@ -300,7 +307,7 @@ function idleLabel(
   hasAgent: boolean,
   mode: TopicDTO["agent_intervention_mode"],
 ) {
-  if (!hasAgent) return "未加入 agent";
+  if (!hasAgent) return "还没有 agent，只有人类成员";
   if (mode === "silent") return `${agentLabel} 静默`;
   if (mode === "mentions") return `${agentLabel} 等待 @`;
   return `${agentLabel} 在听`;
