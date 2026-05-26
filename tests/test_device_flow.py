@@ -143,6 +143,61 @@ def test_device_flow_with_workspace(temp_db, client, monkeypatch):
     assert membership is not None
 
 
+def test_device_flow_workspace_allows_regular_member_owner(temp_db, client, monkeypatch):
+    from app import db
+
+    monkeypatch.setenv("LETS_DEV_SESSIONS", "1")
+    _login_or_seed_alice(client)
+    ws = client.post("/api/workspaces", json={"name": "Shared"}).json()
+    inv = client.post(f"/api/workspaces/{ws['id']}/invites", json={}).json()
+
+    client.post("/api/auth/logout")
+    bob_login = client.post("/api/auth/dev-login", json={"name": "bob"})
+    assert bob_login.status_code == 200
+    bob_id = int(bob_login.json()["human_id"])
+    assert client.post(f"/api/invites/{inv['token']}/accept").status_code == 200
+
+    r = client.post(
+        "/api/auth/device-flow/start",
+        params={"role": "codex", "device_label": "bob-mac", "workspace_id": ws["id"]},
+    )
+    assert r.status_code == 200
+    auth = client.post(f"/api/auth/device-flow/authorize/{r.json()['user_code']}")
+    assert auth.status_code == 200
+    poll = client.get(f"/api/auth/device-flow/poll/{r.json()['device_code']}")
+    assert poll.status_code == 200
+
+    agent = poll.json()["agent"]
+    assert agent["owner_human_id"] == bob_id
+    assert agent["workspace_id"] == ws["id"]
+    with db.connect() as conn:
+        membership = conn.execute(
+            """
+            SELECT 1
+            FROM workspace_agent_members
+            WHERE workspace_id = ? AND agent_instance_id = ? AND joined_by_human_id = ?
+            """,
+            (ws["id"], agent["id"], bob_id),
+        ).fetchone()
+    assert membership is not None
+
+
+def test_device_flow_workspace_rejects_non_member(temp_db, client, monkeypatch):
+    monkeypatch.setenv("LETS_DEV_SESSIONS", "1")
+    _login_or_seed_alice(client)
+    ws = client.post("/api/workspaces", json={"name": "Private"}).json()
+
+    client.post("/api/auth/logout")
+    charlie_login = client.post("/api/auth/dev-login", json={"name": "charlie"})
+    assert charlie_login.status_code == 200
+    r = client.post(
+        "/api/auth/device-flow/start",
+        params={"role": "codex", "device_label": "other-mac", "workspace_id": ws["id"]},
+    )
+    auth = client.post(f"/api/auth/device-flow/authorize/{r.json()['user_code']}")
+    assert auth.status_code == 403
+
+
 def test_device_flow_revives_deleted_agent_for_workspace(temp_db, client, monkeypatch):
     from app import db
     from app.auth import verify_token

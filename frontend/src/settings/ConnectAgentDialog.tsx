@@ -7,6 +7,8 @@ const DEFAULT_CODEX_MODEL = "gpt-5.5";
 
 interface Props {
   onClose: () => void;
+  workspaceName?: string;
+  workspaceSlug?: string;
 }
 
 function useCopy() {
@@ -30,7 +32,7 @@ function useCopy() {
  * the role they want. The agent list below auto-refreshes once the local
  * `lets add` finishes its device-flow handshake.
  */
-export function ConnectAgentDialog({ onClose }: Props) {
+export function ConnectAgentDialog({ onClose, workspaceName, workspaceSlug }: Props) {
   const [role, setRole] = useState<Role>("claude");
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL);
   const [codexModel, setCodexModel] = useState(DEFAULT_CODEX_MODEL);
@@ -42,8 +44,9 @@ export function ConnectAgentDialog({ onClose }: Props) {
   const defaultModel = role === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CODEX_MODEL;
   const explicitModel = selectedModel && selectedModel !== defaultModel ? selectedModel : "";
   const modelArg = explicitModel ? ` --model ${explicitModel}` : "";
+  const workspaceArg = workspaceSlug ? ` --workspace ${workspaceSlug}` : "";
   const installCmd = `curl -fsSL ${origin}/install | bash`;
-  const letsAddCmd = `lets add ${role}${modelArg}`;
+  const letsAddCmd = `lets add ${role}${modelArg}${workspaceArg}`;
 
   return (
     <div className="fixed inset-0 bg-black/30 grid place-items-center z-50 p-4">
@@ -61,7 +64,8 @@ export function ConnectAgentDialog({ onClose }: Props) {
         </header>
 
         <p className="text-[12.5px] text-text-muted leading-relaxed">
-          先在这台电脑上安装 lets 命令，然后选择本机已有的 agent 类型授权接入。
+          先在这台电脑上安装 lets 命令，然后选择本机已有的 agent 类型授权接入
+          {workspaceName ? `「${workspaceName}」` : ""}。
         </p>
 
         <div className="flex gap-2 items-center text-[12.5px]">

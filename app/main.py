@@ -4184,6 +4184,23 @@ def _device_flow_start_impl(
     }
 
 
+def _workspace_for_device_flow(row, human_id: int) -> int:
+    ws_id = row["workspace_id"]
+    if ws_id is None:
+        from .workspaces import list_workspaces_for_human, create_workspace
+
+        mine = list_workspaces_for_human(human_id)
+        if mine:
+            return int(mine[0]["id"])
+        ws = create_workspace(name="我的工作区", owner_human_id=human_id)
+        return int(ws["id"])
+
+    from .workspaces import require_workspace_member
+
+    require_workspace_member(int(ws_id), human_id)
+    return int(ws_id)
+
+
 @app.get("/auth/device-flow/start")
 def device_flow_start(
     request: Request,
@@ -4264,20 +4281,12 @@ def device_flow_authorize(
     human_id = int(principal["human_id"])
     role = str(row["role"])
     device_label = str(row["device_label"])
-    ws_id = row["workspace_id"]
-    if ws_id is None:
-        from .workspaces import list_workspaces_for_human, create_workspace
-        mine = list_workspaces_for_human(human_id)
-        if mine:
-            ws_id = mine[0]["id"]
-        else:
-            ws = create_workspace(name="我的工作区", owner_human_id=human_id)
-            ws_id = ws["id"]
+    ws_id = _workspace_for_device_flow(row, human_id)
     agent_instance_id = ensure_agent_instance(
         role=role,
         human_id=human_id,
         device_label=device_label,
-        workspace_id=int(ws_id),
+        workspace_id=ws_id,
         model=str(row["model"]).strip() if row["model"] else None,
     )
     token_value, token_id = issue_token(
@@ -4293,7 +4302,7 @@ def device_flow_authorize(
                 token_value = ?, authorized_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (int(ws_id), human_id, agent_instance_id, token_id, token_value, row["id"]),
+            (ws_id, human_id, agent_instance_id, token_id, token_value, row["id"]),
         )
 
     return HTMLResponse(_device_authorized_page(role=role, device_label=device_label))
@@ -4457,20 +4466,12 @@ def api_device_flow_authorize(
     human_id = int(principal["human_id"])
     role = str(row["role"])
     device_label = str(row["device_label"])
-    ws_id = row["workspace_id"]
-    if ws_id is None:
-        from .workspaces import list_workspaces_for_human, create_workspace
-        mine = list_workspaces_for_human(human_id)
-        if mine:
-            ws_id = mine[0]["id"]
-        else:
-            ws = create_workspace(name="我的工作区", owner_human_id=human_id)
-            ws_id = ws["id"]
+    ws_id = _workspace_for_device_flow(row, human_id)
     agent_instance_id = ensure_agent_instance(
         role=role,
         human_id=human_id,
         device_label=device_label,
-        workspace_id=int(ws_id),
+        workspace_id=ws_id,
         model=str(row["model"]).strip() if row["model"] else None,
     )
     token_value, token_id = issue_token(
@@ -4486,7 +4487,7 @@ def api_device_flow_authorize(
                 token_value = ?, authorized_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (int(ws_id), human_id, agent_instance_id, token_id, token_value, row["id"]),
+            (ws_id, human_id, agent_instance_id, token_id, token_value, row["id"]),
         )
     return {"status": "authorized", "role": role, "device_label": device_label}
 

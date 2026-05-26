@@ -323,7 +323,14 @@ function Workspace() {
   let main: React.ReactNode;
   if (isMobile) {
     if (mobileTab === "workspace") {
-      if (view.kind === "settings-tokens") main = <SettingsTokensPage />;
+      if (view.kind === "settings-tokens") {
+        main = (
+          <SettingsTokensPage
+            workspaceName={activeWorkspace?.name}
+            workspaceSlug={activeWorkspace?.slug}
+          />
+        );
+      }
       else if (view.kind === "agents") main = <AgentList onSelectAgent={(id) => setView({ kind: "agent-detail", id })} />;
       else if (view.kind === "agent-detail") main = <AgentDetail agentId={view.id} onBack={() => setView({ kind: "agents" })} />;
       else main = <div className="h-full overflow-y-auto bg-surface">{sidebar}</div>;
@@ -338,7 +345,12 @@ function Workspace() {
   } else if (view.kind === "attention") {
     main = <AttentionView userName={userName} />;
   } else if (view.kind === "settings-tokens") {
-    main = <SettingsTokensPage />;
+    main = (
+      <SettingsTokensPage
+        workspaceName={activeWorkspace?.name}
+        workspaceSlug={activeWorkspace?.slug}
+      />
+    );
   } else if (view.kind === "agents") {
     main = <AgentList onSelectAgent={(id) => setView({ kind: "agent-detail", id })} />;
   } else if (view.kind === "agent-detail") {

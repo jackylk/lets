@@ -6,7 +6,12 @@ import {
 import { agentShortName, roleTitle } from "../agent/display";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 
-export function SettingsTokensPage() {
+interface Props {
+  workspaceName?: string;
+  workspaceSlug?: string;
+}
+
+export function SettingsTokensPage({ workspaceName, workspaceSlug }: Props = {}) {
   const [openNew, setOpenNew] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [savedName, setSavedName] = useState<string | null>(null);
@@ -193,7 +198,13 @@ export function SettingsTokensPage() {
         </table>
       )}
 
-      {openNew && <ConnectAgentDialog onClose={() => setOpenNew(false)} />}
+      {openNew && (
+        <ConnectAgentDialog
+          workspaceName={workspaceName}
+          workspaceSlug={workspaceSlug}
+          onClose={() => setOpenNew(false)}
+        />
+      )}
     </div>
   );
 }

@@ -59,6 +59,22 @@ describe("<SettingsTokensPage />", () => {
     expect(screen.getByText("lets add codex --model o3")).toBeInTheDocument();
   });
 
+  it("includes the active workspace slug when adding an agent from settings", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <SettingsTokensPage workspaceName="Shared Space" workspaceSlug="shared-space" />,
+    );
+    await waitFor(() => expect(screen.getByText(/还没有接入任何电脑/i)).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: /\+ 添加/i }));
+
+    expect(screen.getByText(/接入「Shared Space」/)).toBeInTheDocument();
+    expect(screen.getByText("lets add claude --workspace shared-space")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: /Agent 类型/i }), "codex");
+    expect(screen.getByText("lets add codex --workspace shared-space")).toBeInTheDocument();
+  });
+
   it("lets the user update an existing Claude agent model", async () => {
     await fetch("/api/tokens", {
       method: "POST",
