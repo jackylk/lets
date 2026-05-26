@@ -1,8 +1,8 @@
-def _login(client) -> str:
-    """Helper: seed Neo as a logged-in human, return session cookie value."""
+def _login(client, name: str = "Neo") -> str:
+    """Helper: seed a logged-in human, return session cookie value."""
     from app.identity import ensure_human
     from app.auth import issue_session
-    hid = ensure_human("Neo")
+    hid = ensure_human(name)
     return issue_session(hid)
 
 
@@ -129,6 +129,32 @@ def test_update_agent_display_name(client):
 
     assert res.status_code == 200
     assert res.json()["display_name"] == "Morpheus"
+
+
+def test_second_user_can_update_own_agent_display_name(client):
+    alice_session = _login(client, "Alice")
+    bob_session = _login(client, "Bob")
+    create = client.post(
+        "/api/tokens",
+        cookies={"lets_session": bob_session},
+        json={"label": "bob codex", "role": "codex", "device_label": "bob-mbp"},
+    )
+    agent_id = create.json()["agent_instance"]["id"]
+
+    forbidden = client.patch(
+        f"/api/agent-instances/{agent_id}",
+        cookies={"lets_session": alice_session},
+        json={"display_name": "Alice Name"},
+    )
+    allowed = client.patch(
+        f"/api/agent-instances/{agent_id}",
+        cookies={"lets_session": bob_session},
+        json={"display_name": "Bob Agent"},
+    )
+
+    assert forbidden.status_code == 404
+    assert allowed.status_code == 200
+    assert allowed.json()["display_name"] == "Bob Agent"
 
 
 def test_update_codex_model_and_display_name(client):

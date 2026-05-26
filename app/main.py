@@ -1247,16 +1247,8 @@ def get_agent_instance_detail(
 def update_agent_instance(
     agent_instance_id: int,
     payload: AgentModelUpdate,
-    lets_session: str | None = Cookie(default=None, alias="lets_session"),
+    principal: dict = Depends(get_api_principal),
 ) -> dict:
-    from .auth import verify_session
-
-    if not lets_session:
-        raise HTTPException(status_code=401, detail="not authenticated")
-    principal = verify_session(lets_session)
-    if principal is None:
-        raise HTTPException(status_code=401, detail="invalid session")
-
     model = payload.model.strip() if payload.model is not None else None
     display_name = payload.display_name.strip() if payload.display_name is not None else None
     if model is None and display_name is None:
